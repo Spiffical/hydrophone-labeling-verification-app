@@ -1,4 +1,4 @@
-# Acoustic Review Suite: Unified Spectrogram Labeling Tool
+# Hydrophone Acoustic Review Suite: Unified Labeling & Verification Tool
 
 A professional, high-performance web application built with Plotly Dash for the scientific analysis, labeling, and verification of hydrophone data. This tool is specifically designed to handle large-scale acoustic datasets, particularly for marine mammal research (e.g., fin whale calls).
 

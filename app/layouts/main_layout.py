@@ -26,8 +26,8 @@ def create_main_layout(config: dict) -> html.Div:
         dbc.Container([
             html.Div([
                 html.Div([
-                    html.Span("Acoustic Review Suite", className="brand-kicker"),
-                    html.H1("Unified Spectrogram Labeling Tool", className="brand-title"),
+                    html.Span("Hydrophone Acoustic Review Suite", className="brand-kicker"),
+                    html.H1("Unified Labeling & Verification Tool", className="brand-title"),
                     html.P(
                         "Label, verify, and explore spectrogram datasets from a single interface.",
                         className="brand-subtitle",
