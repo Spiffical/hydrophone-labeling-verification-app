@@ -1,0 +1,20 @@
+data:
+  mode: label
+  label:
+    folder: ./data/mock/label/mat_files
+    audio_folder: ./data/mock/label/audio
+    output_file: ./data/mock/label/labels.json
+  verify:
+    dashboard_root: ./data/mock/verify/dashboard
+    date: "2026-01-07"
+    hydrophone: "ICLISTENHF0001"
+  whale:
+    predictions_json: ./data/mock/whale/predictions.json
+
+display:
+  items_per_page: 12
+  y_axis_scale: linear
+  colormap: default
+
+cache:
+  max_size: 64

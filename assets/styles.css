@@ -1,0 +1,877 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ============================================
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   ============================================ */
+:root {
+    /* Light theme defaults */
+    --bg: #fafbfc;
+    --surface: #ffffff;
+    --surface-2: #f4f6f8;
+    --surface-3: #ebeff2;
+    --text: #1a1f24;
+    --text-secondary: #4a5568;
+    --muted: #718096;
+    --accent: #0066cc;
+    --accent-hover: #0052a3;
+    --accent-subtle: rgba(0, 102, 204, 0.08);
+    --success: #059669;
+    --success-subtle: rgba(5, 150, 105, 0.08);
+    --warning: #d97706;
+    --border: #e2e8f0;
+    --border-subtle: #edf2f7;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --radius-sm: 6px;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --transition: 150ms ease;
+
+    color-scheme: light;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Dark theme variable overrides */
+.theme-dark {
+    --bg: #0d1117 !important;
+    --surface: #161b22 !important;
+    --surface-2: #21262d !important;
+    --surface-3: #30363d !important;
+    --text: #e6edf3 !important;
+    --text-secondary: #8b949e !important;
+    --muted: #7d8590 !important;
+    --accent: #58a6ff !important;
+    --accent-hover: #79b8ff !important;
+    --accent-subtle: rgba(88, 166, 255, 0.12) !important;
+    --success: #3fb950 !important;
+    --success-subtle: rgba(63, 185, 80, 0.12) !important;
+    --warning: #d29922 !important;
+    --border: #30363d !important;
+    --border-subtle: #21262d !important;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+
+    color-scheme: dark;
+}
+
+/* ============================================
+   RESET & BASE STYLES
+   ============================================ */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   APP SHELL
+   ============================================ */
+.app-shell {
+    min-height: 100vh;
+    padding: 32px 40px;
+    background: var(--bg);
+    color: var(--text);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.app-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* ============================================
+   HEADER
+   ============================================ */
+.app-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 32px;
+    margin-bottom: 32px;
+    padding: 28px 32px;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+}
+
+.brand-block {
+    flex: 1;
+    min-width: 0;
+}
+
+.brand-kicker {
+    display: inline-block;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+}
+
+.brand-title {
+    margin: 0 0 10px;
+    font-size: clamp(1.5rem, 2.5vw, 1.875rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.brand-subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 520px;
+    line-height: 1.6;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+/* ============================================
+   THEME TOGGLE
+   ============================================ */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theme-toggle .form-check-input {
+    width: 40px;
+    height: 20px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background-color: var(--surface-2);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.theme-toggle .form-check-input:checked {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+.theme-toggle .form-check-input:focus {
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    border-color: var(--accent);
+}
+
+.theme-toggle .form-check-label {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* ============================================
+   PROFILE BUTTON
+   ============================================ */
+.profile-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px !important;
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    box-shadow: var(--shadow-sm);
+}
+
+.profile-btn i,
+.profile-btn svg {
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.profile-btn:hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-subtle) !important;
+    color: var(--accent) !important;
+}
+
+.profile-btn:hover i,
+.profile-btn:hover svg {
+    color: var(--accent);
+}
+
+.profile-btn:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    border-color: var(--accent) !important;
+}
+
+/* ============================================
+   MODE TABS
+   ============================================ */
+.mode-tabs-wrap {
+    margin-bottom: 36px;
+}
+
+.mode-tabs {
+    display: flex;
+    gap: 12px;
+    border: none !important;
+}
+
+.mode-tab {
+    padding: 12px 28px !important;
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    color: var(--muted) !important;
+    font-size: 14px;
+    font-weight: 500 !important;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.mode-tab:hover {
+    color: var(--text) !important;
+    border-color: var(--text-secondary) !important;
+}
+
+.mode-tab--active {
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+    background: var(--accent-subtle) !important;
+    box-shadow: var(--shadow-sm);
+}
+
+/* ============================================
+   SECTION HEADERS
+   ============================================ */
+.section-header {
+    margin: 12px 0 24px;
+    padding-top: 8px;
+}
+
+.section-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin: 0 0 6px;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+
+.section-subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* ============================================
+   PANEL CARDS
+   ============================================ */
+.panel-card {
+    padding: 28px 32px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    margin-bottom: 28px;
+}
+
+/* ============================================
+   INFO GRID
+   ============================================ */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.info-line {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.info-line .text-muted {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+
+.mono-muted {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-all;
+    line-height: 1.5;
+}
+
+/* ============================================
+   CONTROL ROW
+   ============================================ */
+.control-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.control-row--wide {
+    align-items: flex-start;
+    gap: 32px;
+}
+
+.control-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.control-switch .form-check-input {
+    width: 40px;
+    height: 20px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background-color: var(--surface-2);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.control-switch .form-check-input:checked {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+.control-switch .form-check-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+.primary-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 18px !important;
+    border-radius: var(--radius) !important;
+    background: var(--accent) !important;
+    border: none !important;
+    color: #ffffff !important;
+    font-size: 13px;
+    font-weight: 600 !important;
+    cursor: pointer;
+    transition: all var(--transition);
+    box-shadow: var(--shadow-sm);
+}
+
+.primary-btn:hover {
+    background: var(--accent-hover) !important;
+}
+
+.primary-btn:focus {
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+.btn-primary,
+.btn-success {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #ffffff !important;
+    font-weight: 500;
+}
+
+.btn-primary:hover,
+.btn-success:hover {
+    background: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+}
+
+.btn-secondary,
+.btn-light {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 500;
+}
+
+.btn-secondary:hover,
+.btn-light:hover {
+    background: var(--surface-2) !important;
+    color: var(--text) !important;
+}
+
+.btn-secondary:disabled,
+.btn-success:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ============================================
+   THRESHOLD CONTROLS
+   ============================================ */
+.threshold-block {
+    flex: 1;
+    min-width: 280px;
+}
+
+.threshold-block>label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+
+.threshold-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 16px;
+    align-items: end;
+}
+
+.threshold-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.threshold-field .text-muted {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+
+/* ============================================
+   DROPDOWN
+   ============================================ */
+.control-dropdown .Select-control {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    min-height: 36px;
+}
+
+.control-dropdown .Select-control:hover {
+    border-color: var(--accent);
+}
+
+.control-dropdown .Select-menu-outer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    margin-top: 4px;
+}
+
+.control-dropdown .Select-option {
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 12px;
+}
+
+.control-dropdown .Select-option.is-focused {
+    background: var(--accent-subtle);
+    color: var(--accent);
+}
+
+/* ============================================
+   SLIDER
+   ============================================ */
+.control-slider .rc-slider-rail {
+    background-color: var(--surface-3) !important;
+    height: 6px;
+    border-radius: 3px;
+}
+
+.control-slider .rc-slider-track {
+    background-color: var(--accent) !important;
+    height: 6px;
+    border-radius: 3px;
+}
+
+.control-slider .rc-slider-handle {
+    border: 2px solid var(--accent) !important;
+    background: var(--surface) !important;
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    box-shadow: var(--shadow-sm);
+}
+
+.control-slider .rc-slider-handle:hover,
+.control-slider .rc-slider-handle:focus {
+    box-shadow: 0 0 0 4px var(--accent-subtle);
+}
+
+/* ============================================
+   SUMMARY BAR
+   ============================================ */
+.summary-bar {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    padding: 16px 24px;
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    font-size: 14px;
+    margin-bottom: 24px;
+}
+
+.summary-bar .fw-semibold {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.summary-bar .text-muted {
+    color: var(--muted);
+}
+
+/* ============================================
+   GRID
+   ============================================ */
+.grid-shell {
+    margin-top: 8px;
+}
+
+/* ============================================
+   SPECTROGRAM CARDS
+   ============================================ */
+.spectrogram-card {
+    border-radius: var(--radius-lg) !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: all var(--transition);
+}
+
+.spectrogram-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--text-secondary) !important;
+}
+
+.spectrogram-card .card-header {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 14px 18px;
+    font-size: 12px;
+}
+
+.spectrogram-card .card-header .fw-semibold {
+    color: var(--text);
+    font-weight: 600;
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+}
+
+.spectrogram-card .card-body {
+    padding: 18px;
+    color: var(--text);
+}
+
+.spectrogram-image {
+    width: 100%;
+    border-radius: var(--radius);
+    display: block;
+    margin-bottom: 12px;
+    transition: transform var(--transition);
+}
+
+.spectrogram-image:hover {
+    transform: scale(1.01);
+}
+
+/* ============================================
+   BADGES
+   ============================================ */
+.badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.badge.bg-primary {
+    background: var(--accent-subtle) !important;
+    color: var(--accent) !important;
+}
+
+.badge.bg-success {
+    background: var(--success-subtle) !important;
+    color: var(--success) !important;
+}
+
+/* ============================================
+   MODALS
+   ============================================ */
+.modal-content {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 20px 24px;
+}
+
+.modal-header .modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border-subtle);
+    padding: 18px 24px;
+    gap: 12px;
+}
+
+/* ============================================
+   FORM ELEMENTS
+   ============================================ */
+.form-control,
+.form-select {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 14px;
+    transition: all var(--transition);
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    outline: none;
+}
+
+.form-control::placeholder {
+    color: var(--muted);
+}
+
+.form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+
+.form-check-input:checked {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+.form-check-input:focus {
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    border-color: var(--accent);
+}
+
+/* ============================================
+   TEXT UTILITIES
+   ============================================ */
+.text-muted {
+    color: var(--muted) !important;
+}
+
+.small {
+    font-size: 12px;
+}
+
+.fw-semibold {
+    font-weight: 600;
+}
+
+/* ============================================
+   LOADING SPINNER
+   ============================================ */
+._dash-loading {
+    color: var(--accent);
+}
+
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+@media (max-width: 1024px) {
+    .app-shell {
+        padding: 24px;
+    }
+
+    .app-header {
+        padding: 24px;
+    }
+
+    .panel-card {
+        padding: 24px;
+    }
+}
+
+@media (max-width: 900px) {
+    .app-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 20px;
+    }
+
+    .header-actions {
+        justify-content: flex-start;
+    }
+
+    .threshold-row {
+        grid-template-columns: 1fr;
+    }
+
+    .info-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .control-row {
+        gap: 16px;
+    }
+}
+
+@media (max-width: 600px) {
+    .app-shell {
+        padding: 16px;
+    }
+
+    .app-header {
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+
+    .panel-card {
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .mode-tabs {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .mode-tab {
+        text-align: center;
+        padding: 12px 20px !important;
+    }
+
+    .summary-bar {
+        padding: 14px 18px;
+        gap: 16px;
+    }
+}
+
+/* ============================================
+   DARK MODE OVERRIDES
+   When inline styles set color scheme to dark,
+   we apply dark theme variables
+   ============================================ */
+.app-shell.theme-dark,
+.app-shell[style*="colorScheme"] {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #21262d;
+    --surface-3: #30363d;
+    --text: #e6edf3;
+    --text-secondary: #8b949e;
+    --muted: #7d8590;
+    --accent: #58a6ff;
+    --accent-hover: #79b8ff;
+    --accent-subtle: rgba(88, 166, 255, 0.12);
+    --success: #3fb950;
+    --success-subtle: rgba(63, 185, 80, 0.12);
+    --warning: #d29922;
+    --border: #30363d;
+    --border-subtle: #21262d;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Ensure body background updates in dark mode */
+.app-shell.theme-dark {
+    background: var(--bg);
+}
+
+/* Dark mode specific component overrides */
+.app-shell.theme-dark .spectrogram-card,
+.app-shell.theme-dark .panel-card,
+.app-shell.theme-dark .app-header,
+.app-shell.theme-dark .modal-content {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+}
+
+.app-shell.theme-dark .spectrogram-card .card-header,
+.app-shell.theme-dark .summary-bar {
+    background: var(--surface-2);
+}
+
+.app-shell.theme-dark .form-control,
+.app-shell.theme-dark .form-select {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.app-shell.theme-dark .btn-secondary,
+.app-shell.theme-dark .btn-light,
+.app-shell.theme-dark .profile-btn {
+    background: var(--surface-2) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+
+.app-shell.theme-dark .mode-tab {
+    background: var(--surface-2) !important;
+    border-color: var(--border) !important;
+    color: var(--muted) !important;
+}
+
+.app-shell.theme-dark .mode-tab--active {
+    background: var(--accent-subtle) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}

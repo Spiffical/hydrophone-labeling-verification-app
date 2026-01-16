@@ -1,0 +1,20 @@
+data:
+  mode: label
+  label:
+    folder: ./data/test_dataset/mat_files
+    audio_folder: ./data/test_dataset/audio
+    output_file: ./data/test_dataset/labels.json
+  verify:
+    dashboard_root: ./data/dashboard
+    date: null
+    hydrophone: null
+  whale:
+    predictions_json: ./data/predictions.json
+
+display:
+  items_per_page: 25
+  y_axis_scale: linear
+  colormap: default
+
+cache:
+  max_size: 400
