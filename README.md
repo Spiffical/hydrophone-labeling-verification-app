@@ -2,7 +2,7 @@
 
 A professional, high-performance web application built with Plotly Dash for the scientific analysis, labeling, and verification of hydrophone data. This tool is specifically designed to handle large-scale acoustic datasets, particularly for marine mammal research (e.g., fin whale calls).
 
-![Spectrogram Interface](assets/screenshot_demo.png) *(Placeholder for actual screenshot)*
+![Spectrogram Interface](assets/screenshot_demo.png)
 
 ## ✨ Key Features
 
