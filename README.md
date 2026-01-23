@@ -23,8 +23,8 @@ Ensure you have Python 3.9+ and a virtual environment set up:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Spiffical/labeling-verification-app.git
-cd labeling-verification-app
+git clone https://github.com/Spiffical/hydrophone-labeling-verification-app.git
+cd hydrophone-labeling-verification-app
 
 # Create and activate virtual environment
 python -m venv .venv
