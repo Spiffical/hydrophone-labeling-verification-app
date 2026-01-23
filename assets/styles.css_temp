@@ -1,0 +1,9 @@
+.mono-muted {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}

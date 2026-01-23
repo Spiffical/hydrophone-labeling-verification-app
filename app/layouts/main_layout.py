@@ -1,13 +1,19 @@
 from dash import dcc, html
 import dash_bootstrap_components as dbc
+import os
 
 from app.components.modal import create_spectrogram_modal
+from app.components.folder_browser import create_folder_browser_modal, create_browse_button
 from app.layouts.label_mode import create_label_layout
 from app.layouts.verify_mode import create_verify_layout
 from app.layouts.explore_mode import create_explore_layout
+from app.layouts.data_config_panel import create_data_config_modal, create_predictions_warning
 
 
 def create_main_layout(config: dict) -> html.Div:
+    # Determine initial data directory
+    initial_data_dir = config.get("data", {}).get("data_dir") or os.path.expanduser("~")
+    
     return html.Div([
         dcc.Store(id="config-store", data=config),
         dcc.Store(id="data-store", data=None, storage_type="memory"),
@@ -16,6 +22,17 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="user-profile-store", data={"name": "", "role": ""}, storage_type="local"),
         dcc.Store(id="theme-store", data="light", storage_type="local"),
         dcc.Store(id="verify-thresholds-store", data={"__global__": 0.5}, storage_type="memory"),
+        
+        # Folder browser state
+        dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
+        dcc.Store(id="folder-browser-selected-store", data=None, storage_type="memory"),
+        dcc.Store(id="path-browse-target-store", data=None, storage_type="memory"),
+        
+        # Data discovery state
+        dcc.Store(id="data-discovery-store", data=None, storage_type="memory"),
+        
+        # Trigger for data reload after config update (for callback chaining)
+        dcc.Store(id="data-load-trigger-store", data=0, storage_type="memory"),
         
         # New stores for modal state
         dcc.Store(id="modal-image-clicks", data=0),
@@ -27,16 +44,48 @@ def create_main_layout(config: dict) -> html.Div:
             html.Div([
                 html.Div([
                     html.Span("Hydrophone Acoustic Review Suite", className="brand-kicker"),
-                    html.H1("Unified Labeling & Verification Tool", className="brand-title"),
-                    html.P(
-                        "Label, verify, and explore spectrogram datasets from a single interface.",
-                        className="brand-subtitle",
-                    ),
+                    html.H1("Unified labeling Tool", className="brand-title"),
+                    html.P("Browse, Verify, and Explore", className="brand-subtitle"),
                 ], className="brand-block"),
+                
+                # Global Data Selection - now always visible with Browse button
+                html.Div([
+                    dbc.Row([
+                        dbc.Col([
+                            create_browse_button(),
+                        ], width="auto"),
+                        dbc.Col([
+                            dcc.Dropdown(
+                                id="global-date-selector",
+                                placeholder="Date",
+                                className="control-dropdown"
+                            ),
+                        ], width=4),
+                        dbc.Col([
+                            dcc.Dropdown(
+                                id="global-device-selector",
+                                placeholder="Device",
+                                className="control-dropdown"
+                            ),
+                        ], width=4),
+                        dbc.Col([
+                            dbc.Button("Load", id="global-load-btn", color="success", className="w-100"),
+                        ], width=2),
+                    ], className="g-2 align-items-center"),
+                    html.Div([
+                        html.Small("Data: ", className="text-muted small"),
+                        html.Span(id="global-data-dir-display", className="mono-muted small me-3", 
+                                  children=config.get("data", {}).get("data_dir") or "Not selected"),
+                        html.Small("Active: ", className="text-muted small"),
+                        html.Span(id="global-active-selection", className="mono-muted small"),
+                    ], className="mt-1 text-end", style={"min-height": "1.5em"}),
+                ], id="global-selector-container", 
+                   style={"padding-top": "10px"}),
+
                 html.Div([
                     dbc.Switch(
                         id="theme-toggle",
-                        label="Dark mode",
+                        label="Dark",
                         value=False,
                         className="theme-toggle",
                     ),
@@ -44,7 +93,7 @@ def create_main_layout(config: dict) -> html.Div:
                         "Profile",
                         id="profile-btn",
                         color="light",
-                        className="profile-btn",
+                        className="profile-btn ms-2",
                     ),
                 ], className="header-actions"),
             ], className="app-header"),
@@ -81,6 +130,11 @@ def create_main_layout(config: dict) -> html.Div:
 
             # Modals
             create_spectrogram_modal(),
+            create_folder_browser_modal(),
+            create_data_config_modal(),
+            
+            # Warnings
+            create_predictions_warning(),
             
             dbc.Modal([
                 dbc.ModalHeader(dbc.ModalTitle("Edit Labels")),

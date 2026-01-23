@@ -244,12 +244,27 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         colorbar=dict(title="dB/Hz")
     ))
 
+    # Add invisible playback position marker (will be controlled via JavaScript)
+    fig.add_shape(
+        type="line",
+        x0=0, x1=0,
+        y0=0, y1=1,
+        yref="paper",
+        line=dict(
+            color="rgba(255, 0, 0, 0)",
+            width=2,
+            dash="solid"
+        ),
+        name="playback-marker"
+    )
+    
     fig.update_layout(
         xaxis=dict(title=x_label, showgrid=True, tickformat=".2f"),
         yaxis=dict(title=y_axis_title, showgrid=True, type=y_axis_type),
         margin=dict(l=40, r=20, t=20, b=40),
         height=500,
-        template="plotly_white"
+        template="plotly_white",
+        uirevision='constant'
     )
 
     return fig

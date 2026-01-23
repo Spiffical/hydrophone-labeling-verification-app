@@ -6,11 +6,13 @@ from app.utils.file_io import read_json, write_json
 
 
 def save_label_mode(output_file: Optional[str], item_id: str, labels: List[str]) -> None:
+    """Save labels for an item to a labels.json file."""
     if not output_file:
         return
-    data = read_json(output_file)
-    data[item_id] = labels
-    write_json(output_file, data)
+    
+    # Use label_operations for proper file locking
+    from app.utils.label_operations import save_labels
+    save_labels(output_file, item_id, labels)
 
 
 def save_verify_mode(dashboard_root: Optional[str], date_str: Optional[str], hydrophone: Optional[str],

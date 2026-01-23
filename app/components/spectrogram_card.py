@@ -22,6 +22,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     predicted = predictions.get("labels", [])
     annotations = annotations_data.get("labels", [])
     is_verified = bool(annotations_data.get("verified"))
+    needs_reverify = bool(annotations_data.get("needs_reverify"))
 
     # Make image clickable for modal zoom
     image = html.Div([
@@ -61,22 +62,40 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
 
     actions = []
     if mode == "verify":
-        actions = [
-            dbc.Button(
-                "Confirmed" if is_verified else "Confirm",
-                id={"type": "confirm-btn", "item_id": item_id},
-                size="sm",
-                color="success" if not is_verified else "secondary",
-                disabled=is_verified,
-            ),
-            dbc.Button(
-                "Edit",
-                id={"type": "edit-btn", "item_id": item_id},
-                size="sm",
-                color="secondary",
-                disabled=is_verified,
-            ),
-        ]
+        # For verified items: Re-verify button only enabled if labels were modified
+        # For unverified items: Confirm button always enabled
+        if is_verified:
+            actions = [
+                dbc.Button(
+                    "Re-verify",
+                    id={"type": "confirm-btn", "item_id": item_id},
+                    size="sm",
+                    color="success" if needs_reverify else "secondary",
+                    disabled=not needs_reverify,
+                    outline=not needs_reverify,
+                ),
+                dbc.Button(
+                    "Revise",
+                    id={"type": "edit-btn", "item_id": item_id},
+                    size="sm",
+                    color="primary",
+                ),
+            ]
+        else:
+            actions = [
+                dbc.Button(
+                    "Confirm",
+                    id={"type": "confirm-btn", "item_id": item_id},
+                    size="sm",
+                    color="success",
+                ),
+                dbc.Button(
+                    "Edit",
+                    id={"type": "edit-btn", "item_id": item_id},
+                    size="sm",
+                    color="secondary",
+                ),
+            ]
     else:
         actions = [
             dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="primary"),
@@ -90,6 +109,6 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
             image,
             audio_player,
             html.Div(badges, className="mt-3"),
-            html.Div(actions, className="mt-3 d-flex gap-2"),
+            html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap"),
         ])
     ], className="spectrogram-card h-100")

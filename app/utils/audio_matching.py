@@ -71,6 +71,21 @@ def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tole
     if not audio_folder or not os.path.exists(audio_folder):
         return []
     
+    # Get all audio files (both .flac and .wav)
+    audio_files = []
+    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.flac')))
+    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.wav')))
+    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.mp3')))
+    
+    # First, try exact filename match (same base name, different extension)
+    # This handles segmented files like *_seg000.mat matching *_seg000.wav
+    spec_base = os.path.splitext(spectrogram_filename)[0]
+    for audio_file in audio_files:
+        audio_base = os.path.splitext(os.path.basename(audio_file))[0]
+        if audio_base == spec_base:
+            return [audio_file]
+    
+    # Fallback to timestamp-based matching
     # Parse spectrogram time range
     time_range = parse_spectrogram_time_range(spectrogram_filename)
     if time_range:
@@ -82,10 +97,6 @@ def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tole
             return []
         start_time = end_time = single_ts
     
-    # Get all audio files (both .flac and .wav)
-    audio_files = []
-    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.flac')))
-    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.wav')))
     matching_files = []
     
     # Find audio files within the time range

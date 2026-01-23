@@ -1,20 +1,33 @@
+# Hydrophone Verification App Configuration
+# 
+# This file provides default settings. Most options can also be set via CLI or the in-app UI.
+# If a data path is null, the user will be prompted to select it via the folder browser.
+
 data:
-  mode: label
+  mode: label  # Initial mode: label, verify, or explore
+  
+  # Folder names to search for (in order of priority)
+  spectrogram_folder_names:
+    - spectrograms
+    - onc_spectrograms
+    - mat_files
+  audio_folder_names:
+    - audio
+  
   label:
-    folder: ./data/test_dataset/mat_files
-    audio_folder: ./data/test_dataset/audio
-    output_file: ./data/test_dataset/labels.json
+    folder: null           # Path to MAT/NPY spectrograms (select in app if null)
+    audio_folder: null     # Path to audio files (optional)
+    output_file: null      # Path for labels.json output
+  
   verify:
-    dashboard_root: ./data/dashboard
-    date: null
-    hydrophone: null
-  whale:
-    predictions_json: ./data/predictions.json
+    dashboard_root: null   # Root directory for DATE/DEVICE hierarchy
+    date: null             # Specific date folder to load (or select in app)
+    hydrophone: null       # Specific device folder to load (or select in app)
 
 display:
   items_per_page: 25
-  y_axis_scale: linear
-  colormap: default
+  y_axis_scale: linear   # linear or log
+  colormap: default      # default or hydrophone
 
 cache:
   max_size: 400

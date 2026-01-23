@@ -10,10 +10,14 @@ def create_explore_layout(config: dict) -> html.Div:
         ], className="section-header"),
 
         html.Div([
-            html.Div([
-                dbc.Button("Reload data", id="explore-reload", color="primary", className="primary-btn"),
-                html.Div("Export and summary controls will appear here.", className="text-muted"),
-            ], className="control-row"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Button("Reload dataset", id="explore-reload", color="primary", className="w-100"),
+                ], md=2, sm=4, xs=12),
+                dbc.Col([
+                    html.Div("Export and summary controls will appear here.", className="text-muted small"),
+                ], md=10, sm=8, xs=12),
+            ], className="align-items-center g-3"),
         ], className="panel-card"),
 
         html.Div(id="explore-summary", className="summary-bar"),

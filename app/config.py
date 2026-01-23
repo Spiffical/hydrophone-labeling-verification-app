@@ -77,7 +77,6 @@ def get_config() -> Dict[str, Any]:
 
     label_cfg = config.get("data", {}).get("label", {})
     verify_cfg = config.get("data", {}).get("verify", {})
-    whale_cfg = config.get("data", {}).get("whale", {})
 
     label_folder = args.label_folder or label_cfg.get("folder")
     audio_folder = args.audio_folder or label_cfg.get("audio_folder")
@@ -87,7 +86,7 @@ def get_config() -> Dict[str, Any]:
     date_str = args.date or verify_cfg.get("date")
     hydrophone = args.hydrophone or verify_cfg.get("hydrophone")
 
-    predictions_json = args.predictions_json or whale_cfg.get("predictions_json")
+    predictions_json = args.predictions_json  # CLI arg only, no config fallback
 
     display_cfg = config.get("display", {})
     items_per_page = args.items_per_page or display_cfg.get("items_per_page", 25)
@@ -113,8 +112,6 @@ def get_config() -> Dict[str, Any]:
             "dashboard_root": resolve_path(dashboard_root, repo_root) if dashboard_root else None,
             "date": date_str,
             "hydrophone": hydrophone,
-        },
-        "whale": {
             "predictions_json": resolve_path(predictions_json, repo_root) if predictions_json else None,
         },
         "display": {
@@ -124,5 +121,9 @@ def get_config() -> Dict[str, Any]:
         },
         "cache": {
             "max_size": cache_max_size,
+        },
+        "data": {
+            "spectrogram_folder_names": config.get("data", {}).get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"]),
+            "audio_folder_names": config.get("data", {}).get("audio_folder_names", ["audio"]),
         },
     }
