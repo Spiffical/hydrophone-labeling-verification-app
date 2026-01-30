@@ -6,6 +6,12 @@ How to update your inference pipelines to work with the Unified Labeling & Verif
 
 Your inference pipeline needs to output a `predictions.json` file in the format specified in [`OCEANS3_JSON_SCHEMA.md`](../OCEANS3_JSON_SCHEMA.md).
 
+Both model predictions and manual labels use the **same unified schema**. The
+only difference is which optional root-level fields are present:
+
+- **Predictions**: include `model`, `pipeline`, `spectrogram_config`, `items[].model_outputs`
+- **Manual labels**: omit those; labels go into `items[].verifications[].label_decisions[]`
+
 ### 1. Use the Python Tracker (Recommended)
 
 The easiest way is to use the provided `UnifiedPredictionTracker` class:
@@ -82,7 +88,7 @@ The app uses the **first one found** and stops searching.
 1. **Store raw scores (0-1)**, not thresholded binary labels. Users adjust thresholds in the UI.
 2. **Use hierarchical labels** from the taxonomy (e.g., `Biophony > Marine mammal > ...`).
 3. **Include a `model_id`**: Compute a SHA256 hash of your model weights for reproducibility.
-4. **Use `data_sources` array**: Each item references a data source by `data_source_id`.
+4. **Use `data_sources` array** (optional): Each item can reference a data source by `data_source_id`.
 
 ### Computing Model ID
 
@@ -106,6 +112,7 @@ model_id = compute_model_hash(model.state_dict())
 ```json
 {
   "schema_version": "2.0",
+  "created_at": "2025-01-01T00:00:00Z",
   "task_type": "whale_detection",
   "model": {
     "model_id": "sha256-a3f2b9c8d1e7",
@@ -138,6 +145,34 @@ model_id = compute_model_hash(model.state_dict())
   ]
 }
 ```
+
+---
+
+## How Verifications Work
+
+Both the **Verify tab** (model prediction review) and the **Label tab** (manual
+labeling) write human decisions into `items[].verifications[]`. Each entry is a
+round with `label_decisions[]`:
+
+```json
+"verifications": [
+  {
+    "verified_at": "2025-01-01T12:00:00Z",
+    "verified_by": "expert@onc.ca",
+    "verification_round": 1,
+    "verification_status": "verified",
+    "label_decisions": [
+      { "label": "Fin whale", "decision": "accepted", "threshold_used": 0.5 },
+      { "label": "Vessel", "decision": "rejected", "threshold_used": 0.5 }
+    ],
+    "label_source": "expert",
+    "notes": "Clear 20Hz pulse"
+  }
+]
+```
+
+For manual labels (no model), all decisions use `"decision": "added"` and
+`"threshold_used": null`.
 
 ---
 

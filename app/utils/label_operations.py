@@ -1,6 +1,9 @@
 """
 Label file operations for the labeling verification app.
 Handles reading and writing labels.json files with proper locking.
+
+Output uses the unified O3 schema: items[].verifications[].label_decisions[]
+so both label and verify modes produce the same structure.
 """
 import json
 import os
@@ -28,11 +31,31 @@ def _normalize_item_key(key: Optional[str]) -> Optional[str]:
     return key
 
 
+def _labels_from_verifications(verifications: list) -> List[str]:
+    """Extract current labels from the latest verification round."""
+    if not verifications:
+        return []
+    latest = verifications[-1]
+    label_decisions = latest.get("label_decisions", [])
+    return [
+        ld["label"] for ld in label_decisions
+        if ld.get("decision") in ("accepted", "added")
+    ]
+
+
+def _labels_from_annotations(annotations: dict) -> List[str]:
+    """Extract labels from legacy annotations object."""
+    if not annotations:
+        return []
+    return annotations.get("labels") or []
+
+
 def load_labels(filepath: str) -> Dict[str, List[str]]:
     """
     Load labels from a JSON file.
 
-    Supports both legacy mapping format and unified O3-compatible format.
+    Supports unified verifications format, legacy annotations format,
+    and legacy flat mapping format.
     """
     if not filepath or not os.path.exists(filepath):
         return {}
@@ -47,10 +70,19 @@ def load_labels(filepath: str) -> Dict[str, List[str]]:
                 if not isinstance(item, dict):
                     continue
                 item_id = item.get("item_id")
-                annotations = item.get("annotations") or {}
-                labels = annotations.get("labels") or []
-                if item_id:
-                    normalized[item_id] = labels if isinstance(labels, list) else []
+                if not item_id:
+                    continue
+
+                # Prefer verifications (unified format)
+                verifications = item.get("verifications")
+                if verifications and isinstance(verifications, list):
+                    labels = _labels_from_verifications(verifications)
+                else:
+                    # Fallback to legacy annotations
+                    annotations = item.get("annotations") or {}
+                    labels = _labels_from_annotations(annotations)
+
+                normalized[item_id] = labels if isinstance(labels, list) else []
             return normalized
 
         # Legacy mapping format
@@ -78,9 +110,10 @@ def save_labels(
     metadata: Optional[dict] = None,
 ) -> bool:
     """
-    Save or update labels for a specific file in unified O3-compatible format.
+    Save or update labels for a specific file using unified verifications format.
 
-    Legacy mapping files are read and upgraded on write.
+    Labels are stored as verifications[].label_decisions[] with decision="added"
+    and threshold_used=null (no model). Legacy files are upgraded on write.
     """
     with _file_lock:
         # Load existing data
@@ -111,15 +144,22 @@ def save_labels(
                         continue
                     label_list = entry if isinstance(entry, list) else [str(entry)]
                     item_id = _normalize_item_key(key) or key
+                    # Convert legacy labels to verifications format
+                    verification = {
+                        "verified_at": _now_iso(),
+                        "verified_by": "migrated",
+                        "verification_round": 1,
+                        "verification_status": "verified",
+                        "label_decisions": [
+                            {"label": lbl, "decision": "added", "threshold_used": None}
+                            for lbl in label_list
+                        ],
+                        "label_source": "expert",
+                        "notes": "",
+                    }
                     items.append({
                         "item_id": item_id,
-                        "annotations": {
-                            "labels": label_list,
-                            "annotated_by": None,
-                            "annotated_at": None,
-                            "verified": False,
-                            "notes": "",
-                        },
+                        "verifications": [verification] if label_list else [],
                     })
                 data["items"] = items
 
@@ -147,35 +187,73 @@ def save_labels(
         else:
             existing_item["item_id"] = filename
 
-        annotations = existing_item.get("annotations") or {}
-        current_notes = annotations.get("notes", "")
-        current_by = annotations.get("annotated_by")
-        current_at = annotations.get("annotated_at")
-        current_verified = annotations.get("verified", False)
+        # Migrate legacy annotations to verifications if present
+        if "annotations" in existing_item and "verifications" not in existing_item:
+            old_ann = existing_item.pop("annotations", {})
+            old_labels = old_ann.get("labels") or []
+            if old_labels:
+                existing_item["verifications"] = [{
+                    "verified_at": old_ann.get("annotated_at") or _now_iso(),
+                    "verified_by": old_ann.get("annotated_by") or "migrated",
+                    "verification_round": 1,
+                    "verification_status": "verified",
+                    "label_decisions": [
+                        {"label": lbl, "decision": "added", "threshold_used": None}
+                        for lbl in old_labels
+                    ],
+                    "label_source": "expert",
+                    "notes": old_ann.get("notes", ""),
+                }]
+            else:
+                existing_item["verifications"] = []
 
-        annotations["labels"] = labels if isinstance(labels, list) else []
-        annotations["notes"] = current_notes if notes is None else (notes or "")
-        annotations["annotated_by"] = annotated_by if annotated_by is not None else current_by
-        annotations["annotated_at"] = annotated_at or _now_iso()
-        annotations["verified"] = current_verified if verified is None else bool(verified)
+        # Build the new verification entry
+        verifications = existing_item.get("verifications") or []
+        now = annotated_at or _now_iso()
+        by = annotated_by or "anonymous"
 
-        existing_item["annotations"] = annotations
+        # Determine note text: use provided notes, or preserve from latest verification
+        if notes is not None:
+            note_text = notes or ""
+        elif verifications:
+            note_text = verifications[-1].get("notes", "")
+        else:
+            note_text = ""
+
+        label_list = labels if isinstance(labels, list) else []
+
+        if label_list or note_text:
+            new_verification = {
+                "verified_at": now,
+                "verified_by": by,
+                "verification_round": len(verifications) + 1,
+                "verification_status": "verified",
+                "label_decisions": [
+                    {"label": lbl, "decision": "added", "threshold_used": None}
+                    for lbl in label_list
+                ],
+                "label_source": "expert",
+                "notes": note_text,
+            }
+            verifications.append(new_verification)
+            existing_item["verifications"] = verifications
+        else:
+            # No labels and no notes — remove item
+            data["items"] = [item for item in items if item is not existing_item]
+
         if metadata:
             existing_item["metadata"] = metadata
 
-        should_keep = bool(annotations.get("labels")) or bool(annotations.get("notes"))
-        if not should_keep:
-            data["items"] = [item for item in items if item is not existing_item]
-
         data["items"] = data.get("items") or items
+
+        # Build summary
         summary = data.get("summary", {})
         summary["total_items"] = len(data["items"])
         summary["annotated"] = sum(
-            1 for item in data["items"] if (item.get("annotations") or {}).get("labels")
+            1 for item in data["items"]
+            if _labels_from_verifications(item.get("verifications") or [])
         )
-        summary["verified"] = sum(
-            1 for item in data["items"] if (item.get("annotations") or {}).get("verified")
-        )
+        summary["verified"] = summary["annotated"]  # all manual labels are "verified"
         data["summary"] = summary
 
         try:
@@ -189,17 +267,7 @@ def save_labels(
 
 
 def add_label(filepath: str, filename: str, label: str) -> bool:
-    """
-    Add a single label to a file's labels.
-    
-    Args:
-        filepath: Path to the labels.json file
-        filename: The spectrogram filename
-        label: The label to add
-        
-    Returns:
-        True if successful
-    """
+    """Add a single label to a file's labels."""
     current_data = load_labels(filepath)
     labels = current_data.get(filename, [])
 
@@ -210,17 +278,7 @@ def add_label(filepath: str, filename: str, label: str) -> bool:
 
 
 def remove_label(filepath: str, filename: str, label: str) -> bool:
-    """
-    Remove a single label from a file's labels.
-    
-    Args:
-        filepath: Path to the labels.json file
-        filename: The spectrogram filename
-        label: The label to remove
-        
-    Returns:
-        True if successful
-    """
+    """Remove a single label from a file's labels."""
     current_data = load_labels(filepath)
     labels = current_data.get(filename, [])
 
@@ -231,23 +289,12 @@ def remove_label(filepath: str, filename: str, label: str) -> bool:
 
 
 def save_labels_unlocked(filepath: str, current_data: Dict, filename: str, labels: List[str]) -> bool:
-    """
-    Internal function to save labels without acquiring lock (caller must hold lock).
-    """
+    """Internal function to save labels without acquiring lock (caller must hold lock)."""
     return save_labels(filepath, filename, labels)
 
 
 def get_labels_for_file(filepath: str, filename: str) -> List[str]:
-    """
-    Get labels for a specific file.
-    
-    Args:
-        filepath: Path to the labels.json file
-        filename: The spectrogram filename
-        
-    Returns:
-        List of label strings for the file
-    """
+    """Get labels for a specific file."""
     data = load_labels(filepath)
     return data.get(filename, [])
 
@@ -258,12 +305,6 @@ def get_default_labels_path(spectrogram_folder: str) -> str:
 
     For hierarchical structures: DATE/DEVICE/labels.json
     For flat structures: FOLDER/labels.json
-
-    Args:
-        spectrogram_folder: Path to the spectrograms folder
-
-    Returns:
-        Path to the labels.json file
     """
     if not spectrogram_folder:
         return ""
@@ -292,17 +333,6 @@ def get_smart_labels_path(
     1. Existing root-level labels.json
     2. For hierarchical structures: root-level by default
     3. For flat structures: data_root/labels.json
-
-    Args:
-        data_root: Root path of the data directory
-        structure_type: "hierarchical", "device_only", or "flat"
-        existing_root_labels: Path to existing root-level labels.json (if any)
-        subfolder_labels_count: Number of labels.json files in subfolders
-        date_filter: Current date filter value (or "__all__")
-        device_filter: Current device filter value (or "__all__")
-
-    Returns:
-        Tuple of (default_path, recommendation_message)
     """
     if not data_root:
         return "", "No data directory set"
@@ -319,14 +349,12 @@ def get_smart_labels_path(
     # For hierarchical or device_only structures
     if structure_type in ("hierarchical", "device_only"):
         if subfolder_labels_count > 0:
-            # Subfolders have labels, but no root - warn about fragmentation
             return (
                 root_labels_path,
                 f"Found {subfolder_labels_count} labels.json in subfolders. "
                 "Consider consolidating to root-level for consistency."
             )
         else:
-            # No existing labels - default to root level
             return root_labels_path, "New labels will be saved to root-level labels.json"
 
     # For flat structures - just use the data root
@@ -342,16 +370,6 @@ def get_path_for_filter(
 ) -> tuple:
     """
     Get the appropriate path display based on current filter selection.
-
-    Args:
-        data_root: Root path of the data directory
-        structure_type: "hierarchical", "device_only", or "flat"
-        date_filter: Current date filter value (or "__all__" or "__flat__")
-        device_filter: Current device filter value (or "__all__")
-        path_type: "spectrogram", "audio", or "labels"
-
-    Returns:
-        Tuple of (path_display, info_message)
     """
     if not data_root:
         return "Not set", ""

@@ -1,7 +1,13 @@
 # Unified Predictions JSON Format Specification
 
+> **Note:** This document is supplementary. The canonical schema is
+> [`OCEANS3_JSON_SCHEMA.md`](../OCEANS3_JSON_SCHEMA.md).
+
 ## Overview
 This document defines a standardized format for storing ML model predictions and expert verifications that works across different acoustic analysis tasks (whale detection, anomaly detection, etc.) while maintaining flexibility for different data granularities.
+
+Both **model prediction verification** and **manual labeling** produce the same
+output structure. Human decisions always go into `items[].verifications[].label_decisions[]`.
 
 ## Core Principles
 1. **Store raw model outputs**, not thresholded predictions
@@ -9,6 +15,7 @@ This document defines a standardized format for storing ML model predictions and
 3. **Support multiple verification rounds** with full audit trail
 4. **Avoid data duplication** - reference files, don't embed them
 5. **Flexible granularity** - support both full-clip and windowed predictions
+6. **Single output format** - no conversion needed between label and verify modes
 
 ---
 
@@ -17,13 +24,16 @@ This document defines a standardized format for storing ML model predictions and
 ###  Root Level
 ```json
 {
-  "version": "2.0",
+  "schema_version": "2.0",
   "created_at": "2026-01-16T23:00:00Z",
   "updated_at": "2026-01-16T23:30:00Z",
-  "model": { ... },
-  "data_source": { ... },
-  "spectrogram_config": { ... },
   "task_type": "whale_detection" | "anomaly_detection" | "classification",
+
+  "model": { ... },              // optional — present for model predictions
+  "data_sources": [ ... ],       // optional — hydrophone deployments
+  "spectrogram_config": { ... }, // optional — how spectrograms were generated
+  "pipeline": { ... },           // optional — inference pipeline version
+
   "items": [ ... ]
 }
 ```
@@ -58,11 +68,11 @@ import torch
 
 def compute_model_hash(state_dict: dict, length: int = 12) -> str:
     """Compute SHA256 hash of model weights for unique identification.
-    
+
     Args:
         state_dict: Model state dictionary containing weights
         length: Number of characters to include in hash (default: 12)
-        
+
     Returns:
         String in format 'sha256-{first N chars of hash}'
     """
@@ -72,12 +82,12 @@ def compute_model_hash(state_dict: dict, length: int = 12) -> str:
     sorted_dict = {k: state_dict[k] for k in sorted(state_dict.keys())}
     torch.save(sorted_dict, buffer)
     buffer.seek(0)
-    
+
     # Compute SHA256 hash
     hasher = hashlib.sha256()
     hasher.update(buffer.read())
     full_hash = hasher.hexdigest()
-    
+
     return f"sha256-{full_hash[:length]}"
 ```
 
@@ -113,46 +123,46 @@ The inference script automatically computes the hash for older checkpoints that 
 
 
 **Benefits:**
-1. ✅ **Deterministic**: Same weights = same hash, even across machines
-2. ✅ **Collision-resistant**: SHA256 makes accidental duplicates virtually impossible  
-3. ✅ **Verifiable**: Can recompute hash to verify model authenticity
-4. ✅ **Compact**: 12-character prefix sufficient for practical uniqueness
-5. ✅ **Platform-independent**: Works across different PyTorch versions
+1. **Deterministic**: Same weights = same hash, even across machines
+2. **Collision-resistant**: SHA256 makes accidental duplicates virtually impossible
+3. **Verifiable**: Can recompute hash to verify model authenticity
+4. **Compact**: 12-character prefix sufficient for practical uniqueness
+5. **Platform-independent**: Works across different PyTorch versions
 
 **Example IDs:**
 - `sha256-a3f2b9c8d1e7` (12 chars, ~281 trillion combinations)
 - `sha256-5e2d1a9c7b4f3e8a` (16 chars for extra safety)
 
 
-### Data Source
+### Data Sources
 ```json
-"data_source": {
-  "device_code": "ICLISTENHF1951",
-  "location": "Barkley Canyon",
-  "date_from": "2025-01-01T00:00:00Z",
-  "date_to": "2025-01-01T01:00:00Z",
-  "sample_rate": 64000
-}
+"data_sources": [
+  {
+    "data_source_id": "ICLISTENHF1951_BARK_2025",
+    "device_code": "ICLISTENHF1951",
+    "location_name": "Barkley Canyon",
+    "site_code": "BARK",
+    "date_from": "2025-01-01T00:00:00Z",
+    "date_to": "2025-01-01T01:00:00Z",
+    "sample_rate": 64000
+  }
+]
 ```
 
 ### Spectrogram Config
 ```json
 "spectrogram_config": {
-  "window_duration": 1.0,
+  "window_duration_sec": 1.0,
   "overlap": 0.9,
   "frequency_limits": {"min": 5, "max": 100},
-  "context_duration": 40.0,
+  "context_duration_sec": 40.0,
   "segment_overlap": 0.5,
   "colormap": "viridis",
   "color_limits": {"min": -60, "max": 0},
-  "temporal_padding_used": 2.0,
   "source": {
     "type": "computed" | "onc_download",
-    "provider": "ONC",
     "generator": "SpectrogramGenerator",
-    "backend": "scipy" | "torch" | null,
-    "plot_res": "spec_01",  // ONC downloads only
-    "data_product_options": { ... }  // ONC downloads only
+    "backend": "scipy" | "torch" | null
   }
 }
 ```
@@ -166,20 +176,26 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 ```json
 {
   "item_id": "ICLISTENHF1951_20250101T000000.996Z_seg000",
-  "spectrogram_mat_path": "mat_files/ICLISTENHF1951_20250101T000000.996Z_seg000.mat",
-  "audio_path": "audio/ICLISTENHF1951_20250101T000000.996Z_seg000.wav",
-  "spectrogram_png_path": "spectrograms/ICLISTENHF1951_20250101T000000.996Z_seg000.png",  // optional
-  "audio_timestamp": "2025-01-01T00:00:00.996Z",
-  "duration_sec": 40.0,
-  
-  "model_outputs": [ ... ],  // Raw model predictions (see below)
-  "verifications": [ ... ]    // Expert reviews (see below)
+  "data_source_id": "ICLISTENHF1951_BARK_2025",
+  "audio_start_time": "2025-01-01T00:00:00.996Z",
+  "audio_end_time": "2025-01-01T00:00:40.996Z",
+  "segment_index": 0,
+
+  "model_outputs": [ ... ],  // Raw model predictions (empty [] for manual labels)
+  "verifications": [ ... ],  // Human review rounds (label or verify)
+  "paths": {
+    "spectrogram_mat_path": "spectrograms/seg000.mat",
+    "spectrogram_png_path": "spectrograms/seg000.png",
+    "audio_path": "audio/seg000.wav"
+  }
 }
 ```
 
 **Deprecated (still accepted for backwards compatibility):**
-- `mat_path` → use `spectrogram_mat_path`
-- `spectrogram_path` → use `spectrogram_png_path`
+- `mat_path` → use `paths.spectrogram_mat_path`
+- `spectrogram_path` → use `paths.spectrogram_png_path`
+- `audio_path` at item root → use `paths.audio_path`
+- `audio_timestamp` → use `audio_start_time`
 
 ---
 
@@ -258,21 +274,19 @@ When a 40s clip is analyzed with multiple sliding windows:
 
 ## Verifications
 
-Supports **multiple verification rounds** with full audit trail:
+Supports **multiple verification rounds** with full audit trail.
+Used for **both** model prediction verification **and** manual labeling.
+
+### Model prediction verification (Verify tab)
 
 ```json
 "verifications": [
   {
     "verified_at": "2026-01-16T15:00:00Z",
     "verified_by": "alice@example.com",
-    "threshold_used": 0.5,  // Threshold user applied
-    "labels": [
-      "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
-      "Anthropophony > Vessel"
-    ],
-    "rejected_labels": [],  // Model-suggested labels rejected at this threshold
-    "added_labels": [],     // Labels added by verifier not suggested by the model
-    "label_decisions": [    // Per-label decision + threshold snapshot
+    "verification_round": 1,
+    "verification_status": "verified",
+    "label_decisions": [
       {
         "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
         "decision": "accepted",
@@ -280,25 +294,19 @@ Supports **multiple verification rounds** with full audit trail:
       },
       {
         "label": "Anthropophony > Vessel",
-        "decision": "accepted",
+        "decision": "rejected",
         "threshold_used": 0.5
       }
     ],
-    "confidence": "high" | "medium" | "low" | null,
+    "confidence": "high",
     "notes": "Clear fin whale 20Hz pulse visible",
-    "verification_round": 1
+    "label_source": "expert"
   },
   {
     "verified_at": "2026-01-17T10:30:00Z",
     "verified_by": "bob@example.com",
-    "threshold_used": 0.6,
-    "labels": [
-      "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
-    ],
-    "rejected_labels": [
-      "Anthropophony > Vessel"
-    ],
-    "added_labels": [],
+    "verification_round": 2,
+    "verification_status": "verified",
     "label_decisions": [
       {
         "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
@@ -312,8 +320,33 @@ Supports **multiple verification rounds** with full audit trail:
       }
     ],
     "confidence": "high",
-    "notes": "Reviewed again, removed vessel label - was background noise",
-    "verification_round": 2
+    "notes": "Reviewed again, confirmed vessel label removal",
+    "label_source": "expert"
+  }
+]
+```
+
+### Manual labeling (Label tab)
+
+Manual labels use the same structure. All labels have `decision: "added"` and
+`threshold_used: null` since there is no model:
+
+```json
+"verifications": [
+  {
+    "verified_at": "2026-01-16T15:00:00Z",
+    "verified_by": "alice@example.com",
+    "verification_round": 1,
+    "verification_status": "verified",
+    "label_decisions": [
+      {
+        "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+        "decision": "added",
+        "threshold_used": null
+      }
+    ],
+    "label_source": "expert",
+    "notes": ""
   }
 ]
 ```
@@ -324,38 +357,40 @@ Supports **multiple verification rounds** with full audit trail:
 
 ## Complete Example
 
-### Example 1: FWhale Detection with Sliding Windows
+### Example 1: Whale Detection with Sliding Windows
 ```json
 {
-  "version": "2.0",
+  "schema_version": "2.0",
   "created_at": "2026-01-16T22:00:00Z",
   "updated_at": "2026-01-16T23:30:00Z",
+  "task_type": "whale_detection",
   "model": {
-    "model_id": "finwhale_resnet18_v1.0",
+    "model_id": "sha256-a3f2b9c8d1e7",
     "architecture": "resnet18",
     "checkpoint_path": "trained-models/finwhale-cnn-resnet18/best.pt",
     "output_classes": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"]
   },
-  "data_source": {
-    "device_code": "ICLISTENHF1353",
-    "date_from": "2019-07-01T00:00:00Z",
-    "date_to": "2019-07-01T01:00:00Z"
-  },
+  "data_sources": [
+    {
+      "data_source_id": "ICLISTENHF1353_CLAYO_2019",
+      "device_code": "ICLISTENHF1353",
+      "date_from": "2019-07-01T00:00:00Z",
+      "date_to": "2019-07-01T01:00:00Z"
+    }
+  ],
   "spectrogram_config": {
-    "window_duration": 1.0,
+    "window_duration_sec": 1.0,
     "overlap": 0.9,
     "frequency_limits": {"min": 5, "max": 100},
-    "context_duration": 40.0
+    "context_duration_sec": 40.0
   },
-  "task_type": "whale_detection",
   "items": [
     {
       "item_id": "ICLISTENHF1353_20190701T000000.117Z_seg000",
-      "spectrogram_mat_path": "mat_files/ICLISTENHF1353_20190701T000000.117Z_seg000.mat",
-      "spectrogram_png_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.png",
-      "audio_path": "audio/ICLISTENHF1353_20190701T000000.117Z_seg000.wav",
-      "audio_timestamp": "2019-07-01T00:00:00.117Z",
-      "duration_sec": 40.0,
+      "data_source_id": "ICLISTENHF1353_CLAYO_2019",
+      "audio_start_time": "2019-07-01T00:00:00.117Z",
+      "audio_end_time": "2019-07-01T00:00:40.117Z",
+      "segment_index": 0,
       "model_outputs": [
         {
           "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
@@ -374,13 +409,25 @@ Supports **multiple verification rounds** with full audit trail:
         {
           "verified_at": "2026-01-16T15:30:00Z",
           "verified_by": "expert1@onc.ca",
-          "threshold_used": 0.3,
-          "labels": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"],
+          "verification_round": 1,
+          "verification_status": "verified",
+          "label_decisions": [
+            {
+              "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+              "decision": "accepted",
+              "threshold_used": 0.3
+            }
+          ],
           "confidence": "high",
           "notes": "Window 4 shows clear 20Hz pulse",
-          "verification_round": 1
+          "label_source": "expert"
         }
-      ]
+      ],
+      "paths": {
+        "spectrogram_mat_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.mat",
+        "spectrogram_png_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.png",
+        "audio_path": "audio/ICLISTENHF1353_20190701T000000.117Z_seg000.wav"
+      }
     }
   ]
 }
@@ -389,17 +436,16 @@ Supports **multiple verification rounds** with full audit trail:
 ### Example 2: Anomaly Detection (Multi-Class, No Windows)
 ```json
 {
-  "version": "2.0",
+  "schema_version": "2.0",
   "created_at": "2026-01-16T20:00:00Z",
+  "task_type": "anomaly_detection",
   "model": {
-    "model_id": "anomaly_detector_mae_v1",
+    "model_id": "sha256-b4c7d2e1f5a9",
     "architecture": "masked_autoencoder"
   },
-  "task_type": "anomaly_detection",
   "items": [
     {
       "item_id": "ICLISTENHF1951_20240830T144006.000Z",
-      "spectrogram_mat_path": "mat_files/ICLISTENHF1951_20240830T144006.000Z-spect_plotRes.mat",
       "model_outputs": [
         {"class_hierarchy": "Other > Unknown sound of interest", "score": 0.92},
         {"class_hierarchy": "Anthropophony > Vessel", "score": 0.15},
@@ -409,13 +455,45 @@ Supports **multiple verification rounds** with full audit trail:
         {
           "verified_at": "2026-01-16T16:00:00Z",
           "verified_by": "expert2@onc.ca",
-          "threshold_used": 0.5,
-          "labels": [
-            "Other > Unknown sound of interest",
-            "Instrumentation > Malfunction > Data gap"
+          "verification_round": 1,
+          "verification_status": "verified",
+          "label_decisions": [
+            {"label": "Other > Unknown sound of interest", "decision": "accepted", "threshold_used": 0.5},
+            {"label": "Instrumentation > Malfunction > Data gap", "decision": "added", "threshold_used": 0.5}
           ],
           "notes": "Confirmed unusual sound, also data gap present",
-          "verification_round": 1
+          "label_source": "expert"
+        }
+      ],
+      "paths": {
+        "spectrogram_mat_path": "spectrograms/ICLISTENHF1951_20240830T144006.000Z.mat"
+      }
+    }
+  ]
+}
+```
+
+### Example 3: Manual Labeling (No Model)
+```json
+{
+  "schema_version": "2.0",
+  "created_at": "2026-01-29T21:12:33Z",
+  "updated_at": "2026-01-29T21:12:33Z",
+  "task_type": "classification",
+  "items": [
+    {
+      "item_id": "ICLISTENHF1951_20241231T235516.996Z_seg001",
+      "verifications": [
+        {
+          "verified_at": "2026-01-29T21:10:00Z",
+          "verified_by": "sbialek",
+          "verification_round": 1,
+          "verification_status": "verified",
+          "label_decisions": [
+            {"label": "Instrumentation", "decision": "added", "threshold_used": null}
+          ],
+          "label_source": "expert",
+          "notes": ""
         }
       ]
     }
@@ -427,13 +505,14 @@ Supports **multiple verification rounds** with full audit trail:
 
 ## Benefits
 
-1. ✅ **Threshold-agnostic**: Store raw scores, apply thresholds in the app
-2. ✅ **Multi-class support**: Handle any number of predicted classes
-3. ✅ **Hierarchical labels**: Always uses taxonomy
-4. ✅ **Audit trail**: Full history of all verifications
-5. ✅ **Flexible granularity**: Works for full-clip or windowed predictions
-6. ✅ **No duplication**: References external files
-7. ✅ **Standardized**: Same format for whale detection and anomaly detection
+1. **Threshold-agnostic**: Store raw scores, apply thresholds in the app
+2. **Multi-class support**: Handle any number of predicted classes
+3. **Hierarchical labels**: Always uses taxonomy
+4. **Audit trail**: Full history of all verifications
+5. **Flexible granularity**: Works for full-clip or windowed predictions
+6. **No duplication**: References external files
+7. **Standardized**: Same format for whale detection, anomaly detection, and manual labeling
+8. **Single output format**: No conversion needed for O3.0 ingestion
 
 ---
 
@@ -441,16 +520,24 @@ Supports **multiple verification rounds** with full audit trail:
 
 ### From Current Whale Format
 - Move `confidence` → `model_outputs[0].score`
-- Move `expert_label` → `verifications[0].labels`
+- Move `expert_label` → `verifications[0].label_decisions[]`
 - Group window predictions under `model_outputs[0].windows`
 - Remove `crop_metadata` (redundant with spectrogram_config)
-- Rename `mat_path` → `spectrogram_mat_path`
-- Rename `spectrogram_path` → `spectrogram_png_path`
+- Rename `mat_path` → `paths.spectrogram_mat_path`
+- Rename `spectrogram_path` → `paths.spectrogram_png_path`
+- Use `schema_version` instead of `version`
+- Use `data_sources` array instead of singular `data_source`
 
 ### From Current Anomaly Format
 - Convert filename-based dict → items array
-- Wrap manual labels in `verifications` array
+- Wrap manual labels in `verifications` array with `label_decisions[]`
 - If model predictions exist, add `model_outputs`
+
+### From Annotations Format (labels.json)
+- `annotations.labels` → `verifications[].label_decisions[].label` with `decision="added"`, `threshold_used=null`
+- `annotations.annotated_by` → `verifications[].verified_by`
+- `annotations.annotated_at` → `verifications[].verified_at`
+- `annotations.notes` → `verifications[].notes`
 
 ---
 
@@ -460,5 +547,5 @@ The app should:
 1. **Load** raw scores from `model_outputs`
 2. **Display** with adjustable threshold slider
 3. **Allow** expert to select labels from hierarchy
-4. **Save** to `verifications` array with timestamp/user
-5. **Preserve** all previous verifications
+4. **Save** to `verifications` array with `label_decisions[]`, timestamp, and user
+5. **Preserve** all previous verifications (append-only)

@@ -9,7 +9,8 @@ and manual labels of Ocean Networks Canada (ONC) hydrophone data.
 
 | Principle | How it is achieved |
 |---|---|
-| **No redundancy** | Device/location/sample-rate are looked up via `data_source_id`, not repeated per item. Manual labels are stored once in `items[].annotations`. |
+| **No redundancy** | Device/location/sample-rate are looked up via `data_source_id`, not repeated per item. Manual labels use the same `verifications[]` structure as expert reviews. |
+| **Single output format** | Both prediction verification and manual labeling produce the same `verifications[].label_decisions[]` structure — no conversion needed for O3.0 ingestion. |
 | **Full provenance** | Model weights hash, training data reference, pipeline commit, audio source, spectrogram generation parameters, and calibration status are all explicit. |
 | **Audit trail** | Every verification round is preserved with reviewer identity, affiliation, per-label decisions, confidence, and notes. |
 | **Reproducibility** | Spectrogram config includes all FFT parameters needed to regenerate from audio. Audio source records whether data came from ONC API or local files. |
@@ -18,25 +19,17 @@ and manual labels of Ocean Networks Canada (ONC) hydrophone data.
 
 ---
 
-## Profiles (what files can look like)
-
-We support two compatible profiles:
-
-1) **predictions.json** (full schema)  
-   - Includes `model_outputs` and optional `verifications`.  
-   - Used for inference + expert review.
-
-2) **labels.json** (manual labels only)  
-   - Includes `items[].annotations` (labels + provenance).  
-   - Omits `model`, `pipeline`, `spectrogram_config`, `model_outputs`, `verifications`.  
-   - Designed for direct ingestion into O3.0 by mapping annotations to label decisions.
-   - **Legacy mapping format** (`{ "file_id": ["Label"] }`) is deprecated but may be accepted for migration.
-
----
-
 ## Structure overview
 
-### Full predictions profile
+All output files share one structure. The only difference is which optional
+root-level fields are present:
+
+- **With model predictions**: includes `model`, `pipeline`, `spectrogram_config`,
+  and `items[].model_outputs`.
+- **Manual labeling only**: omits those fields; `model_outputs` defaults to `[]`.
+
+In both cases, human decisions are stored in `items[].verifications[]`.
+
 ```
 {
   "schema_version": "2.0",
@@ -44,10 +37,10 @@ We support two compatible profiles:
   "updated_at":  "ISO-8601",
   "task_type":   "whale_detection | anomaly_detection | classification",
 
-  "model":              { ... },   // who made the predictions
-  "data_sources":       [ ... ],   // where the audio came from
-  "spectrogram_config": { ... },   // how spectrograms were generated
-  "pipeline":           { ... },   // inference pipeline version
+  "model":              { ... },   // optional — who made the predictions
+  "data_sources":       [ ... ],   // optional — where the audio came from
+  "spectrogram_config": { ... },   // optional — how spectrograms were generated
+  "pipeline":           { ... },   // optional — inference pipeline version
 
   "items": [                       // one entry per spectrogram / clip
     {
@@ -56,52 +49,23 @@ We support two compatible profiles:
       "audio_start_time": "ISO-8601",
       "audio_end_time":   "ISO-8601",
       "segment_index":    0,
-      "model_outputs":    [ ... ], // raw scores per class
-      "verifications":    [ ... ], // expert review rounds
+      "model_outputs":    [ ... ], // raw scores per class (empty [] if no model)
+      "verifications":    [ ... ], // human review rounds (label or verify)
       "paths":            { ... }  // relative file references
     }
   ]
 }
 ```
 
-### Labels-only profile (labels.json)
-
-```
-{
-  "schema_version": "2.0",
-  "created_at":  "ISO-8601",
-  "updated_at":  "ISO-8601",
-  "task_type":   "classification",
-
-  "data_sources": [ ... ],         // optional (often a single entry)
-
-  "items": [
-    {
-      "item_id": "...",
-      "data_source_id": "...",     // optional if only one data source
-      "annotations": { ... }       // manual labels + provenance
-    }
-  ]
-}
-```
-
-### Why `data_source_id` instead of repeating fields
-
-Each item references a `data_source` by ID. The data source carries device
-code, location, coordinates, depth, sample rate, channel, calibration status,
-and deployment info. This avoids repeating ~10 fields on every item and keeps
-mixed-device batches in a single file.
+ 
+ 
+ 
 
 ---
 
 ## Field reference
 
 ### Root
-
-**Required fields by profile**
-
-- **predictions.json**: `schema_version`, `created_at`, `task_type`, `data_sources`, `items`
-- **labels.json**: `schema_version`, `created_at`, `task_type`, `items`
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -111,6 +75,8 @@ mixed-device batches in a single file.
 | `task_type` | enum | yes | `whale_detection`, `anomaly_detection`, or `classification`. |
 
 ### `model`
+
+Optional. Present when predictions were generated by a model.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -130,7 +96,7 @@ mixed-device batches in a single file.
 
 ### `data_sources[]`
 
-Each entry describes one hydrophone deployment. Items reference these via `data_source_id`.
+Optional. Each entry describes one hydrophone deployment. Items reference these via `data_source_id`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -151,7 +117,7 @@ Each entry describes one hydrophone deployment. Items reference these via `data_
 
 ### `spectrogram_config`
 
-Parameters needed to reproduce the spectrograms. Present even for ONC-downloaded spectrograms (to document what ONC generated).
+Optional. Parameters needed to reproduce the spectrograms. Present even for ONC-downloaded spectrograms (to document what ONC generated).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -193,6 +159,8 @@ Describes how the source audio was obtained. Only relevant when `source.type` is
 
 ### `pipeline`
 
+Optional. Present when predictions were generated by a pipeline.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `pipeline_version` | string | no | Semantic version of the inference pipeline. |
@@ -206,22 +174,21 @@ Each item is one display unit (one spectrogram / audio clip).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `item_id` | string | yes | Unique within this file. Convention: `{device_code}_{ISO-timestamp}_seg{NNN}`. |
-| `data_source_id` | string | yes* | FK to `data_sources[].data_source_id`. Optional in labels.json when only one data source exists. |
-| `audio_start_time` | date-time | yes | Absolute start time of this clip. |
-| `audio_end_time` | date-time | yes | Absolute end time of this clip. |
+| `data_source_id` | string | no | FK to `data_sources[].data_source_id`. Required when multiple data sources exist. |
+| `audio_start_time` | date-time | no | Absolute start time of this clip. |
+| `audio_end_time` | date-time | no | Absolute end time of this clip. |
 | `segment_index` | integer | no | Zero-based index when a longer recording is split into segments. |
-| `model_outputs` | array | yes | See below. |
+| `model_outputs` | array | no | See below. Defaults to `[]`. |
 | `verifications` | array | no | See below. Defaults to `[]`. |
 | `paths` | object | no | See below. |
 
-
-> **Note:** `data_source_id` is required whenever multiple `data_sources` are present or when using the predictions profile.
+> **Note:** `data_source_id` is required whenever multiple `data_sources` are present.
 
 > **Device, location, sample rate** are looked up from `data_sources` via `data_source_id`. No separate fields needed.
 
 #### `items[].model_outputs[]`
 
-Raw model scores. One entry per class the model evaluated.
+Raw model scores. One entry per class the model evaluated. Empty `[]` when no model was used (manual labeling).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -229,21 +196,12 @@ Raw model scores. One entry per class the model evaluated.
 | `class_id` | string | no | Short stable identifier, e.g. `"anthro_vessel"`. |
 | `score` | number (0-1) | yes | Raw model confidence. Not thresholded. |
 
-#### `items[].annotations` (labels.json)
-
-Manual labels and provenance.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `labels` | array of string | yes | Taxonomy paths. |
-| `annotated_by` | string | no | Reviewer identifier. |
-| `annotated_at` | date-time | no | When labels were saved. |
-| `verified` | boolean | no | Optional manual verification flag. |
-| `notes` | string | no | Free-text comments. |
-
 #### `items[].verifications[]`
 
-Each entry is one verification round. The last entry is the current ground truth. Append-only: never delete previous rounds.
+Each entry is one verification or labeling round. The last entry is the current ground truth. Append-only: never delete previous rounds.
+
+This structure is used for **both** expert verification of model predictions
+**and** manual labeling. The `label_source` field distinguishes the origin.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -263,8 +221,8 @@ Each entry is one verification round. The last entry is the current ground truth
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `label` | string | yes | Taxonomy path. |
-| `decision` | enum | yes | `"accepted"` (model-suggested, confirmed), `"rejected"` (model-suggested, removed), or `"added"` (not suggested by model, added by reviewer). |
-| `threshold_used` | number | yes | Score threshold the reviewer applied when making this decision. |
+| `decision` | enum | yes | `"accepted"` (model-suggested, confirmed), `"rejected"` (model-suggested, removed), or `"added"` (not suggested by model, or manually labeled). |
+| `threshold_used` | number or null | yes | Score threshold the reviewer applied when making this decision. `null` when labeling without a model (manual labeling). |
 
 #### `items[].paths`
 
@@ -307,7 +265,10 @@ Example: `"sha256-a3f2b9c8d1e7"` (12 hex chars, ~281 trillion combinations).
 
 ---
 
-## Labels-only example (labels.json)
+## Manual labeling example (labels.json)
+
+Manual labels use the same `verifications[]` structure. All labels have
+`decision: "added"` and `threshold_used: null` since there is no model.
 
 ```json
 {
@@ -318,26 +279,27 @@ Example: `"sha256-a3f2b9c8d1e7"` (12 hex chars, ~281 trillion combinations).
   "items": [
     {
       "item_id": "ICLISTENHF1951_20241231T235516.996Z_seg001",
-      "annotations": {
-        "labels": ["Instrumentation"],
-        "annotated_by": "sbialek",
-        "annotated_at": "2026-01-29T21:10:00Z",
-        "notes": ""
-      }
+      "verifications": [
+        {
+          "verified_at": "2026-01-29T21:10:00Z",
+          "verified_by": "sbialek",
+          "verification_round": 1,
+          "verification_status": "verified",
+          "label_decisions": [
+            { "label": "Instrumentation", "decision": "added", "threshold_used": null }
+          ],
+          "label_source": "expert",
+          "notes": ""
+        }
+      ]
     }
   ]
 }
 ```
 
-**O3 ingestion mapping (labels.json → verifications):**
-- `annotations.labels` → `label_decisions[].label` with `decision="added"` and `threshold_used=null`
-- `annotated_at` → `verified_at`
-- `annotated_by` → `verified_by`
-- `notes` → `notes`
-
 ---
 
-## Complete example (predictions.json)
+## Complete example (predictions + verification)
 
 ```json
 {
@@ -491,18 +453,13 @@ Example: `"sha256-a3f2b9c8d1e7"` (12 hex chars, ~281 trillion combinations).
 
 ## JSON Schema (draft 2020-12)
 
-**Note:** This schema block describes the full predictions profile.  
-For labels.json, accept a subset that includes `schema_version`, `created_at`,
-`task_type`, `items[]`, and `items[].annotations`, while allowing omission of
-`model`, `pipeline`, `spectrogram_config`, `model_outputs`, and `verifications`.
-
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://oceannetworks.ca/schemas/o3_predictions_v2.json",
-  "title": "O3 Predictions Schema v2.0",
+  "$id": "https://oceannetworks.ca/schemas/o3_unified_v2.json",
+  "title": "O3 Unified Schema v2.0",
   "type": "object",
-  "required": ["schema_version", "created_at", "task_type", "data_sources", "items"],
+  "required": ["schema_version", "created_at", "task_type", "items"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "type": "string", "const": "2.0" },
@@ -634,7 +591,7 @@ For labels.json, accept a subset that includes `schema_version`, `created_at`,
     },
     "item": {
       "type": "object",
-      "required": ["item_id", "data_source_id", "audio_start_time", "audio_end_time", "model_outputs"],
+      "required": ["item_id"],
       "additionalProperties": false,
       "properties": {
         "item_id": { "type": "string" },
@@ -710,9 +667,11 @@ For labels.json, accept a subset that includes `schema_version`, `created_at`,
           "type": "string",
           "enum": ["accepted", "rejected", "added"]
         },
-        "threshold_used": { "type": "number", "minimum": 0, "maximum": 1 }
+        "threshold_used": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
       }
     }
   }
 }
 ```
+
+ 

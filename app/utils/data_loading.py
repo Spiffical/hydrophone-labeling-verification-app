@@ -81,14 +81,33 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
             if not isinstance(item, dict):
                 continue
             item_id = item.get("item_id")
-            annotations = item.get("annotations") or {}
-            entry = {
-                "labels": annotations.get("labels", []) or [],
-                "notes": annotations.get("notes", "") or "",
-                "annotated_by": annotations.get("annotated_by"),
-                "annotated_at": annotations.get("annotated_at"),
-                "verified": bool(annotations.get("verified")),
-            }
+
+            # Prefer verifications (unified format)
+            verifications = item.get("verifications")
+            if verifications and isinstance(verifications, list):
+                latest = verifications[-1]
+                label_decisions = latest.get("label_decisions", [])
+                labels = [
+                    ld["label"] for ld in label_decisions
+                    if ld.get("decision") in ("accepted", "added")
+                ]
+                entry = {
+                    "labels": labels,
+                    "notes": latest.get("notes", "") or "",
+                    "annotated_by": latest.get("verified_by"),
+                    "annotated_at": latest.get("verified_at"),
+                    "verified": True,
+                }
+            else:
+                # Fallback to legacy annotations
+                annotations = item.get("annotations") or {}
+                entry = {
+                    "labels": annotations.get("labels", []) or [],
+                    "notes": annotations.get("notes", "") or "",
+                    "annotated_by": annotations.get("annotated_by"),
+                    "annotated_at": annotations.get("annotated_at"),
+                    "verified": bool(annotations.get("verified")),
+                }
             for key in {item_id, _normalize_item_key(item_id)}:
                 if key:
                     labels_map[key] = entry

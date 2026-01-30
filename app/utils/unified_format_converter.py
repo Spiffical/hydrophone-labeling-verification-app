@@ -14,12 +14,16 @@ def _build_summary(items: List[dict]) -> dict:
     annotated = 0
     verified = 0
     for item in items:
-        annotations = item.get("annotations") or {}
         verifications = item.get("verifications") or []
-        if annotations.get("labels") or verifications:
+        annotations = item.get("annotations") or {}
+        if verifications:
             annotated += 1
-        if annotations.get("verified") or (verifications and verifications[-1].get("label_decisions")):
-            verified += 1
+            if verifications[-1].get("label_decisions"):
+                verified += 1
+        elif annotations.get("labels"):
+            annotated += 1
+            if annotations.get("verified"):
+                verified += 1
     return {"total_items": total, "annotated": annotated, "verified": verified}
 
 
@@ -200,7 +204,7 @@ def is_unified_v2_format(predictions_json: dict) -> bool:
 
     if has_items and predictions_json["items"]:
         first_item = predictions_json["items"][0]
-        if "model_outputs" in first_item:
+        if "model_outputs" in first_item or "verifications" in first_item:
             return True
 
     return False
