@@ -160,6 +160,7 @@ outputs/
 *.wav
 *.flac
 *.png
+!app/assets/screenshot_demo.png
 *.json
 !app/taxonomy/*.json
 !tests/data/*.json

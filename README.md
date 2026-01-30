@@ -3,7 +3,7 @@
 A professional, high-performance web application built with Plotly Dash for the scientific analysis, labeling, and verification of hydrophone data. This tool is specifically designed to handle large-scale acoustic datasets, particularly for marine mammal research (e.g., fin whale calls).
 
 <div align="center">
-  <img src="assets/screenshot_demo.png" alt="Spectrogram Interface" width="900" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+  <img src="app/assets/screenshot_demo.png" alt="Spectrogram Interface" width="900" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
   <p><em>Interactive Spectrogram Verification Interface</em></p>
 </div>
 
@@ -84,7 +84,7 @@ The app supports:
     *   `callbacks/`: Dash callback functions.
     *   `components/`: Reusable UI components (Audio players, Modals, Cards).
     *   `utils/`: Data processing, image rendering, and file I/O utilities.
-*   `assets/`: Custom CSS and clientside JavaScript.
+*   `app/assets/`: Custom CSS and clientside JavaScript.
 *   `config/`: YAML configuration files.
 *   `scripts/`: Utility scripts for data management and testing.
 *   `taxonomy/`: Hierarchical label definitions.

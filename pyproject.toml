@@ -29,3 +29,6 @@ hydrophone-verify = "app.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*", "shared*", "taxonomy*"]
+
+[tool.setuptools.package-data]
+app = ["assets/*", "assets/**/*"]

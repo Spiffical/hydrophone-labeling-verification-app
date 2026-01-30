@@ -22,9 +22,9 @@ def set_audio_roots(roots):
 
 
 def create_app(config: Dict) -> dash.Dash:
-    # Get the absolute path to assets folder relative to project root
+    # Get the absolute path to assets folder relative to package
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_path = os.path.join(os.path.dirname(this_dir), 'assets')
+    assets_path = os.path.join(this_dir, 'assets')
     
     app = dash.Dash(
         __name__,
