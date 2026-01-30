@@ -99,13 +99,13 @@ def _generate_image(mat_path: str, colormap: str = "default", y_axis_scale: str 
     freq = spectrogram["freq"]
     time = spectrogram["time"]
     
-    # Detect if time is in Julian days (large values) or seconds (small values)
+    # Normalize time to start from 0 for proper display
     if len(time) > 0 and time[0] > 1000:
-        # Julian days - convert to minutes
+        # Julian days - convert to minutes relative to start
         time_plot = (time - time[0]) * 24 * 60
     else:
-        # Already in seconds - use directly
-        time_plot = time
+        # Seconds - normalize to start from 0
+        time_plot = time - time[0] if len(time) > 0 else time
     
     # Detect if frequency needs scaling (already in Hz vs kHz)
     # If max freq > 1000, it's likely Hz; otherwise might already be kHz
@@ -175,14 +175,15 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     freq = spectrogram_data["freq"]
     time = spectrogram_data["time"]
 
-    # Detect if time is in Julian days (large values) or seconds (small values)
+    # Normalize time to start from 0 for better visualization
+    # This shows the spectrogram window duration rather than position in source file
     if len(time) > 0 and time[0] > 1000:
-        # Julian days - convert to minutes
+        # Julian days - convert to minutes relative to start
         time_plot = (time - time[0]) * 24 * 60
         x_label = "Time (minutes)"
     else:
-        # Already in seconds - use directly
-        time_plot = time
+        # Seconds - normalize to start from 0
+        time_plot = time - time[0] if len(time) > 0 else time
         x_label = "Time (seconds)"
 
     # Intelligent frequency unit detection and scaling

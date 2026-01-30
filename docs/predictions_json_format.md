@@ -145,7 +145,15 @@ The inference script automatically computes the hash for older checkpoints that 
   "segment_overlap": 0.5,
   "colormap": "viridis",
   "color_limits": {"min": -60, "max": 0},
-  "temporal_padding_used": 2.0
+  "temporal_padding_used": 2.0,
+  "source": {
+    "type": "computed" | "onc_download",
+    "provider": "ONC",
+    "generator": "SpectrogramGenerator",
+    "backend": "scipy" | "torch" | null,
+    "plot_res": "spec_01",  // ONC downloads only
+    "data_product_options": { ... }  // ONC downloads only
+  }
 }
 ```
 
@@ -158,9 +166,9 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 ```json
 {
   "item_id": "ICLISTENHF1951_20250101T000000.996Z_seg000",
-  "mat_path": "mat_files/ICLISTENHF1951_20250101T000000.996Z_seg000.mat",
+  "spectrogram_mat_path": "mat_files/ICLISTENHF1951_20250101T000000.996Z_seg000.mat",
   "audio_path": "audio/ICLISTENHF1951_20250101T000000.996Z_seg000.wav",
-  "spectrogram_path": "spectrograms/ICLISTENHF1951_20250101T000000.996Z_seg000.png",
+  "spectrogram_png_path": "spectrograms/ICLISTENHF1951_20250101T000000.996Z_seg000.png",  // optional
   "audio_timestamp": "2025-01-01T00:00:00.996Z",
   "duration_sec": 40.0,
   
@@ -168,6 +176,10 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
   "verifications": [ ... ]    // Expert reviews (see below)
 }
 ```
+
+**Deprecated (still accepted for backwards compatibility):**
+- `mat_path` → use `spectrogram_mat_path`
+- `spectrogram_path` → use `spectrogram_png_path`
 
 ---
 
@@ -258,6 +270,20 @@ Supports **multiple verification rounds** with full audit trail:
       "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
       "Anthropophony > Vessel"
     ],
+    "rejected_labels": [],  // Model-suggested labels rejected at this threshold
+    "added_labels": [],     // Labels added by verifier not suggested by the model
+    "label_decisions": [    // Per-label decision + threshold snapshot
+      {
+        "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+        "decision": "accepted",
+        "threshold_used": 0.5
+      },
+      {
+        "label": "Anthropophony > Vessel",
+        "decision": "accepted",
+        "threshold_used": 0.5
+      }
+    ],
     "confidence": "high" | "medium" | "low" | null,
     "notes": "Clear fin whale 20Hz pulse visible",
     "verification_round": 1
@@ -268,6 +294,22 @@ Supports **multiple verification rounds** with full audit trail:
     "threshold_used": 0.6,
     "labels": [
       "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
+    ],
+    "rejected_labels": [
+      "Anthropophony > Vessel"
+    ],
+    "added_labels": [],
+    "label_decisions": [
+      {
+        "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+        "decision": "accepted",
+        "threshold_used": 0.6
+      },
+      {
+        "label": "Anthropophony > Vessel",
+        "decision": "rejected",
+        "threshold_used": 0.6
+      }
     ],
     "confidence": "high",
     "notes": "Reviewed again, removed vessel label - was background noise",
@@ -309,7 +351,8 @@ Supports **multiple verification rounds** with full audit trail:
   "items": [
     {
       "item_id": "ICLISTENHF1353_20190701T000000.117Z_seg000",
-      "mat_path": "mat_files/ICLISTENHF1353_20190701T000000.117Z_seg000.mat",
+      "spectrogram_mat_path": "mat_files/ICLISTENHF1353_20190701T000000.117Z_seg000.mat",
+      "spectrogram_png_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.png",
       "audio_path": "audio/ICLISTENHF1353_20190701T000000.117Z_seg000.wav",
       "audio_timestamp": "2019-07-01T00:00:00.117Z",
       "duration_sec": 40.0,
@@ -356,7 +399,7 @@ Supports **multiple verification rounds** with full audit trail:
   "items": [
     {
       "item_id": "ICLISTENHF1951_20240830T144006.000Z",
-      "mat_path": "mat_files/ICLISTENHF1951_20240830T144006.000Z-spect_plotRes.mat",
+      "spectrogram_mat_path": "mat_files/ICLISTENHF1951_20240830T144006.000Z-spect_plotRes.mat",
       "model_outputs": [
         {"class_hierarchy": "Other > Unknown sound of interest", "score": 0.92},
         {"class_hierarchy": "Anthropophony > Vessel", "score": 0.15},
@@ -401,6 +444,8 @@ Supports **multiple verification rounds** with full audit trail:
 - Move `expert_label` → `verifications[0].labels`
 - Group window predictions under `model_outputs[0].windows`
 - Remove `crop_metadata` (redundant with spectrogram_config)
+- Rename `mat_path` → `spectrogram_mat_path`
+- Rename `spectrogram_path` → `spectrogram_png_path`
 
 ### From Current Anomaly Format
 - Convert filename-based dict → items array

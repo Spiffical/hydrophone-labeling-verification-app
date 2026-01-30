@@ -57,26 +57,27 @@ def test_load_data_callback(base_url):
     config_data = config_store.get("props", {}).get("data")
 
     payload = {
-        "output": "data-store.data",
-        "outputs": {"id": "data-store", "property": "data"},
+        "output": "label-data-store.data",
+        "outputs": {"id": "label-data-store", "property": "data"},
         "inputs": [
-            {"id": "mode-tabs", "property": "value", "value": "label"},
-            {"id": "label-reload", "property": "n_clicks", "value": None},
-            {"id": "verify-reload", "property": "n_clicks", "value": None},
-            {"id": "explore-reload", "property": "n_clicks", "value": None},
+            {"id": "label-reload", "property": "n_clicks", "value": 1},
+            {"id": "data-load-trigger-store", "property": "data", "value": 0},
         ],
         "state": [
+            {"id": "global-date-selector", "property": "value", "value": None},
+            {"id": "global-device-selector", "property": "value", "value": None},
             {"id": "config-store", "property": "data", "value": config_data},
+            {"id": "mode-tabs", "property": "value", "value": "label"},
         ],
-        "changedPropIds": ["mode-tabs.value"],
+        "changedPropIds": ["label-reload.n_clicks"],
     }
 
     resp = requests.post(f"{base_url}/_dash-update-component", json=payload, timeout=10)
     assert resp.status_code == 200
     body = resp.json()
     response = body.get("response", {})
-    assert "data-store" in response
-    data = response["data-store"]["data"]
+    assert "label-data-store" in response
+    data = response["label-data-store"]["data"]
     assert data["items"], "Expected items from load_data"
     assert "summary" in data
 

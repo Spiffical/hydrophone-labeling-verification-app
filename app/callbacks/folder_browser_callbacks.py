@@ -161,15 +161,34 @@ def register_folder_browser_callbacks(app):
         """Handle folder selection."""
         if not n_clicks_list or not any(n_clicks_list):
             raise PreventUpdate
-        
+
         triggered = ctx.triggered_id
         if not isinstance(triggered, dict) or "path" not in triggered:
             raise PreventUpdate
-        
+
         selected_path = triggered["path"]
         # Show just the last part of the path for display
         display_name = os.path.basename(selected_path) or selected_path
         return selected_path, display_name, False
+
+    @app.callback(
+        Output("folder-browser-confirm", "disabled", allow_duplicate=True),
+        Output("folder-browser-selected", "children", allow_duplicate=True),
+        Input("folder-browser-modal", "is_open"),
+        State("folder-browser-selected-store", "data"),
+        prevent_initial_call=True,
+    )
+    def sync_confirm_button_on_open(is_open, selected_path):
+        """Sync the confirm button state when modal opens."""
+        if is_open and selected_path:
+            # Modal opened and there's a previous selection - enable the confirm button
+            display_name = os.path.basename(selected_path) or selected_path
+            return False, display_name
+        elif is_open:
+            # Modal opened but no selection
+            return True, "None"
+        # Modal closed - no update needed
+        raise PreventUpdate
 
     # Note: The actual loading is handled by data_config_callbacks.py
     # which opens a configuration modal after folder selection

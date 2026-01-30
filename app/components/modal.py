@@ -8,15 +8,8 @@ def create_spectrogram_modal():
     return dbc.Modal(
         [
             dbc.ModalHeader([
-                html.H4(id='modal-header', style={
-                    'color': '#495057',
-                    'font-weight': '600',
-                    'margin': '0'
-                })
-            ], style={
-                'background': 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
-                'border-bottom': '1px solid #dee2e6'
-            }, close_button=True),
+                html.H4(id='modal-header', className="modal-title-text")
+            ], className="spectrogram-modal-header", close_button=True),
             dbc.ModalBody([
                 # Control panel for modal settings
                 html.Div([

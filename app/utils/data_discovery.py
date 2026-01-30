@@ -206,11 +206,130 @@ def _find_spectrogram_subfolder(base_path: str) -> Optional[str]:
     return None
 
 
+def _build_hierarchy_detail(path: str, dates: List[str], devices: set) -> Dict:
+    """
+    Build detailed info for each date/device combination.
+
+    Returns:
+        {
+            "2026-01-19": {
+                "ICLISTENHF1951": {
+                    "spectrogram_count": 42,
+                    "audio_count": 38,
+                    "has_labels_json": True,
+                    "has_predictions_json": False,
+                    "spectrogram_folder": "/path/to/spectrograms",
+                    "audio_folder": "/path/to/audio"
+                }
+            }
+        }
+    """
+    detail = {}
+
+    for date in dates:
+        detail[date] = {}
+        date_path = os.path.join(path, date)
+
+        try:
+            for item in os.listdir(date_path):
+                item_path = os.path.join(date_path, item)
+                if os.path.isdir(item_path) and item in devices:
+                    # Find spectrogram folder
+                    spec_folder = _find_spectrogram_subfolder(item_path) or item_path
+                    spec_files, _ = _find_spectrograms(spec_folder)
+
+                    # Find audio folder
+                    audio_folder = _find_audio_folder(item_path, spec_folder)
+                    audio_count = _count_audio_files(audio_folder)
+
+                    # Check for labels.json and predictions.json
+                    labels_path = os.path.join(item_path, "labels.json")
+                    predictions_path = os.path.join(item_path, "predictions.json")
+
+                    detail[date][item] = {
+                        "spectrogram_count": len(spec_files),
+                        "audio_count": audio_count,
+                        "has_labels_json": os.path.isfile(labels_path),
+                        "has_predictions_json": os.path.isfile(predictions_path),
+                        "spectrogram_folder": spec_folder if spec_files else None,
+                        "audio_folder": audio_folder,
+                    }
+        except Exception:
+            pass
+
+    return detail
+
+
+def _find_root_level_files(path: str) -> Dict:
+    """
+    Find labels.json and predictions.json at the root level.
+    Also count how many exist in subfolders.
+    """
+    result = {
+        "root_labels_file": None,
+        "root_predictions_file": None,
+        "subfolder_labels_count": 0,
+        "subfolder_predictions_count": 0,
+        "subfolder_labels_locations": [],
+        "subfolder_predictions_locations": [],
+    }
+
+    # Check root level
+    for filename in ["labels.json", "annotations.json"]:
+        candidate = os.path.join(path, filename)
+        if os.path.isfile(candidate):
+            result["root_labels_file"] = candidate
+            break
+
+    for filename in ["predictions.json"]:
+        candidate = os.path.join(path, filename)
+        if os.path.isfile(candidate):
+            result["root_predictions_file"] = candidate
+            break
+
+    # Count subfolder files (up to 2 levels deep: date/device)
+    try:
+        for item in os.listdir(path):
+            item_path = os.path.join(path, item)
+            if os.path.isdir(item_path):
+                # Check date-level
+                labels_at_date = os.path.join(item_path, "labels.json")
+                if os.path.isfile(labels_at_date):
+                    result["subfolder_labels_count"] += 1
+                    result["subfolder_labels_locations"].append(labels_at_date)
+
+                predictions_at_date = os.path.join(item_path, "predictions.json")
+                if os.path.isfile(predictions_at_date):
+                    result["subfolder_predictions_count"] += 1
+                    result["subfolder_predictions_locations"].append(predictions_at_date)
+
+                # Check device-level (inside date folders)
+                try:
+                    for subitem in os.listdir(item_path):
+                        subitem_path = os.path.join(item_path, subitem)
+                        if os.path.isdir(subitem_path):
+                            labels_at_device = os.path.join(subitem_path, "labels.json")
+                            if os.path.isfile(labels_at_device):
+                                result["subfolder_labels_count"] += 1
+                                result["subfolder_labels_locations"].append(labels_at_device)
+
+                            predictions_at_device = os.path.join(subitem_path, "predictions.json")
+                            if os.path.isfile(predictions_at_device):
+                                result["subfolder_predictions_count"] += 1
+                                result["subfolder_predictions_locations"].append(predictions_at_device)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return result
+
+
 def _check_hierarchical_structure(path: str) -> Dict:
     """Check for DATE/DEVICE hierarchy."""
     dates = []
     devices = set()
-    
+
     try:
         for item in os.listdir(path):
             item_path = os.path.join(path, item)
@@ -223,47 +342,69 @@ def _check_hierarchical_structure(path: str) -> Dict:
                         devices.add(subitem)
     except Exception:
         pass
-    
+
     if dates and devices:
+        sorted_dates = sorted(dates, reverse=True)
+        sorted_devices = sorted(devices)
+
         # Found hierarchical structure - get info from first date/device
-        first_date = sorted(dates, reverse=True)[0]
-        first_device = sorted(devices)[0]
+        first_date = sorted_dates[0]
+        first_device = sorted_devices[0]
         sample_path = os.path.join(path, first_date, first_device)
-        
+
         # Find spectrograms
         spec_folder = _find_spectrogram_subfolder(sample_path) or sample_path
         spec_files, spec_exts = _find_spectrograms(spec_folder)
-        
+
         # Find audio
         audio_folder = _find_audio_folder(sample_path, spec_folder)
         audio_count = _count_audio_files(audio_folder)
-        
-        # Find predictions
-        predictions = _find_predictions_file(sample_path)
-        
+
+        # Find predictions (check root first, then sample path)
+        root_files = _find_root_level_files(path)
+        predictions = root_files["root_predictions_file"] or _find_predictions_file(sample_path)
+
+        # Build hierarchy detail
+        hierarchy_detail = _build_hierarchy_detail(path, sorted_dates, devices)
+
+        # Calculate total spectrogram count across all folders
+        total_spec_count = sum(
+            device_info.get("spectrogram_count", 0)
+            for date_data in hierarchy_detail.values()
+            for device_info in date_data.values()
+        )
+
         return {
             "found": True,
             "result": {
                 "structure_type": "hierarchical",
-                "dates": sorted(dates, reverse=True),
-                "devices": sorted(devices),
+                "dates": sorted_dates,
+                "devices": sorted_devices,
                 "spectrogram_folder": spec_folder,
                 "audio_folder": audio_folder,
                 "predictions_file": predictions,
                 "spectrogram_extensions": list(spec_exts.keys()),
-                "spectrogram_count": len(spec_files),
+                "spectrogram_count": total_spec_count or len(spec_files),
                 "audio_count": audio_count,
-                "message": f"Found {len(dates)} dates, {len(devices)} devices, {len(spec_files)} spectrograms"
+                "message": f"Found {len(dates)} dates, {len(devices)} devices",
+                # New fields for enhanced display
+                "hierarchy_detail": hierarchy_detail,
+                "root_labels_file": root_files["root_labels_file"],
+                "root_predictions_file": root_files["root_predictions_file"],
+                "subfolder_labels_count": root_files["subfolder_labels_count"],
+                "subfolder_predictions_count": root_files["subfolder_predictions_count"],
+                "subfolder_labels_locations": root_files["subfolder_labels_locations"],
+                "subfolder_predictions_locations": root_files["subfolder_predictions_locations"],
             }
         }
-    
+
     return {"found": False}
 
 
 def _check_device_only_structure(path: str) -> Dict:
     """Check for DEVICE-only folders (no date hierarchy)."""
     devices = []
-    
+
     try:
         for item in os.listdir(path):
             item_path = os.path.join(path, item)
@@ -273,45 +414,80 @@ def _check_device_only_structure(path: str) -> Dict:
                 if spec_folder:
                     devices.append(item)
                     continue
-                
+
                 # Check for direct spectrogram files
                 files, _ = _find_spectrograms(item_path)
                 if files:
                     devices.append(item)
                     continue
-                
+
                 # Check for predictions
                 if _find_predictions_file(item_path):
                     devices.append(item)
     except Exception:
         pass
-    
+
     if devices:
-        first_device = sorted(devices)[0]
+        sorted_devices = sorted(devices)
+        first_device = sorted_devices[0]
         sample_path = os.path.join(path, first_device)
-        
+
         spec_folder = _find_spectrogram_subfolder(sample_path) or sample_path
         spec_files, spec_exts = _find_spectrograms(spec_folder)
         audio_folder = _find_audio_folder(sample_path, spec_folder)
         audio_count = _count_audio_files(audio_folder)
-        predictions = _find_predictions_file(sample_path)
-        
+
+        # Find root-level files
+        root_files = _find_root_level_files(path)
+        predictions = root_files["root_predictions_file"] or _find_predictions_file(sample_path)
+
+        # Build device detail (similar to hierarchy_detail but without dates)
+        device_detail = {}
+        total_spec_count = 0
+        for device in sorted_devices:
+            device_path = os.path.join(path, device)
+            device_spec_folder = _find_spectrogram_subfolder(device_path) or device_path
+            device_spec_files, _ = _find_spectrograms(device_spec_folder)
+            device_audio_folder = _find_audio_folder(device_path, device_spec_folder)
+            device_audio_count = _count_audio_files(device_audio_folder)
+
+            labels_path = os.path.join(device_path, "labels.json")
+            predictions_path = os.path.join(device_path, "predictions.json")
+
+            device_detail[device] = {
+                "spectrogram_count": len(device_spec_files),
+                "audio_count": device_audio_count,
+                "has_labels_json": os.path.isfile(labels_path),
+                "has_predictions_json": os.path.isfile(predictions_path),
+                "spectrogram_folder": device_spec_folder if device_spec_files else None,
+                "audio_folder": device_audio_folder,
+            }
+            total_spec_count += len(device_spec_files)
+
         return {
             "found": True,
             "result": {
                 "structure_type": "device_only",
                 "dates": [],
-                "devices": sorted(devices),
+                "devices": sorted_devices,
                 "spectrogram_folder": spec_folder,
                 "audio_folder": audio_folder,
                 "predictions_file": predictions,
                 "spectrogram_extensions": list(spec_exts.keys()),
-                "spectrogram_count": len(spec_files),
+                "spectrogram_count": total_spec_count or len(spec_files),
                 "audio_count": audio_count,
-                "message": f"Found {len(devices)} devices, {len(spec_files)} spectrograms"
+                "message": f"Found {len(devices)} devices",
+                # New fields for enhanced display
+                "device_detail": device_detail,
+                "root_labels_file": root_files["root_labels_file"],
+                "root_predictions_file": root_files["root_predictions_file"],
+                "subfolder_labels_count": root_files["subfolder_labels_count"],
+                "subfolder_predictions_count": root_files["subfolder_predictions_count"],
+                "subfolder_labels_locations": root_files["subfolder_labels_locations"],
+                "subfolder_predictions_locations": root_files["subfolder_predictions_locations"],
             }
         }
-    
+
     return {"found": False}
 
 
@@ -319,7 +495,7 @@ def _check_flat_structure(path: str) -> Dict:
     """Check for flat folder with spectrogram files directly."""
     # Check for spectrogram subfolder first
     spec_folder = _find_spectrogram_subfolder(path)
-    
+
     if spec_folder:
         spec_files, spec_exts = _find_spectrograms(spec_folder)
     else:
@@ -327,16 +503,30 @@ def _check_flat_structure(path: str) -> Dict:
         spec_files, spec_exts = _find_spectrograms(path)
         if spec_files:
             spec_folder = path
-    
+
     if not spec_files:
         return {"found": False}
-    
+
     audio_folder = _find_audio_folder(path, spec_folder)
     audio_count = _count_audio_files(audio_folder)
     predictions = _find_predictions_file(path)
-    
+
+    # Check for root-level labels/predictions files
+    root_labels = None
+    root_predictions = None
+    for filename in ["labels.json", "annotations.json"]:
+        candidate = os.path.join(path, filename)
+        if os.path.isfile(candidate):
+            root_labels = candidate
+            break
+    for filename in ["predictions.json"]:
+        candidate = os.path.join(path, filename)
+        if os.path.isfile(candidate):
+            root_predictions = candidate
+            break
+
     ext_summary = ", ".join(f"{count} {ext}" for ext, count in spec_exts.items())
-    
+
     return {
         "found": True,
         "result": {
@@ -345,11 +535,18 @@ def _check_flat_structure(path: str) -> Dict:
             "devices": [],
             "spectrogram_folder": spec_folder,
             "audio_folder": audio_folder,
-            "predictions_file": predictions,
+            "predictions_file": predictions or root_predictions,
             "spectrogram_extensions": list(spec_exts.keys()),
             "spectrogram_count": len(spec_files),
             "audio_count": audio_count,
-            "message": f"Found {ext_summary}" + (f", {audio_count} audio files" if audio_count else "")
+            "message": f"Found {ext_summary}" + (f", {audio_count} audio {'file' if audio_count == 1 else 'files'}" if audio_count else ""),
+            # Include root-level file info for consistency
+            "root_labels_file": root_labels,
+            "root_predictions_file": root_predictions,
+            "subfolder_labels_count": 0,
+            "subfolder_predictions_count": 0,
+            "subfolder_labels_locations": [],
+            "subfolder_predictions_locations": [],
         }
     }
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 import dash
 from dash import html, dcc, Input, Output, State, callback, ALL, MATCH
 import dash_bootstrap_components as dbc
@@ -62,6 +63,10 @@ def create_hierarchical_selector(filename, selected_labels=None, read_only=False
         dcc.Store(
             id={"type": "selected-labels-store", "filename": filename},
             data=[path_to_string(path) for path in selected_paths],
+        ),
+        dcc.Store(
+            id={"type": "verify-actions-store", "filename": filename},
+            data=[],
         ),
         dcc.Interval(
             id={"type": "search-debounce-timer", "filename": filename},
@@ -191,13 +196,18 @@ def toggle_tree_node(n_clicks, current_style):
 @callback(
     Output({"type": "selected-labels-store", "filename": MATCH}, "data"),
     Output({"type": "selected-labels-display", "filename": MATCH}, "children"),
+    Output({"type": "verify-actions-store", "filename": MATCH}, "data", allow_duplicate=True),
     Input({"type": "hierarchical-checkbox", "filename": MATCH, "path": ALL}, "value"),
     State({"type": "hierarchical-checkbox", "filename": MATCH, "path": ALL}, "id"),
+    State({"type": "selected-labels-store", "filename": MATCH}, "data"),
+    State({"type": "verify-actions-store", "filename": MATCH}, "data"),
+    State("verify-thresholds-store", "data"),
+    State("mode-tabs", "data"),
     prevent_initial_call=True,
 )
-def update_selected_labels(checkbox_values, checkbox_ids):
+def update_selected_labels(checkbox_values, checkbox_ids, current_labels, actions_store, thresholds, mode):
     if not checkbox_values or not checkbox_ids:
-        return [], create_selected_labels_display([], checkbox_ids[0]["filename"] if checkbox_ids else "")
+        return [], create_selected_labels_display([], checkbox_ids[0]["filename"] if checkbox_ids else ""), dash.no_update
 
     filename = checkbox_ids[0]["filename"]
     selected_paths = []
@@ -208,25 +218,58 @@ def update_selected_labels(checkbox_values, checkbox_ids):
 
     display = create_selected_labels_display(selected_paths, filename)
     selected_strings = [path_to_string(path) for path in selected_paths]
-    return selected_strings, display
+    actions_store = actions_store or {}
+    if mode != "verify":
+        return selected_strings, display, dash.no_update
+
+    previous_labels = current_labels or []
+    previous_set = set(previous_labels)
+    new_set = set(selected_strings)
+    added = list(new_set - previous_set)
+    removed = list(previous_set - new_set)
+    if added or removed:
+        threshold_used = float((thresholds or {}).get("__global__", 0.5))
+        item_actions = actions_store.get(filename, [])
+        timestamp = datetime.now().isoformat()
+        for label in added:
+            item_actions.append({
+                "label": label,
+                "action": "add",
+                "threshold_used": threshold_used,
+                "timestamp": timestamp,
+            })
+        for label in removed:
+            item_actions.append({
+                "label": label,
+                "action": "remove",
+                "threshold_used": threshold_used,
+                "timestamp": timestamp,
+            })
+        actions_store[filename] = item_actions
+
+    return selected_strings, display, actions_store
 
 
 @callback(
     Output({"type": "selected-labels-store", "filename": MATCH}, "data", allow_duplicate=True),
     Output({"type": "selected-labels-display", "filename": MATCH}, "children", allow_duplicate=True),
     Output({"type": "hierarchical-tree", "filename": MATCH}, "children", allow_duplicate=True),
+    Output({"type": "verify-actions-store", "filename": MATCH}, "data", allow_duplicate=True),
     Input({"type": "remove-label", "filename": MATCH, "index": ALL}, "n_clicks"),
     State({"type": "remove-label", "filename": MATCH, "index": ALL}, "id"),
     State({"type": "selected-labels-store", "filename": MATCH}, "data"),
+    State({"type": "verify-actions-store", "filename": MATCH}, "data"),
+    State("verify-thresholds-store", "data"),
+    State("mode-tabs", "data"),
     prevent_initial_call=True,
 )
-def remove_label(n_clicks_list, remove_ids, current_labels):
+def remove_label(n_clicks_list, remove_ids, current_labels, actions_store, thresholds, mode):
     if not n_clicks_list or not any(n_clicks_list):
-        return current_labels, dash.no_update, dash.no_update
+        return current_labels, dash.no_update, dash.no_update, dash.no_update
 
     ctx = dash.callback_context
     if not ctx.triggered:
-        return current_labels, dash.no_update, dash.no_update
+        return current_labels, dash.no_update, dash.no_update, dash.no_update
 
     filename = None
     remove_index = None
@@ -238,15 +281,29 @@ def remove_label(n_clicks_list, remove_ids, current_labels):
                 break
 
     if remove_index is None or filename is None:
-        return current_labels, dash.no_update, dash.no_update
+        return current_labels, dash.no_update, dash.no_update, dash.no_update
 
     updated_labels = [label for i, label in enumerate(current_labels) if i != remove_index]
+    removed_label = current_labels[remove_index] if remove_index < len(current_labels) else None
     selected_paths = [tuple(label.split(" > ")) for label in updated_labels]
 
     display = create_selected_labels_display(selected_paths, filename)
     tree_structure = create_tree_structure(HIERARCHICAL_LABELS, filename, selected_paths)
 
-    return updated_labels, display, tree_structure
+    actions_store = actions_store or {}
+    if mode == "verify" and removed_label:
+        threshold_used = float((thresholds or {}).get("__global__", 0.5))
+        item_actions = actions_store.get(filename, [])
+        item_actions.append({
+            "label": removed_label,
+            "action": "remove",
+            "threshold_used": threshold_used,
+            "timestamp": datetime.now().isoformat(),
+        })
+        actions_store[filename] = item_actions
+        return updated_labels, display, tree_structure, actions_store
+
+    return updated_labels, display, tree_structure, dash.no_update
 
 
 @callback(
@@ -416,4 +473,3 @@ def create_tree_structure_with_expansion(hierarchy, filename, selected_paths, ex
         ]))
 
     return tree_items
-

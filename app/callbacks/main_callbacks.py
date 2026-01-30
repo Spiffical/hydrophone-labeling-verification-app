@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from dash import Input, Output, State, callback, ctx, no_update, ALL
+from dash import Input, Output, State, callback, ctx, no_update, ALL, dcc
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from dash import html
@@ -11,7 +11,7 @@ from app.components.audio_player import create_audio_player, create_modal_audio_
 from app.utils.data_loading import load_dataset
 from app.utils.image_utils import get_item_image_src
 from app.utils.image_processing import load_spectrogram_cached, create_spectrogram_figure
-from app.utils.persistence import save_label_mode, save_verify_mode
+from app.utils.persistence import save_label_mode, save_verify_predictions
 
 
 def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverification=False):
@@ -54,6 +54,30 @@ def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverifi
     summary["annotated"] = sum(1 for item in items if item and (item.get("annotations") or {}).get("labels"))
     summary["verified"] = sum(1 for item in items if item and (item.get("annotations") or {}).get("verified"))
     data["summary"] = summary
+    return data
+
+
+def _update_item_notes(data, item_id, notes, user_name=None):
+    if not data or not item_id:
+        return data
+    items = data.get("items", [])
+    for item in items:
+        if not item:
+            continue
+        if item.get("item_id") == item_id:
+            annotations = item.get("annotations") or {
+                "labels": [],
+                "annotated_by": None,
+                "annotated_at": None,
+                "verified": False,
+                "notes": "",
+            }
+            annotations["notes"] = notes or ""
+            annotations["annotated_at"] = datetime.now().isoformat()
+            if user_name:
+                annotations["annotated_by"] = user_name
+            item["annotations"] = annotations
+            break
     return data
 
 
@@ -104,36 +128,296 @@ def _build_grid(items, mode, colormap, y_axis_scale, items_per_page):
     return dbc.Row(grid)
 
 
+def _create_folder_display(display_text, folders_list, data_root, popover_id):
+    """Create a folder display — hoverable popover if multiple folders, plain text if single."""
+    if folders_list and len(folders_list) > 1:
+        relative_paths = []
+        for f in folders_list:
+            if data_root and f.startswith(data_root):
+                relative_paths.append(f[len(data_root):].lstrip("/"))
+            else:
+                relative_paths.append(f)
+        folder_items = [html.Div(p, className="mono-muted small") for p in relative_paths]
+        return html.Div([
+            html.Span(
+                display_text,
+                id=popover_id,
+                style={"cursor": "pointer", "textDecoration": "underline", "color": "var(--link)"}
+            ),
+            dbc.Popover(
+                dbc.PopoverBody(
+                    html.Div(folder_items, style={"maxHeight": "200px", "overflowY": "auto"})
+                ),
+                target=popover_id,
+                trigger="hover",
+                placement="bottom",
+            ),
+        ])
+    return display_text
+
+
 def register_callbacks(app, config):
-    @app.callback(
-        Output("data-store", "data"),
-        Input("mode-tabs", "value"),
-        Input("label-reload", "n_clicks"),
-        Input("verify-reload", "n_clicks"),
-        Input("global-load-btn", "n_clicks"),
-        Input("explore-reload", "n_clicks"),
-        Input("data-load-trigger-store", "data"),
-        State("global-date-selector", "value"),
-        State("global-device-selector", "value"),
-        State("config-store", "data"),
-        prevent_initial_call=False,
+    # ── Tab switching: buttons → store ─────────────────────────
+    app.clientside_callback(
+        """
+        function(labelClicks, verifyClicks, exploreClicks) {
+            var dc = (window.dash_clientside || {});
+            var ctx = dc.callback_context || null;
+            if (ctx && ctx.triggered && ctx.triggered.length > 0) {
+                var id = ctx.triggered[0].prop_id.split('.')[0];
+                if (id === 'tab-btn-label') return 'label';
+                if (id === 'tab-btn-verify') return 'verify';
+                if (id === 'tab-btn-explore') return 'explore';
+                return dc.no_update;
+            }
+            var lc = labelClicks || 0;
+            var vc = verifyClicks || 0;
+            var ec = exploreClicks || 0;
+            var max = Math.max(lc, vc, ec);
+            if (max === 0) return dc.no_update;
+            if (max === lc) return 'label';
+            if (max === vc) return 'verify';
+            return 'explore';
+        }
+        """,
+        Output("mode-tabs", "data"),
+        [Input("tab-btn-label", "n_clicks"),
+         Input("tab-btn-verify", "n_clicks"),
+         Input("tab-btn-explore", "n_clicks")],
+        prevent_initial_call=True,
     )
-    def load_data(mode, label_clicks, verify_clicks, global_load_clicks, explore_clicks, config_load_trigger, date_val, device_val, cfg):
-        if not mode:
+
+    # ── Tab switching: store → update UI ────────────────────────
+    app.clientside_callback(
+        """
+        function(mode) {
+            var labelStyle = {display: mode === 'label' ? 'block' : 'none'};
+            var verifyStyle = {display: mode === 'verify' ? 'block' : 'none'};
+            var exploreStyle = {display: mode === 'explore' ? 'block' : 'none'};
+            var labelClass = 'mode-tab' + (mode === 'label' ? ' mode-tab--active' : '');
+            var verifyClass = 'mode-tab' + (mode === 'verify' ? ' mode-tab--active' : '');
+            var exploreClass = 'mode-tab' + (mode === 'explore' ? ' mode-tab--active' : '');
+            return [labelStyle, verifyStyle, exploreStyle, labelClass, verifyClass, exploreClass];
+        }
+        """,
+        [Output("label-tab-content", "style"),
+         Output("verify-tab-content", "style"),
+         Output("explore-tab-content", "style"),
+         Output("tab-btn-label", "className"),
+         Output("tab-btn-verify", "className"),
+         Output("tab-btn-explore", "className")],
+        Input("mode-tabs", "data"),
+        prevent_initial_call=True,
+    )
+
+    @app.callback(
+        Output("label-data-store", "data"),
+        Input("label-reload", "n_clicks"),
+        Input("data-load-trigger-store", "data"),
+        Input("global-date-selector", "value"),
+        Input("global-device-selector", "value"),
+        State("config-store", "data"),
+        State("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        prevent_initial_call=True,
+    )
+    def load_label_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_label_data):
+        """Load data specifically for Label mode."""
+        # Check all triggered inputs (not just triggered_id) since multiple may change at once
+        triggered_props = {t["prop_id"].split(".")[0] for t in ctx.triggered}
+
+        # Get the mode that triggered the data load (if any)
+        trigger_mode = None
+        if isinstance(config_load_trigger, dict):
+            trigger_mode = config_load_trigger.get("mode")
+
+        # Only process if in label mode
+        if mode != "label":
             raise PreventUpdate
 
-        triggered = ctx.triggered_id
-        if triggered is None:
-            triggered = "mode-tabs"
+        # For date/device filter changes, only reload if:
+        # 1. Label data was ALREADY loaded (has source_data_dir), AND
+        # 2. We're in label mode (already checked above)
+        # Note: We check for source_data_dir rather than config matching because config-store
+        # gets overwritten when loading data in other tabs (e.g., verify), so it won't match
+        # the label data's source after switching tabs.
+        filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
+        has_existing_data = current_label_data and current_label_data.get("items")
+        has_source = current_label_data and current_label_data.get("source_data_dir")
 
-        try:
-            data = load_dataset(cfg, mode, date_str=date_val, hydrophone=device_val)
-            from app.main import set_audio_roots
-            set_audio_roots(data.get("audio_roots", []))
-            return data
-        except Exception as e:
-            print(f"Error loading dataset: {e}")
-            return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+        # Load on: reload button, config load (for label mode only), or filter change (only if label data exists)
+        # Note: trigger_mode == "label" means data-load-trigger-store was set for label mode,
+        # even if ctx.triggered_id reports a different input (due to simultaneous updates)
+        should_load = (
+            "label-reload" in triggered_props or
+            trigger_mode == "label" or
+            (filter_triggered and has_existing_data and has_source)
+        )
+
+        if should_load:
+            try:
+                # Use the current tab's own source_data_dir if available, 
+                # to avoid pollution from global config overwritten by other tabs
+                effective_cfg = cfg.copy() if cfg else {}
+                source_data_dir = current_label_data.get("source_data_dir") if current_label_data else None
+                
+                # If we're reloading due to filter changes, prioritize the known data source
+                if filter_triggered and source_data_dir:
+                    if "data" not in effective_cfg:
+                        effective_cfg["data"] = {}
+                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
+                    effective_cfg["data"]["data_dir"] = source_data_dir
+
+                data = load_dataset(effective_cfg, "label", date_str=date_val, hydrophone=device_val)
+
+                # Preserve manual labels path if it exists in current data
+                # This prevents filter changes or tab switches from resetting a manually entered path
+                if current_label_data and isinstance(current_label_data, dict):
+                    old_summary = current_label_data.get("summary", {})
+                    if old_summary.get("labels_file"):
+                        data["summary"]["labels_file"] = old_summary["labels_file"]
+
+                # Store the source data_dir so we can maintain context on filter changes
+                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                from app.main import set_audio_roots
+                set_audio_roots(data.get("audio_roots", []))
+                return data
+            except Exception as e:
+                print(f"Error loading label dataset: {e}")
+                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+
+        raise PreventUpdate
+
+    @app.callback(
+        Output("verify-data-store", "data"),
+        Input("verify-reload", "n_clicks"),
+        Input("data-load-trigger-store", "data"),
+        Input("global-date-selector", "value"),
+        Input("global-device-selector", "value"),
+        State("config-store", "data"),
+        State("mode-tabs", "data"),
+        State("verify-data-store", "data"),
+        prevent_initial_call=True,
+    )
+    def load_verify_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_verify_data):
+        """Load data specifically for Verify mode."""
+        # Check all triggered inputs (not just triggered_id) since multiple may change at once
+        triggered_props = {t["prop_id"].split(".")[0] for t in ctx.triggered}
+
+        # Get the mode that triggered the data load (if any)
+        trigger_mode = None
+        if isinstance(config_load_trigger, dict):
+            trigger_mode = config_load_trigger.get("mode")
+
+        # Only process if in verify mode
+        if mode != "verify":
+            raise PreventUpdate
+
+        # For date/device filter changes, only reload if:
+        # 1. Verify data was ALREADY loaded (has source_data_dir), AND
+        # 2. We're in verify mode (already checked above)
+        filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
+        has_existing_data = current_verify_data and current_verify_data.get("items")
+        has_source = current_verify_data and current_verify_data.get("source_data_dir")
+
+        # Load on: reload button, config load (for verify mode only), or filter change (only if verify data exists)
+        should_load = (
+            "verify-reload" in triggered_props or
+            trigger_mode == "verify" or
+            (filter_triggered and has_existing_data and has_source)
+        )
+
+        if should_load:
+            try:
+                # Use the current tab's own source_data_dir if available
+                effective_cfg = cfg.copy() if cfg else {}
+                source_data_dir = current_verify_data.get("source_data_dir") if current_verify_data else None
+                
+                if filter_triggered and source_data_dir:
+                    if "data" not in effective_cfg:
+                        effective_cfg["data"] = {}
+                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
+                    effective_cfg["data"]["data_dir"] = source_data_dir
+
+                data = load_dataset(effective_cfg, "verify", date_str=date_val, hydrophone=device_val)
+
+                # Preserve manual predictions path if it exists in current data
+                if current_verify_data and isinstance(current_verify_data, dict):
+                    old_summary = current_verify_data.get("summary", {})
+                    if old_summary.get("predictions_file"):
+                        data["summary"]["predictions_file"] = old_summary["predictions_file"]
+
+                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                from app.main import set_audio_roots
+                set_audio_roots(data.get("audio_roots", []))
+                return data
+            except Exception as e:
+                print(f"Error loading verify dataset: {e}")
+                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+
+        raise PreventUpdate
+
+    @app.callback(
+        Output("explore-data-store", "data"),
+        Input("explore-reload", "n_clicks"),
+        Input("data-load-trigger-store", "data"),
+        Input("global-date-selector", "value"),
+        Input("global-device-selector", "value"),
+        State("config-store", "data"),
+        State("mode-tabs", "data"),
+        State("explore-data-store", "data"),
+        prevent_initial_call=True,
+    )
+    def load_explore_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_explore_data):
+        """Load data specifically for Explore mode."""
+        # Check all triggered inputs (not just triggered_id) since multiple may change at once
+        triggered_props = {t["prop_id"].split(".")[0] for t in ctx.triggered}
+
+        # Get the mode that triggered the data load (if any)
+        trigger_mode = None
+        if isinstance(config_load_trigger, dict):
+            trigger_mode = config_load_trigger.get("mode")
+
+        # Only process if in explore mode
+        if mode != "explore":
+            raise PreventUpdate
+
+        # For date/device filter changes, only reload if:
+        # 1. Explore data was ALREADY loaded (has source_data_dir), AND
+        # 2. We're in explore mode (already checked above)
+        filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
+        has_existing_data = current_explore_data and current_explore_data.get("items")
+        has_source = current_explore_data and current_explore_data.get("source_data_dir")
+
+        # Load on: reload button, config load (for explore mode only), or filter change (only if explore data exists)
+        should_load = (
+            "explore-reload" in triggered_props or
+            trigger_mode == "explore" or
+            (filter_triggered and has_existing_data and has_source)
+        )
+
+        if should_load:
+            try:
+                # Use the current tab's own source_data_dir if available
+                effective_cfg = cfg.copy() if cfg else {}
+                source_data_dir = current_explore_data.get("source_data_dir") if current_explore_data else None
+                
+                if filter_triggered and source_data_dir:
+                    if "data" not in effective_cfg:
+                        effective_cfg["data"] = {}
+                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
+                    effective_cfg["data"]["data_dir"] = source_data_dir
+
+                data = load_dataset(effective_cfg, "explore", date_str=date_val, hydrophone=device_val)
+                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                from app.main import set_audio_roots
+                set_audio_roots(data.get("audio_roots", []))
+                return data
+            except Exception as e:
+                print(f"Error loading explore dataset: {e}")
+                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+
+        raise PreventUpdate
 
     @app.callback(
         Output("label-summary", "children"),
@@ -141,18 +425,19 @@ def register_callbacks(app, config):
         Output("label-page-info", "children"),
         Output("label-page-input", "max"),
         Output("label-spec-folder-display", "children", allow_duplicate=True),
+        Output("label-audio-folder-display", "children", allow_duplicate=True),
         Output("label-output-input", "value", allow_duplicate=True),
-        Input("data-store", "data"),
+        Input("label-data-store", "data"),
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
         Input("label-current-page", "data"),
-        State("mode-tabs", "value"),
+        State("mode-tabs", "data"),
         State("config-store", "data"),
         prevent_initial_call=True,
     )
     def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, mode, cfg):
-        if mode != "label":
-            return no_update, no_update, no_update, no_update, no_update, no_update
+        # Render even if not in label mode (to maintain state when switching back)
+        pass
 
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
@@ -182,11 +467,21 @@ def register_callbacks(app, config):
 
         grid = _build_grid(page_items, "label", colormap, y_axis_scale, items_per_page)
         
-        # Update folder display if available in summary
-        folder_display = summary.get("spectrogram_folder") or no_update
+        # Update folder displays with popover support for multiple folders
+        data_root = summary.get("data_root", "")
+        folder_display = _create_folder_display(
+            summary.get("spectrogram_folder") or "Not set",
+            summary.get("spectrogram_folders_list", []),
+            data_root, "label-spec-popover"
+        )
+        audio_folder_display = _create_folder_display(
+            summary.get("audio_folder") or "Not set",
+            summary.get("audio_folders_list", []),
+            data_root, "label-audio-popover"
+        )
         labels_file_display = summary.get("labels_file") or no_update
-        
-        return summary_block, grid, page_info, total_pages, folder_display, labels_file_display
+
+        return summary_block, grid, page_info, total_pages, folder_display, audio_folder_display, labels_file_display
 
     @app.callback(
         Output("verify-summary", "children"),
@@ -195,22 +490,22 @@ def register_callbacks(app, config):
         Output("verify-audio-folder-display", "children"),
         Output("verify-predictions-display", "children"),
         Output("verify-data-root-display", "children"),
-        Input("data-store", "data"),
+        Input("verify-data-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "value"),
-        State("mode-tabs", "value"),
+        State("mode-tabs", "data"),
         State("config-store", "data"),
     )
     def render_verify(data, thresholds, class_filter, mode, cfg):
-        if mode != "verify":
-            return no_update, no_update, no_update, no_update, no_update, no_update
+        # Render even if not in verify mode (to maintain state when switching back)
+        pass
 
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
         thresholds = thresholds or {"__global__": 0.5}
         class_filter = class_filter or "all"
-        current_threshold = float(thresholds.get(class_filter, thresholds.get("__global__", 0.5)))
+        current_threshold = float(thresholds.get("__global__", 0.5))
 
         # Get folder display info from summary
         spec_folder = summary.get("spectrogram_folder") or "Not set"
@@ -253,21 +548,33 @@ def register_callbacks(app, config):
                            cfg.get("display", {}).get("y_axis_scale", "linear"), items_per_page)
         
         data_root = summary.get("data_root") or "Not set"
-        
-        return summary_block, grid, spec_folder, audio_folder, predictions_file, data_root
+
+        spec_folder_display = _create_folder_display(
+            summary.get("spectrogram_folder") or "Not set",
+            summary.get("spectrogram_folders_list", []),
+            summary.get("data_root", ""), "spec-folder-popover-trigger"
+        )
+        audio_folder_display = _create_folder_display(
+            summary.get("audio_folder") or "Not set",
+            summary.get("audio_folders_list", []),
+            summary.get("data_root", ""), "audio-folder-popover-trigger"
+        )
+        pred_file_display = _create_folder_display(
+            summary.get("predictions_file") or "Not set",
+            summary.get("predictions_files_list", []),
+            summary.get("data_root", ""), "pred-file-popover-trigger"
+        )
+
+        return summary_block, grid, spec_folder_display, audio_folder_display, pred_file_display, data_root
 
     @app.callback(
         Output("verify-class-filter", "options"),
         Output("verify-class-filter", "value"),
-        Input("data-store", "data"),
-        State("mode-tabs", "value"),
+        Input("verify-data-store", "data"),
         State("verify-class-filter", "value"),
         prevent_initial_call=False,
     )
-    def update_verify_class_filter(data, mode, current_value):
-        if mode != "verify":
-            return no_update, no_update
-
+    def update_verify_class_filter(data, current_value):
         items = (data or {}).get("items", [])
         classes = set()
         for item in items:
@@ -306,10 +613,7 @@ def register_callbacks(app, config):
             return thresholds
 
         value = float(slider_value)
-        if class_filter == "all":
-            thresholds["__global__"] = value
-        else:
-            thresholds[class_filter] = value
+        thresholds["__global__"] = value
         return thresholds
 
     @app.callback(
@@ -321,19 +625,15 @@ def register_callbacks(app, config):
     def sync_threshold_slider(class_filter, thresholds):
         thresholds = thresholds or {"__global__": 0.5}
         class_filter = class_filter or "all"
-        return float(thresholds.get(class_filter, thresholds.get("__global__", 0.5)))
+        return float(thresholds.get("__global__", 0.5))
 
     @app.callback(
         Output("explore-summary", "children"),
         Output("explore-grid", "children"),
-        Input("data-store", "data"),
-        State("mode-tabs", "value"),
+        Input("explore-data-store", "data"),
         State("config-store", "data"),
     )
-    def render_explore(data, mode, cfg):
-        if mode != "explore":
-            return no_update, no_update
-
+    def render_explore(data, cfg):
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
@@ -351,11 +651,71 @@ def register_callbacks(app, config):
         Output("label-editor-modal", "is_open", allow_duplicate=True),
         Output("label-editor-body", "children", allow_duplicate=True),
         Output("active-item-store", "data", allow_duplicate=True),
-        Input("mode-tabs", "value"),
+        Input("mode-tabs", "data"),
         prevent_initial_call=True,
     )
     def close_editor_on_tab_switch(_mode):
         return False, [], None
+
+    @app.callback(
+        Output("label-data-store", "data", allow_duplicate=True),
+        Input("label-output-input", "value"),
+        State("label-data-store", "data"),
+        prevent_initial_call=True
+    )
+    def sync_label_output_path_to_store(path_value, label_data):
+        """Sync manual edits to the labels output path back to the data store."""
+        if not label_data or path_value is None:
+            raise PreventUpdate
+        
+        # Avoid unnecessary updates if the value matches
+        summary = label_data.get("summary", {})
+        if summary.get("labels_file") == path_value:
+            raise PreventUpdate
+            
+        # Update the store with the new path
+        new_data = dict(label_data)
+        new_data["summary"] = dict(summary)
+        new_data["summary"]["labels_file"] = path_value
+        return new_data
+
+    @app.callback(
+        Output("label-spec-folder-display", "children", allow_duplicate=True),
+        Output("label-audio-folder-display", "children", allow_duplicate=True),
+        Output("label-output-input", "value", allow_duplicate=True),
+        Input("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        prevent_initial_call=True,
+    )
+    def reset_label_displays_on_tab_switch(mode, label_data):
+        """Restore Label tab folder displays when switching to Label tab.
+
+        When switching tabs, date/device selectors get cleared which can trigger
+        update_dynamic_path_displays and reset folder paths. This callback
+        restores correct values from the label data store.
+        """
+        if mode != "label":
+            raise PreventUpdate
+
+        if not label_data or not label_data.get("items"):
+            # No label data loaded - show clean slate
+            return "Not set", "Not set", ""
+
+        # Restore folder displays from label data summary
+        summary = label_data.get("summary", {})
+        data_root = summary.get("data_root", "")
+        spec_display = _create_folder_display(
+            summary.get("spectrogram_folder") or "Not set",
+            summary.get("spectrogram_folders_list", []),
+            data_root, "label-spec-popover-tab"
+        )
+        audio_display = _create_folder_display(
+            summary.get("audio_folder") or "Not set",
+            summary.get("audio_folders_list", []),
+            data_root, "label-audio-popover-tab"
+        )
+        labels_file = summary.get("labels_file") or ""
+        return spec_display, audio_display, labels_file
 
     @app.callback(
         Output("label-editor-modal", "is_open"),
@@ -366,13 +726,22 @@ def register_callbacks(app, config):
         Input("label-editor-cancel", "n_clicks"),
         State("label-editor-clicks", "data"),
         State({"type": "edit-btn", "item_id": ALL}, "id"),
-        State("data-store", "data"),
-        State("mode-tabs", "value"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
+        State("active-item-store", "data"),
+        State("verify-thresholds-store", "data"),
+        State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def open_label_editor(n_clicks_list, cancel_clicks, click_store, edit_ids, data, mode):
+    def open_label_editor(n_clicks_list, cancel_clicks, click_store, edit_ids, label_data, verify_data,
+                          explore_data, active_item_id, thresholds, mode):
+        # Select the appropriate data store based on mode
+        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
         triggered = ctx.triggered_id
         if triggered == "label-editor-cancel":
+            return False, no_update, None, click_store or {}
+        if mode == "explore":
             return False, no_update, None, click_store or {}
 
         click_store = click_store or {}
@@ -398,34 +767,64 @@ def register_callbacks(app, config):
 
         items = (data or {}).get("items", [])
         selected_labels = []
+        existing_note = ""
         for item in items:
             if item.get("item_id") == chosen_item_id:
                 annotations = item.get("annotations") or {}
                 predicted = item.get("predictions", {}) if isinstance(item.get("predictions"), dict) else {}
                 selected_labels = annotations.get("labels") or predicted.get("labels") or []
+                existing_note = annotations.get("notes", "") if isinstance(annotations, dict) else ""
+                if not selected_labels and mode == "verify":
+                    selected_labels = _filter_predictions(predicted, thresholds or {"__global__": 0.5})
                 break
 
         selector = create_hierarchical_selector(chosen_item_id, selected_labels)
-        return True, selector, chosen_item_id, updated_store
+        note_section = html.Details(
+            [
+                html.Summary("Note", style={"cursor": "pointer", "fontWeight": "600"}),
+                dcc.Textarea(
+                    id={"type": "note-editor-text", "filename": chosen_item_id},
+                    value=existing_note,
+                    placeholder="Add a note for this spectrogram...",
+                    style={"width": "100%", "minHeight": "140px", "marginTop": "8px"},
+                ),
+            ],
+            open=bool(existing_note),
+            style={"marginTop": "12px"},
+        )
+        return True, html.Div([selector, note_section]), chosen_item_id, updated_store
 
     @app.callback(
-        Output("data-store", "data", allow_duplicate=True),
+        Output("label-data-store", "data", allow_duplicate=True),
+        Output("verify-data-store", "data", allow_duplicate=True),
+        Output("explore-data-store", "data", allow_duplicate=True),
         Output("label-editor-modal", "is_open", allow_duplicate=True),
         Output("label-editor-body", "children", allow_duplicate=True),
         Input("label-editor-save", "n_clicks"),
         State("active-item-store", "data"),
         State({"type": "selected-labels-store", "filename": ALL}, "data"),
         State({"type": "selected-labels-store", "filename": ALL}, "id"),
-        State("data-store", "data"),
+        State({"type": "note-editor-text", "filename": ALL}, "value"),
+        State({"type": "note-editor-text", "filename": ALL}, "id"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
         State("user-profile-store", "data"),
-        State("mode-tabs", "value"),
+        State("mode-tabs", "data"),
         State("config-store", "data"),
         State("label-output-input", "value"),
         prevent_initial_call=True,
     )
-    def save_label_editor(save_clicks, active_item_id, labels_list, labels_ids, data, profile, mode, cfg, label_output_path):
+    def save_label_editor(save_clicks, active_item_id, labels_list, labels_ids,
+                          note_values, note_ids, label_data, verify_data, explore_data,
+                          profile, mode, cfg, label_output_path):
         if not save_clicks or not active_item_id:
             raise PreventUpdate
+        if mode == "explore":
+            return no_update, no_update, no_update, False, []
+
+        # Select the appropriate data store based on mode
+        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
 
         selected_labels = []
         for i, label_id in enumerate(labels_ids or []):
@@ -433,37 +832,44 @@ def register_callbacks(app, config):
                 selected_labels = labels_list[i] or []
                 break
 
+        note_text = None
+        for i, note_id in enumerate(note_ids or []):
+            if note_id.get("filename") == active_item_id:
+                note_text = note_values[i] if note_values else None
+                break
+
         profile_name = (profile or {}).get("name") if isinstance(profile, dict) else None
-        profile_role = (profile or {}).get("role") if isinstance(profile, dict) else None
         updated = _update_item_labels(data or {}, active_item_id, selected_labels, mode, user_name=profile_name)
+        if note_text is not None:
+            updated = _update_item_notes(updated or {}, active_item_id, note_text, user_name=profile_name)
 
         if mode == "label":
             # Priority: user input > data summary > config
             labels_file = label_output_path or (data or {}).get("summary", {}).get("labels_file") or cfg.get("label", {}).get("output_file")
-            save_label_mode(labels_file, active_item_id, selected_labels)
+            save_label_mode(labels_file, active_item_id, selected_labels, annotated_by=profile_name, notes=note_text)
         elif mode == "verify":
-            source = (updated or {}).get("source", {}).get("data_source", {})
-            date_str = source.get("date") or cfg.get("verify", {}).get("date")
-            hydrophone = source.get("hydrophone") or cfg.get("verify", {}).get("hydrophone")
-            dashboard_root = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
-            save_verify_mode(dashboard_root, date_str, hydrophone,
-                            active_item_id, selected_labels, username=profile_name, role=profile_role)
+            # Verify mode persists only on Confirm/Re-verify.
+            pass
 
-        return updated, False, []
+        # Return updated data to the appropriate store, no_update for others
+        if mode == "label":
+            return updated, no_update, no_update, False, []
+        elif mode == "verify":
+            return no_update, updated, no_update, False, []
+        else:
+            return no_update, no_update, updated, False, []
 
     @app.callback(
-        Output("data-store", "data", allow_duplicate=True),
+        Output("verify-data-store", "data", allow_duplicate=True),
         Input({"type": "confirm-btn", "item_id": ALL}, "n_clicks"),
-        State("data-store", "data"),
+        State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
+        State({"type": "verify-actions-store", "filename": ALL}, "data"),
+        State({"type": "verify-actions-store", "filename": ALL}, "id"),
         State("user-profile-store", "data"),
-        State("mode-tabs", "value"),
-        State("config-store", "data"),
         prevent_initial_call=True,
     )
-    def confirm_verification(n_clicks_list, data, thresholds, profile, mode, cfg):
-        if mode != "verify":
-            raise PreventUpdate
+    def confirm_verification(n_clicks_list, data, thresholds, actions_list, actions_ids, profile):
 
         if not n_clicks_list or not any(n_clicks_list):
             raise PreventUpdate
@@ -475,24 +881,123 @@ def register_callbacks(app, config):
         item_id = triggered["item_id"]
         items = (data or {}).get("items", [])
         labels_to_confirm = []
+        predictions = {}
+        predictions_path = None
+        annotations = {}
         thresholds = thresholds or {"__global__": 0.5}
+        threshold_used = float(thresholds.get("__global__", 0.5))
         for item in items:
             if item.get("item_id") == item_id:
                 annotations = item.get("annotations") or {}
+                predictions = item.get("predictions") or {}
+                predictions_path = (item.get("metadata") or {}).get("predictions_path")
                 labels_to_confirm = annotations.get("labels") or []
                 if not labels_to_confirm:
-                    predictions = item.get("predictions") or {}
-                    labels_to_confirm = _filter_predictions(predictions, thresholds)
+                    labels_to_confirm = _filter_predictions(predictions, {"__global__": threshold_used})
                 break
 
+        if not predictions_path:
+            summary_pred = (data or {}).get("summary", {}).get("predictions_file")
+            if isinstance(summary_pred, str) and summary_pred.endswith(".json"):
+                predictions_path = summary_pred
+
+        predicted_labels = _filter_predictions(predictions, {"__global__": threshold_used})
+        predicted_set = set(predicted_labels)
+        labels_set = set(labels_to_confirm)
+
+        model_scores = {}
+        model_outputs = predictions.get("model_outputs")
+        if model_outputs and isinstance(model_outputs, list):
+            for out in model_outputs:
+                label = out.get("class_hierarchy")
+                score = out.get("score")
+                if label and isinstance(score, (int, float)):
+                    model_scores[label] = score
+        else:
+            probs = predictions.get("confidence") or {}
+            for label, score in probs.items():
+                if isinstance(score, (int, float)):
+                    model_scores[label] = score
+
+        item_actions = []
+        for i, action_id in enumerate(actions_ids or []):
+            if action_id.get("filename") == item_id:
+                item_actions = (actions_list or [])[i] or []
+                break
+        last_add_threshold = {}
+        last_remove_threshold = {}
+        for action in item_actions:
+            label = action.get("label")
+            threshold_value = action.get("threshold_used")
+            if not label or threshold_value is None:
+                continue
+            if action.get("action") == "add":
+                last_add_threshold[label] = threshold_value
+            elif action.get("action") == "remove":
+                last_remove_threshold[label] = threshold_value
+
+        rejected_labels = set()
+        for label in predicted_labels:
+            if label not in labels_set:
+                rejected_labels.add(label)
+        for label, removed_threshold in last_remove_threshold.items():
+            score = model_scores.get(label)
+            if score is not None and score >= float(removed_threshold):
+                rejected_labels.add(label)
+
+        added_labels = {label for label in labels_set if label not in predicted_set}
+
+        label_decisions = []
+        for label in labels_to_confirm:
+            if label in predicted_set:
+                decision = "accepted"
+            else:
+                decision = "added"
+            label_decisions.append({
+                "label": label,
+                "decision": decision,
+                "threshold_used": float(last_add_threshold.get(label, threshold_used)),
+            })
+        for label in sorted(rejected_labels - labels_set):
+            label_decisions.append({
+                "label": label,
+                "decision": "rejected",
+                "threshold_used": float(last_remove_threshold.get(label, threshold_used)),
+            })
+
         profile_name = (profile or {}).get("name") if isinstance(profile, dict) else None
-        profile_role = (profile or {}).get("role") if isinstance(profile, dict) else None
-        updated = _update_item_labels(data or {}, item_id, labels_to_confirm, mode="verify", user_name=profile_name, is_reverification=True)
-        source = (updated or {}).get("source", {}).get("data_source", {})
-        date_str = source.get("date") or cfg.get("verify", {}).get("date")
-        hydrophone = source.get("hydrophone") or cfg.get("verify", {}).get("hydrophone")
-        save_verify_mode(cfg.get("verify", {}).get("dashboard_root"), date_str, hydrophone,
-                        item_id, labels_to_confirm, username=profile_name, role=profile_role)
+        note_text = annotations.get("notes", "") if isinstance(annotations, dict) else ""
+        verification = {
+            "verified_at": datetime.now().isoformat(),
+            "verified_by": profile_name or "anonymous",
+            "labels": labels_to_confirm,
+            "threshold_used": threshold_used,
+            "rejected_labels": sorted(rejected_labels),
+            "added_labels": sorted(added_labels),
+            "label_decisions": label_decisions,
+            "verification_status": "verified",
+            "notes": note_text,
+        }
+
+        updated = _update_item_labels(
+            data or {},
+            item_id,
+            labels_to_confirm,
+            mode="verify",
+            user_name=profile_name,
+            is_reverification=True,
+        )
+
+        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        if stored_verification:
+            for item in (updated or {}).get("items", []):
+                if item.get("item_id") == item_id:
+                    verifications = item.get("verifications")
+                    if not isinstance(verifications, list):
+                        verifications = []
+                    verifications.append(stored_verification)
+                    item["verifications"] = verifications
+                    break
         return updated
 
     @app.callback(
@@ -553,6 +1058,21 @@ def register_callbacks(app, config):
         # Return className and empty style (CSS handles theming via classes now)
         return f"app-shell theme-{theme}", {}
 
+    # Clientside callback to apply theme to body element (for modals)
+    app.clientside_callback(
+        """
+        function(theme) {
+            theme = theme || 'light';
+            document.body.classList.remove('theme-light', 'theme-dark');
+            document.body.classList.add('theme-' + theme);
+            return '';
+        }
+        """,
+        Output("dummy-output", "data"),
+        Input("theme-store", "data"),
+        prevent_initial_call=False
+    )
+
     @app.callback(
         Output("image-modal", "is_open"),
         Output("current-filename", "data"),
@@ -561,12 +1081,17 @@ def register_callbacks(app, config):
         Output("modal-audio-player", "children"),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
         Input("close-modal", "n_clicks"),
-        State("data-store", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
+        State("mode-tabs", "data"),
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
         prevent_initial_call=True,
     )
-    def handle_modal_trigger(image_clicks_list, close_clicks, data, colormap, y_axis_scale):
+    def handle_modal_trigger(image_clicks_list, close_clicks, label_data, verify_data, explore_data, mode, colormap, y_axis_scale):
+        # Select the appropriate data store based on mode
+        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
         triggered = ctx.triggered_id
         if triggered == "close-modal":
             return False, no_update, no_update, no_update, no_update
@@ -606,10 +1131,15 @@ def register_callbacks(app, config):
         Input("modal-colormap-toggle", "value"),
         Input("modal-y-axis-toggle", "value"),
         State("current-filename", "data"),
-        State("data-store", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
+        State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def update_modal_view(colormap, y_axis_scale, item_id, data):
+    def update_modal_view(colormap, y_axis_scale, item_id, label_data, verify_data, explore_data, mode):
+        # Select the appropriate data store based on mode
+        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
         if not item_id or not data:
             raise PreventUpdate
 
@@ -647,31 +1177,41 @@ def register_callbacks(app, config):
     @app.callback(
         Output("global-date-selector", "options", allow_duplicate=True),
         Output("global-date-selector", "value", allow_duplicate=True),
-        Input("mode-tabs", "value"),
+        Input("mode-tabs", "data"),
         State("config-store", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
         prevent_initial_call=True,
     )
-    def discover_dates(mode, cfg):
-        # Always discover if data_dir is present
-        data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+    def discover_dates(mode, cfg, label_data, verify_data, explore_data):
+        # Check if the current tab has data loaded
+        tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
+        if not tab_data or not tab_data.get("items"):
+            return [], None
+
+        # Use the tab's own source_data_dir (not the global config which may have been overwritten)
+        data_dir = tab_data.get("source_data_dir")
+        if not data_dir:
+            data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
         if not data_dir or not os.path.exists(data_dir):
             return [], None
-            
+
         # Dates are folders like YYYY-MM-DD
         try:
             dates = [d for d in os.listdir(data_dir) if len(d) == 10 and os.path.isdir(os.path.join(data_dir, d))]
             dates.sort(reverse=True)
-            
+
             options = [{"label": "All Dates", "value": "__all__"}] + [
                 {"label": d, "value": d} for d in dates
             ]
             default_val = dates[0] if dates else None
-            
+
             # Override with config if present
             config_date = cfg.get("verify", {}).get("date")
             if config_date in dates:
                 default_val = config_date
-                
+
             return options, default_val
         except Exception:
             return [], None
@@ -681,16 +1221,22 @@ def register_callbacks(app, config):
         Output("global-device-selector", "value"),
         Input("global-date-selector", "value"),
         State("config-store", "data"),
+        State("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
     )
-    def discover_devices(selected_date, cfg):
+    def discover_devices(selected_date, cfg, mode, label_data, verify_data, explore_data):
         if not selected_date:
             return [], None
-        
+
         # Skip discovery for flat structures
         if selected_date == "__flat__":
             return [], None
-            
-        data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+
+        # Use the current tab's source_data_dir to avoid cross-tab pollution
+        tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
+        data_dir = (tab_data.get("source_data_dir") if tab_data else None) or cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
         if not data_dir:
             return [], None
         
@@ -731,16 +1277,28 @@ def register_callbacks(app, config):
 
     @app.callback(
         Output("global-active-selection", "children"),
-        Input("data-store", "data"),
+        Output("global-data-dir-display", "children", allow_duplicate=True),
+        Input("label-data-store", "data"),
+        Input("verify-data-store", "data"),
+        Input("explore-data-store", "data"),
+        Input("mode-tabs", "data"),
+        prevent_initial_call=True,
     )
-    def update_active_selection_display(data):
+    def update_active_selection_display(label_data, verify_data, explore_data, mode):
+        # Select the appropriate data store based on mode
+        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+
+        # Show the current tab's data directory
+        data_dir = data.get("source_data_dir") if data else None
+        data_dir_display = data_dir or "Not selected"
+
         if not data:
-            return "No data loaded"
-        
+            return "No data loaded", data_dir_display
+
         summary = data.get("summary", {})
         date_str = summary.get("active_date")
         device = summary.get("active_hydrophone")
-        
+
         if date_str and device:
-            return f"{date_str} / {device}"
-        return "Not selected"
+            return f"{date_str} / {device}", data_dir_display
+        return "Not selected", data_dir_display

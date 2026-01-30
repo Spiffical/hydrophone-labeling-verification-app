@@ -1,6 +1,6 @@
 // Audio player control functions
-window.dash_clientside = Object.assign({}, window.dash_clientside, {
-    namespace: {
+window.dash_clientside = window.dash_clientside || {};
+window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.namespace, {
         // Initialize audio players when page loads
         initializeAudioPlayers: function () {
             // Optimized initialization - minimal logging, fast DOM queries
@@ -76,6 +76,29 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
                     });
                 }
 
+                // Set up Web Audio API context and nodes for this audio element
+                if (!audio.audioContext) {
+                    try {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        audio.audioContext = new AudioContext();
+                        audio.sourceNode = audio.audioContext.createMediaElementSource(audio);
+
+                        // Create bass boost filter (low shelf filter)
+                        audio.bassFilter = audio.audioContext.createBiquadFilter();
+                        audio.bassFilter.type = 'lowshelf';
+                        audio.bassFilter.frequency.value = 200; // Boost frequencies below 200Hz
+                        audio.bassFilter.gain.value = 0; // Initial gain (0 dB)
+
+                        // Connect: source -> bass filter -> destination
+                        audio.sourceNode.connect(audio.bassFilter);
+                        audio.bassFilter.connect(audio.audioContext.destination);
+
+                        console.log('Web Audio API initialized for:', playerId);
+                    } catch (e) {
+                        console.warn('Web Audio API not available:', e);
+                    }
+                }
+
                 // Handle pitch shift sliders (for modal audio players)
                 const pitchSlider = document.getElementById(playerId + '-pitch-slider');
                 const pitchDisplay = document.getElementById(playerId + '-pitch-display');
@@ -84,23 +107,56 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
                     pitchSlider.hasPitchListener = true;
 
                     // Listen for changes to the Dash slider value
-                    const observer = new MutationObserver(function (mutations) {
+                    const pitchObserver = new MutationObserver(function (mutations) {
                         const sliderElement = pitchSlider.querySelector('.rc-slider-handle');
                         if (sliderElement) {
                             const ariaValue = sliderElement.getAttribute('aria-valuenow');
                             if (ariaValue) {
                                 const rate = parseFloat(ariaValue);
-                                if (!isNaN(rate) && rate >= 0.5 && rate <= 2.0) {
+                                if (!isNaN(rate) && rate >= 0.1 && rate <= 4.0) {
                                     audio.playbackRate = rate;
                                     if (pitchDisplay) {
-                                        pitchDisplay.textContent = rate.toFixed(1) + 'x';
+                                        pitchDisplay.textContent = rate.toFixed(2) + 'x';
                                     }
                                 }
                             }
                         }
                     });
 
-                    observer.observe(pitchSlider, {
+                    pitchObserver.observe(pitchSlider, {
+                        attributes: true,
+                        subtree: true,
+                        attributeFilter: ['aria-valuenow', 'style']
+                    });
+                }
+
+                // Handle bass boost slider
+                const bassSlider = document.getElementById(playerId + '-bass-slider');
+                const bassDisplay = document.getElementById(playerId + '-bass-display');
+
+                if (bassSlider && !bassSlider.hasBassListener) {
+                    bassSlider.hasBassListener = true;
+
+                    const bassObserver = new MutationObserver(function (mutations) {
+                        const sliderElement = bassSlider.querySelector('.rc-slider-handle');
+                        if (sliderElement) {
+                            const ariaValue = sliderElement.getAttribute('aria-valuenow');
+                            if (ariaValue) {
+                                const gain = parseFloat(ariaValue);
+                                if (!isNaN(gain) && gain >= 0 && gain <= 24) {
+                                    // Apply bass boost via Web Audio API
+                                    if (audio.bassFilter) {
+                                        audio.bassFilter.gain.value = gain;
+                                    }
+                                    if (bassDisplay) {
+                                        bassDisplay.textContent = (gain > 0 ? '+' : '') + gain + ' dB';
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    bassObserver.observe(bassSlider, {
                         attributes: true,
                         subtree: true,
                         attributeFilter: ['aria-valuenow', 'style']
@@ -146,7 +202,6 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
 
             return '';
         }
-    }
 });
 
 // Helper function to safely update slider position (avoid conflicts)

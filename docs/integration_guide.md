@@ -4,7 +4,7 @@ How to update your inference pipelines to work with the Unified Labeling & Verif
 
 ## Quick Start
 
-Your inference pipeline needs to output a `predictions.json` file in the format specified in [`predictions_json_format.md`](predictions_json_format.md).
+Your inference pipeline needs to output a `predictions.json` file in the format specified in [`OCEANS3_JSON_SCHEMA.md`](../OCEANS3_JSON_SCHEMA.md).
 
 ### 1. Use the Python Tracker (Recommended)
 
@@ -23,20 +23,36 @@ tracker.set_model_info(
     output_classes=['Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale']
 )
 
-# Optional: Set data source info
-tracker.set_data_source(
+# Add data source(s) — items reference these by data_source_id
+tracker.add_data_source(
+    data_source_id='ICLISTENHF1951_BARK_2025',
     device_code='ICLISTENHF1951',
+    location_name='Barkley Canyon',
+    site_code='BARK',
+    sample_rate=64000,
     date_from='2025-01-01T00:00:00Z',
-    date_to='2025-01-01T01:00:00Z'
+    date_to='2025-01-01T01:00:00Z',
 )
 
 tracker.set_task_type('whale_detection')
+
+# Optional: pipeline provenance
+tracker.set_pipeline_info(
+    pipeline_version='v1.0.0',
+    pipeline_commit='abc1234',
+    pipeline_repo='my-inference-pipeline',
+)
 
 # Add predictions (raw scores, NOT thresholded)
 for segment in segments:
     tracker.add_item(
         item_id=segment.name,
-        mat_path=f'spectrograms/{segment.name}.mat',
+        data_source_id='ICLISTENHF1951_BARK_2025',
+        audio_start_time=segment.start_time.isoformat(),
+        audio_end_time=segment.end_time.isoformat(),
+        segment_index=segment.index,
+        spectrogram_mat_path=f'spectrograms/{segment.name}.mat',
+        spectrogram_png_path=f'spectrograms/{segment.name}.png',
         audio_path=f'audio/{segment.name}.wav',
         model_outputs=[{
             'class_hierarchy': 'Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale',
@@ -66,6 +82,7 @@ The app uses the **first one found** and stops searching.
 1. **Store raw scores (0-1)**, not thresholded binary labels. Users adjust thresholds in the UI.
 2. **Use hierarchical labels** from the taxonomy (e.g., `Biophony > Marine mammal > ...`).
 3. **Include a `model_id`**: Compute a SHA256 hash of your model weights for reproducibility.
+4. **Use `data_sources` array**: Each item references a data source by `data_source_id`.
 
 ### Computing Model ID
 
@@ -88,24 +105,35 @@ model_id = compute_model_hash(model.state_dict())
 
 ```json
 {
-  "version": "2.0",
+  "schema_version": "2.0",
+  "task_type": "whale_detection",
   "model": {
     "model_id": "sha256-a3f2b9c8d1e7",
     "architecture": "resnet18",
     "output_classes": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"]
   },
-  "task_type": "whale_detection",
+  "data_sources": [
+    {
+      "data_source_id": "ICLISTENHF1951_BARK_2025",
+      "device_code": "ICLISTENHF1951"
+    }
+  ],
   "items": [
     {
       "item_id": "seg_000",
-      "mat_path": "spectrograms/seg_000.mat",
+      "data_source_id": "ICLISTENHF1951_BARK_2025",
+      "audio_start_time": "2025-01-01T00:00:00Z",
+      "audio_end_time": "2025-01-01T00:00:40Z",
       "model_outputs": [
         {
           "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
           "score": 0.87
         }
       ],
-      "verifications": []
+      "verifications": [],
+      "paths": {
+        "spectrogram_mat_path": "spectrograms/seg_000.mat"
+      }
     }
   ]
 }
@@ -115,5 +143,5 @@ model_id = compute_model_hash(model.state_dict())
 
 ## Related Docs
 
-- **Format Specification**: [`predictions_json_format.md`](predictions_json_format.md)
+- **Format Specification**: [`OCEANS3_JSON_SCHEMA.md`](../OCEANS3_JSON_SCHEMA.md)
 - **Python Class**: [`shared/unified_prediction_tracker.py`](../shared/unified_prediction_tracker.py)

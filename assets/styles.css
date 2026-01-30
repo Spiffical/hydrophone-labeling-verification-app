@@ -95,43 +95,40 @@ body {
    HEADER
    ============================================ */
 .app-header {
-    display: grid;
-    grid-template-areas:
-        "brand middle actions"
-        "selectors selectors selectors";
-    grid-template-columns: 1fr auto auto;
+    display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 20px;
-    margin-bottom: 32px;
-    padding: 24px 32px;
+    margin-bottom: 0;
+    padding: 20px 32px;
     background: var(--surface);
-    border-radius: var(--radius-lg);
     border: 1px solid var(--border);
-    box-shadow: var(--shadow);
-}
-
-@media (min-width: 1200px) {
-    .app-header {
-        grid-template-areas: "brand selectors actions";
-        grid-template-columns: 1fr auto auto;
-        gap: 32px;
-    }
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .brand-block {
-    grid-area: brand;
     min-width: 0;
 }
 
+/* Data selection bar - sits between tab buttons and content */
+.data-selection-bar {
+    padding: 14px 32px;
+    background: var(--surface-2);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+}
+
 #global-selector-container {
-    grid-area: selectors;
-    margin-left: auto;
-    padding: 0 1rem;
-    min-width: 700px;
+    min-width: 0;
 }
 
 .header-actions {
-    grid-area: actions;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -259,38 +256,40 @@ body {
 /* ============================================
    MODE TABS
    ============================================ */
-.mode-tabs-wrap {
-    margin-bottom: 36px;
-}
-
-.mode-tabs {
+.tab-buttons {
     display: flex;
-    gap: 12px;
-    border: none !important;
+    gap: 0;
+    margin-bottom: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 0;
 }
 
 .mode-tab {
-    padding: 12px 28px !important;
-    border-radius: var(--radius) !important;
-    border: 1px solid var(--border) !important;
-    background: var(--surface) !important;
-    color: var(--muted) !important;
-    font-size: 14px;
-    font-weight: 500 !important;
+    flex: 1;
+    padding: 10px 28px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     cursor: pointer;
     transition: all var(--transition);
 }
 
 .mode-tab:hover {
-    color: var(--text) !important;
-    border-color: var(--text-secondary) !important;
+    color: var(--text);
+    background: var(--surface-2);
 }
 
 .mode-tab--active {
-    color: var(--accent) !important;
-    border-color: var(--accent) !important;
-    background: var(--accent-subtle) !important;
-    box-shadow: var(--shadow-sm);
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
+    background: transparent;
 }
 
 /* ============================================
@@ -840,7 +839,7 @@ body {
 
     .app-header {
         padding: 20px;
-        margin-bottom: 24px;
+        margin-bottom: 0;
     }
 
     .panel-card {
@@ -848,14 +847,15 @@ body {
         margin-bottom: 20px;
     }
 
-    .mode-tabs {
+    .tab-buttons {
         flex-direction: column;
-        gap: 8px;
+        gap: 0;
+        padding: 0;
     }
 
     .mode-tab {
         text-align: center;
-        padding: 12px 20px !important;
+        padding: 10px 20px;
     }
 
     .summary-bar {
@@ -900,6 +900,7 @@ body {
 .app-shell.theme-dark .spectrogram-card,
 .app-shell.theme-dark .panel-card,
 .app-shell.theme-dark .app-header,
+.app-shell.theme-dark .data-selection-bar,
 .app-shell.theme-dark .modal-content {
     background: var(--surface) !important;
     border-color: var(--border) !important;
@@ -926,14 +927,17 @@ body {
 }
 
 .app-shell.theme-dark .mode-tab {
-    background: var(--surface-2) !important;
-    border-color: var(--border) !important;
+    background: transparent !important;
     color: var(--muted) !important;
 }
 
+.app-shell.theme-dark .mode-tab:hover {
+    background: var(--surface-2) !important;
+}
+
 .app-shell.theme-dark .mode-tab--active {
-    background: var(--accent-subtle) !important;
-    border-color: var(--accent) !important;
+    background: transparent !important;
+    border-bottom-color: var(--accent) !important;
     color: var(--accent) !important;
 }
 
@@ -1160,4 +1164,520 @@ body {
 #verify-predictions-warning {
     margin: 20px;
     border-radius: var(--radius);
+}
+
+/* Hierarchy tree in data config modal */
+.hierarchy-scroll-container {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 10px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.hierarchy-tree {
+    font-size: 13px;
+}
+
+.hierarchy-date-section {
+    margin-bottom: 8px;
+}
+
+.hierarchy-date {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.hierarchy-date-name {
+    color: var(--accent);
+}
+
+.hierarchy-devices {
+    margin-left: 16px;
+    border-left: 1px solid var(--border-subtle);
+    padding-left: 12px;
+}
+
+.hierarchy-device {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 3px 0;
+    font-size: 12px;
+}
+
+.hierarchy-device-name {
+    color: var(--text);
+}
+
+.hierarchy-device-info {
+    font-size: 11px;
+}
+
+/* Small badge variant */
+.badge-sm {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+/* Labels recommendation section */
+.labels-recommendation {
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.labels-recommendation.info {
+    border-left: 3px solid var(--accent);
+}
+
+.labels-recommendation.warning {
+    border-left: 3px solid var(--warning);
+}
+
+/* Structure info section in data config */
+.structure-info-section {
+    background: var(--surface-2) !important;
+}
+
+/* Dark mode adjustments for hierarchy tree */
+body.theme-dark .hierarchy-scroll-container,
+.theme-dark .hierarchy-scroll-container {
+    background: #21262d;
+    border-color: #30363d;
+}
+
+body.theme-dark .hierarchy-date-name,
+.theme-dark .hierarchy-date-name {
+    color: #58a6ff;
+}
+
+body.theme-dark .hierarchy-devices,
+.theme-dark .hierarchy-devices {
+    border-left-color: #30363d;
+}
+
+body.theme-dark .labels-recommendation,
+.theme-dark .labels-recommendation {
+    background: #21262d;
+}
+
+body.theme-dark .labels-recommendation.info,
+.theme-dark .labels-recommendation.info {
+    border-left-color: #58a6ff;
+}
+
+body.theme-dark .labels-recommendation.warning,
+.theme-dark .labels-recommendation.warning {
+    border-left-color: #d29922;
+}
+
+body.theme-dark .structure-info-section,
+.theme-dark .structure-info-section {
+    background: #21262d !important;
+}
+
+/* Multi-folder display for hierarchical structures */
+.multi-folder-summary {
+    margin-bottom: 8px;
+}
+
+.multi-folder-container {
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+}
+
+.multi-folder-header {
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+}
+
+.multi-folder-list {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.multi-folder-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.multi-folder-item:last-child {
+    border-bottom: none;
+}
+
+.multi-folder-item .folder-path {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+/* Dark mode for multi-folder display */
+body.theme-dark .multi-folder-container,
+.theme-dark .multi-folder-container {
+    background: #21262d;
+    border-color: #30363d;
+}
+
+body.theme-dark .multi-folder-list,
+.theme-dark .multi-folder-list {
+    background: #161b22;
+    border-color: #30363d;
+}
+
+body.theme-dark .multi-folder-item,
+.theme-dark .multi-folder-item {
+    border-bottom-color: #30363d;
+}
+
+body.theme-dark .multi-folder-item .folder-path,
+.theme-dark .multi-folder-item .folder-path {
+    color: #8b949e;
+}
+
+/* ============================================
+   MODAL AUDIO PLAYER
+   ============================================ */
+.modal-audio-container {
+    padding: 15px;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin: 10px 0;
+    box-shadow: var(--shadow-sm);
+}
+
+.modal-audio-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.modal-audio-icon {
+    color: var(--accent);
+    margin-right: 10px;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.modal-audio-filename {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.modal-play-btn {
+    background: linear-gradient(135deg, var(--accent) 0%, #764ba2 100%) !important;
+    border: none !important;
+    color: white !important;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-right: 10px !important;
+    box-shadow: var(--shadow-sm) !important;
+    padding: 0 !important;
+}
+
+.modal-play-btn:hover {
+    filter: brightness(1.1);
+}
+
+.modal-time-display {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 35px;
+    font-weight: 500;
+    margin: 0 10px;
+}
+
+.modal-control-section {
+    padding: 12px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: 10px;
+}
+
+.modal-control-section:last-of-type {
+    margin-bottom: 0;
+}
+
+.modal-control-header {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+}
+
+.modal-control-icon {
+    margin-right: 6px;
+    font-size: 12px;
+    color: var(--accent);
+}
+
+.modal-control-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.modal-control-display {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-top: 4px;
+}
+
+/* Pitch shift and bass boost sliders */
+.pitch-shift-slider,
+.bass-boost-slider {
+    margin: 0 !important;
+}
+
+.pitch-shift-slider .rc-slider-rail,
+.bass-boost-slider .rc-slider-rail {
+    background-color: var(--surface-3) !important;
+    height: 6px;
+    border-radius: 3px;
+}
+
+.pitch-shift-slider .rc-slider-track,
+.bass-boost-slider .rc-slider-track {
+    background: linear-gradient(135deg, var(--accent) 0%, #764ba2 100%) !important;
+    height: 6px;
+    border-radius: 3px;
+}
+
+.pitch-shift-slider .rc-slider-handle,
+.bass-boost-slider .rc-slider-handle {
+    border: 2px solid var(--accent) !important;
+    background: var(--surface) !important;
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    box-shadow: var(--shadow-sm);
+}
+
+.pitch-shift-slider .rc-slider-handle:hover,
+.pitch-shift-slider .rc-slider-handle:focus,
+.bass-boost-slider .rc-slider-handle:hover,
+.bass-boost-slider .rc-slider-handle:focus {
+    box-shadow: 0 0 0 4px var(--accent-subtle);
+}
+
+.pitch-shift-slider .rc-slider-mark-text,
+.bass-boost-slider .rc-slider-mark-text {
+    color: var(--muted) !important;
+}
+
+/* Dark mode specific styles for modal audio */
+body.theme-dark .modal-play-btn,
+.theme-dark .modal-play-btn {
+    background: linear-gradient(135deg, #58a6ff 0%, #79b8ff 100%) !important;
+}
+
+body.theme-dark .pitch-shift-slider .rc-slider-track,
+body.theme-dark .bass-boost-slider .rc-slider-track,
+.theme-dark .pitch-shift-slider .rc-slider-track,
+.theme-dark .bass-boost-slider .rc-slider-track {
+    background: linear-gradient(135deg, #58a6ff 0%, #79b8ff 100%) !important;
+}
+
+body.theme-dark .modal-audio-container,
+.theme-dark .modal-audio-container {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.theme-dark .modal-control-section,
+.theme-dark .modal-control-section {
+    background: #161b22 !important;
+    border-color: #21262d !important;
+}
+
+body.theme-dark .modal-control-label,
+.theme-dark .modal-control-label {
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .modal-audio-filename,
+.theme-dark .modal-audio-filename {
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .modal-time-display,
+.theme-dark .modal-time-display {
+    color: #7d8590 !important;
+}
+
+body.theme-dark .modal-control-icon,
+.theme-dark .modal-control-icon {
+    color: #58a6ff !important;
+}
+
+body.theme-dark .modal-control-display,
+.theme-dark .modal-control-display {
+    color: #58a6ff !important;
+}
+
+body.theme-dark .pitch-shift-slider .rc-slider-rail,
+body.theme-dark .bass-boost-slider .rc-slider-rail,
+.theme-dark .pitch-shift-slider .rc-slider-rail,
+.theme-dark .bass-boost-slider .rc-slider-rail {
+    background-color: #30363d !important;
+}
+
+body.theme-dark .pitch-shift-slider .rc-slider-handle,
+body.theme-dark .bass-boost-slider .rc-slider-handle,
+.theme-dark .pitch-shift-slider .rc-slider-handle,
+.theme-dark .bass-boost-slider .rc-slider-handle {
+    background: #161b22 !important;
+    border-color: #58a6ff !important;
+}
+
+body.theme-dark .pitch-shift-slider .rc-slider-mark-text,
+body.theme-dark .bass-boost-slider .rc-slider-mark-text,
+.theme-dark .pitch-shift-slider .rc-slider-mark-text,
+.theme-dark .bass-boost-slider .rc-slider-mark-text {
+    color: #7d8590 !important;
+}
+
+/* Spectrogram modal header */
+.spectrogram-modal-header {
+    background: var(--surface-2) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.modal-title-text {
+    color: var(--text) !important;
+    font-weight: 600;
+    margin: 0;
+}
+
+/* Spectrogram modal dark mode enhancements */
+/* Use body.theme-dark since modals are rendered outside .app-shell */
+body.theme-dark .spectrogram-zoom-modal .modal-content,
+.theme-dark .spectrogram-zoom-modal .modal-content {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-header,
+.theme-dark .spectrogram-zoom-modal .modal-header {
+    background: #21262d !important;
+    border-bottom-color: #30363d !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-header h4,
+.theme-dark .spectrogram-zoom-modal .modal-header h4 {
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-body,
+.theme-dark .spectrogram-zoom-modal .modal-body {
+    background: #161b22 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-footer,
+.theme-dark .spectrogram-zoom-modal .modal-footer {
+    background: #21262d !important;
+    border-top-color: #30363d !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-controls-card,
+.theme-dark .spectrogram-zoom-modal .modal-controls-card {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .custom-radio-group label,
+.theme-dark .spectrogram-zoom-modal .custom-radio-group label {
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .text-muted,
+.theme-dark .spectrogram-zoom-modal .text-muted {
+    color: #7d8590 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .fw-semibold,
+.theme-dark .spectrogram-zoom-modal .fw-semibold {
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .small,
+.theme-dark .spectrogram-zoom-modal .small {
+    color: #7d8590 !important;
+}
+
+/* Modal controls card styling */
+.modal-controls-card {
+    padding: 16px;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-subtle);
+}
+
+.modal-controls-card label {
+    color: var(--text);
+}
+
+.spectrogram-zoom-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+body.theme-dark .spectrogram-zoom-card,
+.theme-dark .spectrogram-zoom-card {
+    border-color: #30363d !important;
+}
+
+/* Plotly chart dark mode */
+body.theme-dark .js-plotly-plot .plotly .modebar,
+.theme-dark .js-plotly-plot .plotly .modebar {
+    background: #21262d !important;
+}
+
+body.theme-dark .js-plotly-plot .plotly .modebar-btn path,
+.theme-dark .js-plotly-plot .plotly .modebar-btn path {
+    fill: #e6edf3 !important;
+}
+
+body.theme-dark .js-plotly-plot .plotly .modebar-btn:hover path,
+.theme-dark .js-plotly-plot .plotly .modebar-btn:hover path {
+    fill: #58a6ff !important;
+}
+
+/* Modal backdrop for dark mode */
+body.theme-dark .modal-backdrop {
+    background-color: #000 !important;
 }

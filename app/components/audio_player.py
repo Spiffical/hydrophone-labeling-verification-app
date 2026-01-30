@@ -209,69 +209,30 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
     return html.Div([
         # Audio icon and filename
         html.Div([
-            html.I(className="fas fa-waveform-lines", style={
-                'color': '#667eea',
-                'margin-right': '10px',
-                'font-size': '16px',
-                'flex-shrink': '0'
-            }),
-            html.Span(f"Audio: {audio_filename}", style={
-                'font-size': '13px',
-                'font-weight': '600',
-                'color': '#495057',
-                'overflow': 'hidden',
-                'text-overflow': 'ellipsis',
-                'white-space': 'nowrap',
-                'min-width': '0'
-            })
-        ], style={
-            'display': 'flex',
-            'align-items': 'center',
-            'margin-bottom': '12px',
-            'padding-bottom': '10px',
-            'border-bottom': '1px solid rgba(102, 126, 234, 0.15)',
-            'max-width': '100%',
-            'overflow': 'hidden'
-        }),
-        
+            html.I(className="fas fa-waveform-lines modal-audio-icon"),
+            html.Span(f"Audio: {audio_filename}", className="modal-audio-filename")
+        ], className="modal-audio-header"),
+
         # Custom audio controls with time slider
         html.Div([
             # Play/Pause button
             html.Div([
                 dbc.Button([
                     html.I(
-                        className="fas fa-play", 
-                        id=f'{player_id}-play-icon', 
+                        className="fas fa-play",
+                        id=f'{player_id}-play-icon',
                         style={'font-size': '12px'}
                     )
-                ], 
-                id=f'{player_id}-play-btn', 
+                ],
+                id=f'{player_id}-play-btn',
                 size='sm',
-                style={
-                    'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    'border': 'none',
-                    'color': 'white',
-                    'width': '32px',
-                    'height': '32px',
-                    'border-radius': '50%',
-                    'display': 'flex',
-                    'align-items': 'center',
-                    'justify-content': 'center',
-                    'margin-right': '10px',
-                    'box-shadow': '0 2px 6px rgba(102, 126, 234, 0.3)'
-                })
+                className="modal-play-btn")
             ], style={'display': 'flex', 'align-items': 'center'}),
-            
+
             # Time slider and duration
             html.Div([
-                html.Span("0:00", id=f'{player_id}-current-time', style={
-                    'font-size': '11px',
-                    'color': '#6c757d',
-                    'margin-right': '10px',
-                    'min-width': '35px',
-                    'font-weight': '500'
-                }),
-                
+                html.Span("0:00", id=f'{player_id}-current-time', className="modal-time-display"),
+
                 # Dash slider for time control
                 dcc.Slider(
                     id=f'{player_id}-time-slider',
@@ -284,14 +245,8 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
                     className='custom-time-slider',
                     updatemode='drag'
                 ),
-                
-                html.Span("0:00", id=f'{player_id}-duration', style={
-                    'font-size': '11px',
-                    'color': '#6c757d',
-                    'margin-left': '10px',
-                    'min-width': '35px',
-                    'font-weight': '500'
-                })
+
+                html.Span("0:00", id=f'{player_id}-duration', className="modal-time-display")
             ], style={
                 'display': 'flex',
                 'align-items': 'center',
@@ -306,47 +261,59 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
         # Pitch shift controls
         html.Div([
             html.Label([
-                html.I(className="fas fa-sliders", style={
-                    'margin-right': '6px',
-                    'font-size': '12px',
-                    'color': '#667eea'
-                }),
-                html.Span("Playback Rate:", style={
-                    'font-size': '12px',
-                    'font-weight': '600',
-                    'color': '#495057'
-                })
-            ], style={'margin-bottom': '6px', 'display': 'flex', 'align-items': 'center'}),
-            
+                html.I(className="fas fa-gauge-high modal-control-icon"),
+                html.Span("Playback Speed:", className="modal-control-label")
+            ], className="modal-control-header"),
+
             html.Div([
                 dcc.Slider(
                     id=f'{player_id}-pitch-slider',
-                    min=0.5,
-                    max=2.0,
-                    step=0.1,
+                    min=0.1,
+                    max=4.0,
+                    step=0.05,
                     value=1.0,
                     marks={
-                        0.5: {'label': '0.5x', 'style': {'fontSize': '10px'}},
-                        1.0: {'label': '1.0x', 'style': {'fontSize': '10px', 'fontWeight': 'bold'}},
-                        2.0: {'label': '2.0x', 'style': {'fontSize': '10px'}}
+                        0.1: {'label': '0.1x', 'style': {'fontSize': '9px'}},
+                        0.25: {'label': '0.25x', 'style': {'fontSize': '9px'}},
+                        0.5: {'label': '0.5x', 'style': {'fontSize': '9px'}},
+                        1.0: {'label': '1x', 'style': {'fontSize': '10px', 'fontWeight': 'bold'}},
+                        2.0: {'label': '2x', 'style': {'fontSize': '9px'}},
+                        4.0: {'label': '4x', 'style': {'fontSize': '9px'}}
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
                     className='pitch-shift-slider'
                 ),
-                html.Div(id=f'{player_id}-pitch-display', children="1.0x", style={
-                    'text-align': 'center',
-                    'font-size': '11px',
-                    'font-weight': '600',
-                    'color': '#667eea',
-                    'margin-top': '4px'
-                })
+                html.Div(id=f'{player_id}-pitch-display', children="1.0x", className="modal-control-display")
             ])
-        ], style={
-            'padding': '10px',
-            'background': 'rgba(102, 126, 234, 0.03)',
-            'border-radius': '6px',
-            'border': '1px solid rgba(102, 126, 234, 0.15)'
-        }),
+        ], className="modal-control-section"),
+
+        # Bass boost / Low frequency equalizer
+        html.Div([
+            html.Label([
+                html.I(className="fas fa-volume-low modal-control-icon"),
+                html.Span("Bass Boost (Low Freq):", className="modal-control-label")
+            ], className="modal-control-header"),
+
+            html.Div([
+                dcc.Slider(
+                    id=f'{player_id}-bass-slider',
+                    min=0,
+                    max=24,
+                    step=1,
+                    value=0,
+                    marks={
+                        0: {'label': '0 dB', 'style': {'fontSize': '9px'}},
+                        6: {'label': '+6', 'style': {'fontSize': '9px'}},
+                        12: {'label': '+12', 'style': {'fontSize': '9px'}},
+                        18: {'label': '+18', 'style': {'fontSize': '9px'}},
+                        24: {'label': '+24 dB', 'style': {'fontSize': '9px'}}
+                    },
+                    tooltip={"placement": "bottom", "always_visible": False},
+                    className='bass-boost-slider'
+                ),
+                html.Div(id=f'{player_id}-bass-display', children="0 dB", className="modal-control-display")
+            ])
+        ], className="modal-control-section"),
         
         # Hidden HTML5 audio element
         html.Audio(
@@ -356,17 +323,11 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
             style={'display': 'none'}
         ),
         
-        # Hidden dummy element for callbacks
+        # Hidden dummy elements for callbacks
         html.Div(id={'type': 'slider-dummy', 'id': player_id}, style={'display': 'none'}),
-        html.Div(id=f'{player_id}-pitch-output', style={'display': 'none'})
-    ], style={
-        'padding': '15px',
-        'background': 'rgba(102, 126, 234, 0.05)',
-        'border-radius': '10px',
-        'border': '1px solid rgba(102, 126, 234, 0.25)',
-        'margin': '10px 0',
-        'box-shadow': '0 2px 8px rgba(0, 0, 0, 0.05)'
-    })
+        html.Div(id=f'{player_id}-pitch-output', style={'display': 'none'}),
+        html.Div(id=f'{player_id}-bass-output', style={'display': 'none'})
+    ], className="modal-audio-container")
 
 def create_audio_player_with_controls(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:
     """

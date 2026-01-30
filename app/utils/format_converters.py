@@ -28,7 +28,12 @@ def convert_legacy_labeling_to_unified(labels_json: dict, mat_folder: str) -> di
         # New unified format - parse the items from the array
         for item in labels_json["items"]:
             item_id = item.get("item_id", "")
-            mat_path = item.get("spectrogram_path") or os.path.join(mat_folder, f"{item_id}.mat")
+            mat_path = (
+                item.get("spectrogram_mat_path")
+                or item.get("mat_path")
+                or item.get("spectrogram_path")
+                or os.path.join(mat_folder, f"{item_id}.mat")
+            )
             audio_path = item.get("audio_file") or item.get("audio_path")
             annotations = item.get("annotations", {}) or {}
             metadata = item.get("metadata", {}) or {}
@@ -144,8 +149,8 @@ def convert_whale_predictions_to_unified(predictions_json: dict) -> dict:
         for seg in segments:
             items.append({
                 "item_id": seg.get("segment_id"),
-                "spectrogram_path": seg.get("spectrogram_path"),
-                "mat_path": seg.get("mat_path"),
+                "spectrogram_path": seg.get("spectrogram_png_path") or seg.get("spectrogram_path"),
+                "mat_path": seg.get("spectrogram_mat_path") or seg.get("mat_path"),
                 "audio_path": seg.get("audio_path"),
                 "timestamps": {"start": seg.get("audio_timestamp"), "end": None},
                 "device_code": data_source.get("device_code"),
@@ -165,8 +170,8 @@ def convert_whale_predictions_to_unified(predictions_json: dict) -> dict:
         for pred in predictions_json.get("predictions", []):
             items.append({
                 "item_id": pred.get("file_id"),
-                "spectrogram_path": pred.get("spectrogram_path"),
-                "mat_path": pred.get("mat_path"),
+                "spectrogram_path": pred.get("spectrogram_png_path") or pred.get("spectrogram_path"),
+                "mat_path": pred.get("spectrogram_mat_path") or pred.get("mat_path"),
                 "audio_path": pred.get("audio_path"),
                 "timestamps": {"start": pred.get("audio_timestamp"), "end": None},
                 "device_code": data_source.get("device_code"),

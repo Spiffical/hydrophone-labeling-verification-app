@@ -50,15 +50,137 @@ def _get_spectrogram_folder(base_path: str, folder_names: list = None) -> Option
     return None
 
 
+def _attach_predictions_path(items: list, predictions_path: Optional[str]) -> None:
+    if not predictions_path:
+        return
+    for item in items:
+        if not item:
+            continue
+        metadata = item.get("metadata") or {}
+        metadata["predictions_path"] = predictions_path
+        item["metadata"] = metadata
+
+
+def _normalize_item_key(key: Optional[str]) -> Optional[str]:
+    if not key:
+        return key
+    lower_key = key.lower()
+    for ext in (".mat", ".npy", ".png", ".jpg", ".jpeg", ".wav", ".flac", ".mp3"):
+        if lower_key.endswith(ext):
+            return key[: -len(ext)]
+    return key
+
+
+def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
+    labels_map: Dict[str, dict] = {}
+    if not isinstance(labels_json, dict):
+        return labels_map
+
+    if isinstance(labels_json.get("items"), list):
+        for item in labels_json.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("item_id")
+            annotations = item.get("annotations") or {}
+            entry = {
+                "labels": annotations.get("labels", []) or [],
+                "notes": annotations.get("notes", "") or "",
+                "annotated_by": annotations.get("annotated_by"),
+                "annotated_at": annotations.get("annotated_at"),
+                "verified": bool(annotations.get("verified")),
+            }
+            for key in {item_id, _normalize_item_key(item_id)}:
+                if key:
+                    labels_map[key] = entry
+        return labels_map
+
+    for raw_key, entry in labels_json.items():
+        labels = []
+        notes = ""
+        annotated_by = None
+        annotated_at = None
+        verified = False
+
+        if isinstance(entry, list):
+            labels = entry
+        elif isinstance(entry, dict):
+            labels = (
+                entry.get("verified_labels")
+                or entry.get("labels")
+                or (entry.get("annotations") or {}).get("labels")
+                or entry.get("predicted_labels")
+                or []
+            )
+            notes = entry.get("notes") or (entry.get("annotations") or {}).get("notes", "")
+            annotated_by = entry.get("annotated_by") or entry.get("verified_by")
+            annotated_at = entry.get("annotated_at") or entry.get("verified_at")
+            verified = bool(entry.get("verified")) or entry.get("verified_labels") is not None
+
+        mapped = {
+            "labels": labels if isinstance(labels, list) else [],
+            "notes": notes or "",
+            "annotated_by": annotated_by,
+            "annotated_at": annotated_at,
+            "verified": verified,
+        }
+        for key in {raw_key, _normalize_item_key(raw_key)}:
+            if key:
+                labels_map[key] = mapped
+
+    return labels_map
+
+
+def _collect_hierarchical_labels_map(
+    data_dir: str,
+    date_str: Optional[str],
+    hydrophone: Optional[str],
+) -> Dict[str, dict]:
+    if not data_dir or not os.path.exists(data_dir):
+        return {}
+
+    all_dates, all_devices = _discover_dates_and_devices(data_dir)
+    if date_str and date_str != "__all__":
+        dates_to_check = [date_str]
+    else:
+        dates_to_check = all_dates
+
+    if hydrophone and hydrophone != "__all__":
+        devices_to_check = [hydrophone]
+    else:
+        devices_to_check = all_devices
+
+    labels_map: Dict[str, dict] = {}
+
+    root_labels = os.path.join(data_dir, "labels.json")
+    if os.path.exists(root_labels):
+        labels_map.update(_extract_labels_map(read_json(root_labels) or {}))
+
+    for date in dates_to_check:
+        if not date:
+            continue
+        date_labels = os.path.join(data_dir, date, "labels.json")
+        if os.path.exists(date_labels):
+            labels_map.update(_extract_labels_map(read_json(date_labels) or {}))
+
+        for device in devices_to_check:
+            if not device:
+                continue
+            device_labels = os.path.join(data_dir, date, device, "labels.json")
+            if os.path.exists(device_labels):
+                labels_map.update(_extract_labels_map(read_json(device_labels) or {}))
+
+    return labels_map
+
+
 def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_file: Optional[str], 
                              hydrophone: Optional[str], date_str: Optional[str] = None) -> list:
     """Load spectrogram items from a single folder."""
-    from app.utils.label_operations import load_labels
-    
     if not folder or not os.path.exists(folder):
         return []
     
-    existing_labels = load_labels(labels_file) if labels_file and os.path.exists(labels_file) else {}
+    existing_labels = {}
+    if labels_file and os.path.exists(labels_file):
+        existing_labels = _extract_labels_map(read_json(labels_file) or {})
     
     mat_files = sorted(glob.glob(os.path.join(folder, "*.mat")))
     npy_files = sorted(glob.glob(os.path.join(folder, "*.npy")))
@@ -70,7 +192,19 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
         filename = os.path.basename(fpath)
         item_id = os.path.splitext(filename)[0]
         
-        file_labels = existing_labels.get(filename, existing_labels.get(item_id, []))
+        label_entry = existing_labels.get(filename) or existing_labels.get(item_id)
+        if isinstance(label_entry, dict):
+            file_labels = label_entry.get("labels", [])
+            notes = label_entry.get("notes", "") or ""
+            annotated_by = label_entry.get("annotated_by")
+            annotated_at = label_entry.get("annotated_at")
+            verified = bool(label_entry.get("verified"))
+        else:
+            file_labels = label_entry or []
+            notes = ""
+            annotated_by = None
+            annotated_at = None
+            verified = False
         
         item = {
             "item_id": item_id,
@@ -83,10 +217,10 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
             "predictions": None,
             "annotations": {
                 "labels": file_labels,
-                "annotated_by": None,
-                "annotated_at": None,
-                "verified": False,
-                "notes": "",
+                "annotated_by": annotated_by,
+                "annotated_at": annotated_at,
+                "verified": verified,
+                "notes": notes,
             },
             "metadata": {"source_folder": folder},
         }
@@ -179,10 +313,10 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 
                 if device_audio_folder and os.path.exists(device_audio_folder):
                     audio_roots.append(device_audio_folder)
-                
+
                 items = _load_items_from_folder(
-                    spec_folder, 
-                    device_audio_folder if os.path.exists(device_audio_folder) else None,
+                    spec_folder,
+                    device_audio_folder if device_audio_folder and os.path.exists(device_audio_folder) else None,
                     device_labels_file if os.path.exists(device_labels_file) else None,
                     dev,
                     d
@@ -190,10 +324,42 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 all_items.extend(items)
                 if spec_folder:
                     folders_loaded.append(spec_folder)
-        
+
         data["items"] = all_items
+        data["_spec_folders_loaded"] = folders_loaded
+        data["_audio_folders_loaded"] = [r for r in audio_roots]
         folder = ", ".join(folders_loaded[:3]) + ("..." if len(folders_loaded) > 3 else "") if folders_loaded else None
         
+        # Overlay labels from root/date/device labels.json (if present).
+        labels_map = {}
+        if labels_file and os.path.exists(labels_file):
+            labels_map = _extract_labels_map(read_json(labels_file) or {})
+        else:
+            labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone)
+            root_labels = os.path.join(data_dir, "labels.json")
+            if not labels_file and os.path.exists(root_labels):
+                labels_file = root_labels
+
+        if labels_map and data["items"]:
+            for item in data["items"]:
+                item_id = item.get("item_id")
+                match = labels_map.get(item_id) or labels_map.get(_normalize_item_key(item_id))
+                if not match:
+                    continue
+                annotations = item.get("annotations") or {
+                    "labels": [],
+                    "annotated_by": None,
+                    "annotated_at": None,
+                    "verified": False,
+                    "notes": "",
+                }
+                annotations["labels"] = match.get("labels", [])
+                annotations["notes"] = match.get("notes", "") or ""
+                annotations["annotated_by"] = match.get("annotated_by")
+                annotations["annotated_at"] = match.get("annotated_at")
+                annotations["verified"] = bool(match.get("verified"))
+                item["annotations"] = annotations
+
     elif not folder:
         # Flat structure - load directly from data_dir
         folder = data_dir
@@ -221,14 +387,42 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
     # Store active paths for UI updates
     data["summary"]["active_date"] = "All" if date_str == "__all__" else date_str
     data["summary"]["active_hydrophone"] = "All" if hydrophone == "__all__" else hydrophone
-    data["summary"]["spectrogram_folder"] = folder
     data["summary"]["labels_file"] = labels_file
-    
+    data["summary"]["data_root"] = data_dir
+
+    # Build multi-folder summary (same pattern as verify mode)
+    spec_folders_loaded = data.pop("_spec_folders_loaded", [])
+    audio_folders_loaded = data.pop("_audio_folders_loaded", [])
+    unique_spec_folders = list(dict.fromkeys(spec_folders_loaded)) if spec_folders_loaded else []
+    unique_audio_folders = list(dict.fromkeys(audio_folders_loaded)) if audio_folders_loaded else []
+
+    data["summary"]["spectrogram_folders_list"] = unique_spec_folders
+    data["summary"]["audio_folders_list"] = unique_audio_folders
+
+    is_multi_selection = date_str == "__all__" or hydrophone == "__all__"
+
+    if len(unique_spec_folders) > 1 and is_multi_selection:
+        word = "folder" if len(unique_spec_folders) == 1 else "folders"
+        data["summary"]["spectrogram_folder"] = f"{len(unique_spec_folders)} {word}"
+    else:
+        data["summary"]["spectrogram_folder"] = folder
+
+    if len(unique_audio_folders) > 1 and is_multi_selection:
+        word = "folder" if len(unique_audio_folders) == 1 else "folders"
+        data["summary"]["audio_folder"] = f"{len(unique_audio_folders)} {word}"
+    else:
+        data["summary"]["audio_folder"] = audio_folder or (audio_roots[0] if audio_roots else None)
+
     data["audio_roots"] = list(set(audio_roots))
     return data
 
 
-def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Optional[str] = None) -> Dict:
+def load_verify_mode(
+    config: Dict,
+    date_str: Optional[str] = None,
+    hydrophone: Optional[str] = None,
+    allow_unlabeled: bool = False,
+) -> Dict:
     verify_cfg = config.get("verify", {})
     data_cfg = config.get("data", {})
     dashboard_root = data_cfg.get("data_dir") or verify_cfg.get("dashboard_root")
@@ -268,6 +462,7 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
         if predictions_path and os.path.exists(predictions_path):
             whale_config = {"whale": {"predictions_json": predictions_path}}
             data = load_whale_mode(whale_config)
+            _attach_predictions_path(data.get("items", []), predictions_path)
         
         # Add items from mat files if no predictions or to supplement
         if mat_dir and os.path.exists(mat_dir):
@@ -370,11 +565,13 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
             root_data = load_whale_mode(whale_config)
             predictions_path = predictions_file_override
             predictions_paths_loaded.append(predictions_file_override)
+            _attach_predictions_path(root_data.get("items", []), predictions_path)
         elif root_predictions_path:
             whale_config = {"whale": {"predictions_json": root_predictions_path}}
             root_data = load_whale_mode(whale_config)
             predictions_path = root_predictions_path
             predictions_paths_loaded.append(root_predictions_path)
+            _attach_predictions_path(root_data.get("items", []), predictions_path)
         
         for active_date in dates_to_load:
             if not active_date:
@@ -393,6 +590,7 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
                     whale_config = {"whale": {"predictions_json": date_predictions_path}}
                     date_data = load_whale_mode(whale_config)
                     predictions_paths_loaded.append(date_predictions_path)
+                    _attach_predictions_path(date_data.get("items", []), date_predictions_path)
                 else:
                     date_labels_candidate = os.path.join(date_path, "labels.json")
                     if os.path.exists(date_labels_candidate):
@@ -441,6 +639,7 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
                         whale_config = {"whale": {"predictions_json": local_predictions_path}}
                         folder_data = load_whale_mode(whale_config)
                         predictions_paths_loaded.append(local_predictions_path)
+                        _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
                     else:
                         # Fallback to legacy labels.json if it exists
                         labels_path = os.path.join(base_path, "labels.json")
@@ -448,22 +647,92 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
                         image_dir = os.path.join(base_path, "images")
                         folder_data = convert_hydrophonedashboard_to_unified(labels_json, active_date, active_device, image_dir)
                 
-                # Enrich items with mat/npy file paths
+                # Enrich items with spectrogram/mat file paths
+                spec_files = []
+                mat_files_map = {}
+                npy_files_map = {}
+                image_files_map = {}
                 if local_mat_dir and os.path.exists(local_mat_dir):
-                    mat_files_map = {os.path.basename(f): f for f in glob.glob(os.path.join(local_mat_dir, "*.mat"))}
-                    npy_files_map = {os.path.basename(f): f for f in glob.glob(os.path.join(local_mat_dir, "*.npy"))}
+                    mat_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.mat")))
+                    npy_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.npy")))
+                    png_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.png")))
+                    jpg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpg")))
+                    jpeg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpeg")))
+                    image_files = png_files + jpg_files + jpeg_files
+                    spec_files = mat_files + npy_files + image_files
+
+                    mat_files_map = {os.path.basename(f): f for f in mat_files}
+                    npy_files_map = {os.path.basename(f): f for f in npy_files}
+                    image_files_map = {os.path.basename(f): f for f in image_files}
                     all_specs_map = {**mat_files_map, **npy_files_map}
-                    
+
                     for item in folder_data.get("items", []):
                         item_id = item.get("item_id")
+                        if not item_id:
+                            continue
                         if item_id in all_specs_map:
                             item["mat_path"] = all_specs_map[item_id]
                         elif f"{item_id}.mat" in all_specs_map:
                             item["mat_path"] = all_specs_map[f"{item_id}.mat"]
                         elif f"{item_id}.npy" in all_specs_map:
                             item["mat_path"] = all_specs_map[f"{item_id}.npy"]
-                    
+
+                        if not item.get("spectrogram_path"):
+                            if item_id in image_files_map:
+                                item["spectrogram_path"] = image_files_map[item_id]
+                            elif f"{item_id}.png" in image_files_map:
+                                item["spectrogram_path"] = image_files_map[f"{item_id}.png"]
+                            elif f"{item_id}.jpg" in image_files_map:
+                                item["spectrogram_path"] = image_files_map[f"{item_id}.jpg"]
+                            elif f"{item_id}.jpeg" in image_files_map:
+                                item["spectrogram_path"] = image_files_map[f"{item_id}.jpeg"]
+
                     mat_dirs_loaded.append(local_mat_dir)
+
+                # In explore mode, include unlabeled items from spectrogram folders
+                if allow_unlabeled and spec_files:
+                    existing_ids = set()
+                    for item in folder_data.get("items", []):
+                        item_id = item.get("item_id")
+                        if item_id:
+                            existing_ids.add(item_id)
+
+                    for fpath in spec_files:
+                        filename = os.path.basename(fpath)
+                        item_id = os.path.splitext(filename)[0]
+                        if item_id in existing_ids or filename in existing_ids:
+                            continue
+
+                        audio_path = None
+                        if local_audio_dir:
+                            for ext in [".flac", ".wav", ".mp3"]:
+                                candidate = os.path.join(local_audio_dir, item_id + ext)
+                                if os.path.exists(candidate):
+                                    audio_path = candidate
+                                    break
+
+                        is_image = fpath.lower().endswith((".png", ".jpg", ".jpeg"))
+                        is_mat = fpath.lower().endswith((".mat", ".npy"))
+
+                        folder_data["items"].append({
+                            "item_id": item_id,
+                            "spectrogram_path": fpath if is_image else None,
+                            "mat_path": fpath if is_mat else None,
+                            "audio_path": audio_path,
+                            "timestamps": {"start": None, "end": None},
+                            "device_code": active_device,
+                            "predictions": {},
+                            "annotations": {
+                                "labels": [],
+                                "annotated_by": None,
+                                "annotated_at": None,
+                                "verified": False,
+                                "notes": "",
+                            },
+                            "metadata": {"date": active_date, "hydrophone": active_device},
+                        })
+                        existing_ids.add(item_id)
+                        existing_ids.add(filename)
                 
                 if local_audio_dir and os.path.exists(local_audio_dir):
                     audio_roots.append(local_audio_dir)
@@ -476,9 +745,35 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
         data["summary"]["active_date"] = "All" if date_str == "__all__" else (dates_to_load[0] if dates_to_load else None)
         data["summary"]["active_hydrophone"] = "All" if hydrophone == "__all__" else (devices_to_load[0] if devices_to_load else None)
         data["audio_roots"] = list(set(audio_roots))
-        mat_dir = mat_dirs_loaded[0] if mat_dirs_loaded else None
-        audio_dir = audio_roots[0] if audio_roots else None
-        predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
+        
+        # When showing summary, use the actual folders based on selection
+        # If a specific device is selected, show that device's folders (not first loaded)
+        if len(dates_to_load) == 1 and len(devices_to_load) == 1:
+            # Single date and device selected - show exact paths
+            single_base = os.path.join(dashboard_root, dates_to_load[0], devices_to_load[0])
+            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if os.path.exists(single_base) else None
+            audio_dir = None
+            for audio_name in audio_folder_names:
+                candidate = os.path.join(single_base, audio_name)
+                if os.path.exists(candidate):
+                    audio_dir = candidate
+                    break
+            # Use device-specific predictions if not using root-level
+            if predictions_file_override:
+                predictions_path = predictions_file_override
+            elif root_predictions_path:
+                predictions_path = root_predictions_path
+            else:
+                device_pred = os.path.join(single_base, "predictions.json")
+                if os.path.exists(device_pred):
+                    predictions_path = device_pred
+                else:
+                    predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
+        else:
+            # Multiple selections - use first loaded or summary
+            mat_dir = mat_dirs_loaded[0] if mat_dirs_loaded else None
+            audio_dir = audio_roots[0] if audio_roots else None
+            predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
 
     # Enrich with mat files if they exist
     if mat_dir and os.path.exists(mat_dir) and data["items"]:
@@ -502,34 +797,43 @@ def load_verify_mode(config: Dict, date_str: Optional[str] = None, hydrophone: O
         data.setdefault("audio_roots", [])
 
     # Add folder paths to summary for display in UI
-    # When loading from multiple sources, show all unique folders
     data["summary"]["data_root"] = dashboard_root
     
-    if len(mat_dirs_loaded) > 1:
-        # Multiple spectrogram folders - show all unique ones
-        unique_spec_folders = list(dict.fromkeys(mat_dirs_loaded))  # Preserve order, remove dupes
-        data["summary"]["spectrogram_folder"] = "\n".join(unique_spec_folders)
+    # Show appropriate folder information based on selection type
+    # When "All" is selected for date or device, show counts; otherwise show exact path
+    is_multi_selection = date_str == "__all__" or hydrophone == "__all__"
+    
+    unique_spec_folders = list(dict.fromkeys(mat_dirs_loaded)) if mat_dirs_loaded else []
+    unique_audio_folders = list(dict.fromkeys(audio_folders_loaded)) if audio_folders_loaded else []
+    unique_pred_files = list(dict.fromkeys(predictions_paths_loaded)) if predictions_paths_loaded else []
+    
+    # Store the actual paths list for UI popover/tooltip display
+    data["summary"]["spectrogram_folders_list"] = unique_spec_folders
+    data["summary"]["audio_folders_list"] = unique_audio_folders
+    data["summary"]["predictions_files_list"] = unique_pred_files
+    
+    print(f"DEBUG summary: mat_dirs_loaded={len(mat_dirs_loaded)}, unique={len(unique_spec_folders)}, is_multi={is_multi_selection}")
+    
+    if len(unique_spec_folders) > 1 and is_multi_selection:
+        folder_word = "folder" if len(unique_spec_folders) == 1 else "folders"
+        data["summary"]["spectrogram_folder"] = f"{len(unique_spec_folders)} {folder_word}"
     else:
         data["summary"]["spectrogram_folder"] = mat_dir
     
-    if len(audio_folders_loaded) > 1:
-        # Multiple audio folders
-        unique_audio_folders = list(dict.fromkeys(audio_folders_loaded))
-        data["summary"]["audio_folder"] = "\n".join(unique_audio_folders)
+    if len(unique_audio_folders) > 1 and is_multi_selection:
+        folder_word = "folder" if len(unique_audio_folders) == 1 else "folders"
+        data["summary"]["audio_folder"] = f"{len(unique_audio_folders)} {folder_word}"
     else:
         data["summary"]["audio_folder"] = audio_dir or (data.get("audio_roots", [None])[0] if data.get("audio_roots") else None)
     
-    if len(predictions_paths_loaded) > 1:
-        # Multiple predictions files
-        unique_pred_files = list(dict.fromkeys(predictions_paths_loaded))
-        data["summary"]["predictions_file"] = "\n".join(unique_pred_files)
+    if len(unique_pred_files) > 1 and is_multi_selection:
+        file_word = "file" if len(unique_pred_files) == 1 else "files"
+        data["summary"]["predictions_file"] = f"{len(unique_pred_files)} {file_word}"
     else:
         data["summary"]["predictions_file"] = predictions_path
 
     # Diagnostic print
-    print(f"DEBUG: Loaded {len(data['items'])} items from {len(mat_dirs_loaded)} spectrogram folders")
-    if len(mat_dirs_loaded) > 1:
-        print(f"DEBUG: Folders: {data['summary']['spectrogram_folder']}")
+    print(f"DEBUG: Loaded {len(data['items'])} items, active: {data['summary'].get('active_date')}/{data['summary'].get('active_hydrophone')}")
 
     return data
 
@@ -538,7 +842,38 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
     # If we are browsing a data directory, use the verify mode loading logic
     # which knows how to handle the DATE/DEVICE structure.
     if config.get("data", {}).get("data_dir"):
-        return load_verify_mode(config, date_str, hydrophone)
+        data_dir = config.get("data", {}).get("data_dir")
+        data = load_verify_mode(config, date_str, hydrophone, allow_unlabeled=True)
+        labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone)
+        if labels_map and data.get("items"):
+            for item in data.get("items", []):
+                item_id = item.get("item_id")
+                match = labels_map.get(item_id) or labels_map.get(_normalize_item_key(item_id))
+                if not match:
+                    continue
+                annotations = item.get("annotations") or {
+                    "labels": [],
+                    "annotated_by": None,
+                    "annotated_at": None,
+                    "verified": False,
+                    "notes": "",
+                }
+                annotations["labels"] = match.get("labels", [])
+                annotations["notes"] = match.get("notes", "") or ""
+                annotations["annotated_by"] = match.get("annotated_by")
+                annotations["annotated_at"] = match.get("annotated_at")
+                annotations["verified"] = bool(match.get("verified"))
+                item["annotations"] = annotations
+
+            summary = data.get("summary", {})
+            summary["annotated"] = sum(
+                1 for item in data.get("items", []) if (item.get("annotations") or {}).get("labels")
+            )
+            summary["verified"] = sum(
+                1 for item in data.get("items", []) if (item.get("annotations") or {}).get("verified")
+            )
+            data["summary"] = summary
+        return data
     
     # Otherwise fallback to standard label mode (configured folders)
     return load_label_mode(config)
@@ -550,10 +885,13 @@ def load_whale_mode(config: Dict) -> Dict:
     verify_cfg = config.get("verify", {})
     predictions_path = whale_cfg.get("predictions_json") or verify_cfg.get("predictions_json")
     predictions_json = read_json(predictions_path) if predictions_path else {}
-    
+
+    # Get base path for resolving relative paths in predictions
+    base_path = os.path.dirname(predictions_path) if predictions_path else None
+
     # Detect format and convert appropriately
     if is_unified_v2_format(predictions_json):
-        data = convert_unified_v2_to_internal(predictions_json)
+        data = convert_unified_v2_to_internal(predictions_json, base_path=base_path)
     else:
         # Legacy format
         data = convert_whale_predictions_to_unified(predictions_json)

@@ -96,10 +96,14 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
                     color="secondary",
                 ),
             ]
-    else:
+    elif mode == "label":
         actions = [
             dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="primary"),
         ]
+    else:
+        actions = []
+
+    actions_block = html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap") if actions else None
 
     return dbc.Card([
         dbc.CardHeader(html.Div([
@@ -109,6 +113,6 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
             image,
             audio_player,
             html.Div(badges, className="mt-3"),
-            html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap"),
+            actions_block,
         ])
     ], className="spectrogram-card h-100")
