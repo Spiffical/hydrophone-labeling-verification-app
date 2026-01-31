@@ -242,7 +242,6 @@ def register_callbacks(app, config):
         # gets overwritten when loading data in other tabs (e.g., verify), so it won't match
         # the label data's source after switching tabs.
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_existing_data = current_label_data and current_label_data.get("items")
         has_source = current_label_data and current_label_data.get("source_data_dir")
 
         # Load on: reload button, config load (for label mode only), or filter change (only if label data exists)
@@ -251,7 +250,7 @@ def register_callbacks(app, config):
         should_load = (
             "label-reload" in triggered_props or
             trigger_mode == "label" or
-            (filter_triggered and has_existing_data and has_source)
+            (filter_triggered and has_source)
         )
 
         if should_load:
@@ -317,14 +316,13 @@ def register_callbacks(app, config):
         # 1. Verify data was ALREADY loaded (has source_data_dir), AND
         # 2. We're in verify mode (already checked above)
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_existing_data = current_verify_data and current_verify_data.get("items")
         has_source = current_verify_data and current_verify_data.get("source_data_dir")
 
         # Load on: reload button, config load (for verify mode only), or filter change (only if verify data exists)
         should_load = (
             "verify-reload" in triggered_props or
             trigger_mode == "verify" or
-            (filter_triggered and has_existing_data and has_source)
+            (filter_triggered and has_source)
         )
 
         if should_load:
@@ -386,14 +384,13 @@ def register_callbacks(app, config):
         # 1. Explore data was ALREADY loaded (has source_data_dir), AND
         # 2. We're in explore mode (already checked above)
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_existing_data = current_explore_data and current_explore_data.get("items")
         has_source = current_explore_data and current_explore_data.get("source_data_dir")
 
         # Load on: reload button, config load (for explore mode only), or filter change (only if explore data exists)
         should_load = (
             "explore-reload" in triggered_props or
             trigger_mode == "explore" or
-            (filter_triggered and has_existing_data and has_source)
+            (filter_triggered and has_source)
         )
 
         if should_load:
@@ -1174,6 +1171,41 @@ def register_callbacks(app, config):
 
 
     # Data Discovery Callbacks
+    app.clientside_callback(
+        """
+        function(dateVal, deviceVal, mode, labelData, verifyData, exploreData) {
+            var dc = (window.dash_clientside || {});
+            var ctx = dc.callback_context || null;
+            if (!ctx || !ctx.triggered || ctx.triggered.length === 0) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            var tabData = mode === "label" ? labelData : (mode === "verify" ? verifyData : exploreData);
+            var hasSource = tabData && tabData.source_data_dir;
+            if (!hasSource) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            var title = "Updating filters...";
+            var subtitle = "Loading data for the selected date/device.";
+            if (mode === "verify") {
+                subtitle = "Loading predictions for the selected date/device.";
+            } else if (mode === "explore") {
+                subtitle = "Loading items for exploration.";
+            }
+            return [{display: "flex"}, title, subtitle];
+        }
+        """,
+        Output("data-config-loading-overlay", "style", allow_duplicate=True),
+        Output("data-load-title", "children", allow_duplicate=True),
+        Output("data-load-subtitle", "children", allow_duplicate=True),
+        Input("global-date-selector", "value"),
+        Input("global-device-selector", "value"),
+        State("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("global-date-selector", "options", allow_duplicate=True),
         Output("global-date-selector", "value", allow_duplicate=True),
@@ -1185,13 +1217,9 @@ def register_callbacks(app, config):
         prevent_initial_call=True,
     )
     def discover_dates(mode, cfg, label_data, verify_data, explore_data):
-        # Check if the current tab has data loaded
-        tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        if not tab_data or not tab_data.get("items"):
-            return [], None
-
         # Use the tab's own source_data_dir (not the global config which may have been overwritten)
-        data_dir = tab_data.get("source_data_dir")
+        tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
+        data_dir = tab_data.get("source_data_dir") if tab_data else None
         if not data_dir:
             data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
         if not data_dir or not os.path.exists(data_dir):
@@ -1199,6 +1227,10 @@ def register_callbacks(app, config):
 
         # Dates are folders like YYYY-MM-DD
         try:
+            base_name = os.path.basename(data_dir.rstrip(os.sep))
+            if len(base_name) == 10 and base_name[4] == '-' and base_name[7] == '-':
+                return [{"label": base_name, "value": base_name}], base_name
+
             dates = [d for d in os.listdir(data_dir) if len(d) == 10 and os.path.isdir(os.path.join(data_dir, d))]
             dates.sort(reverse=True)
 
@@ -1212,7 +1244,15 @@ def register_callbacks(app, config):
             if config_date in dates:
                 default_val = config_date
 
-            return options, default_val
+            if dates:
+                return options, default_val
+
+            # Device-only root (no date folders) - keep date selector meaningful
+            devices = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+            if devices:
+                return [{"label": "Device folders", "value": "__device_only__"}], "__device_only__"
+
+            return [], None
         except Exception:
             return [], None
 
@@ -1242,9 +1282,13 @@ def register_callbacks(app, config):
         
         try:
             devices = set()
-            
+            base_name = os.path.basename(data_dir.rstrip(os.sep))
+            is_base_date = len(base_name) == 10 and base_name[4] == '-' and base_name[7] == '-'
+
+            if selected_date == "__device_only__" or (is_base_date and selected_date in {base_name, "__all__"}):
+                devices = {d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))}
             # If "All Dates" is selected, find all devices across all dates
-            if selected_date == "__all__":
+            elif selected_date == "__all__":
                 for date_folder in os.listdir(data_dir):
                     date_path = os.path.join(data_dir, date_folder)
                     # Check for date-like folder (YYYY-MM-DD format)
@@ -1257,7 +1301,7 @@ def register_callbacks(app, config):
                 date_path = os.path.join(data_dir, selected_date)
                 if os.path.exists(date_path):
                     devices = {d for d in os.listdir(date_path) if os.path.isdir(os.path.join(date_path, d))}
-            
+
             devices = sorted(devices)
             
             # Add "All Devices" option at the beginning

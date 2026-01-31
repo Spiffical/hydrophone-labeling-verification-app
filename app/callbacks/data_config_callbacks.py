@@ -37,6 +37,7 @@ def register_data_config_callbacks(app):
         Output("data-config-audio-single-container", "style"),
         Output("data-config-predictions-multi", "children"),
         Output("data-config-predictions-single-container", "style"),
+        Output("data-config-loading-overlay", "style", allow_duplicate=True),
         Input("folder-browser-confirm", "n_clicks"),
         Input("data-config-cancel", "n_clicks"),
         Input("data-config-close", "n_clicks"),
@@ -52,7 +53,7 @@ def register_data_config_callbacks(app):
         if triggered in ["data-config-cancel", "data-config-close"]:
             return (False, no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, no_update, no_update)
+                    no_update, no_update, no_update, no_update, no_update, no_update, {"display": "none"})
 
         if triggered != "folder-browser-confirm" or not selected_path:
             raise PreventUpdate
@@ -203,7 +204,37 @@ def register_data_config_callbacks(app):
             hide_single,  # Hide single audio input for hierarchical
             predictions_multi,  # Multi-predictions display
             show_predictions_single,  # Always show predictions input
+            {"display": "none"},
         )
+
+    app.clientside_callback(
+        """
+        function(confirmClicks, browseTarget, selectedPath) {
+            var dc = (window.dash_clientside || {});
+            if (!confirmClicks) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            if (browseTarget && browseTarget.target) {
+                return [{display: "none"}, dc.no_update, dc.no_update];
+            }
+            if (!selectedPath) {
+                return [{display: "none"}, dc.no_update, dc.no_update];
+            }
+            return [
+                {display: "flex"},
+                "Analyzing data folder...",
+                "Detecting structure and files. This can take a moment on mounted drives."
+            ];
+        }
+        """,
+        Output("data-config-loading-overlay", "style", allow_duplicate=True),
+        Output("data-load-title", "children", allow_duplicate=True),
+        Output("data-load-subtitle", "children", allow_duplicate=True),
+        Input("folder-browser-confirm", "n_clicks"),
+        State("path-browse-target-store", "data"),
+        State("folder-browser-selected-store", "data"),
+        prevent_initial_call=True,
+    )
 
     # Toggle hierarchy collapse
     @app.callback(
@@ -265,7 +296,7 @@ def register_data_config_callbacks(app):
             # Clear any previous folder overrides so loading discovers paths dynamically
             config["data"]["spectrogram_folder"] = None
             config["data"]["audio_folder"] = None
-            config["data"]["predictions_file"] = None
+            config["data"]["predictions_file"] = predictions_file or None
         else:
             # Flat structure - use the specified folders
             config["data"]["spectrogram_folder"] = spec_folder or None
@@ -291,6 +322,18 @@ def register_data_config_callbacks(app):
             # Add "All" option for devices
             device_options = [{"label": "All Devices", "value": "__all__"}] + [{"label": d, "value": d} for d in devices]
             device_value = "__all__"  # Default to all devices (no filter)
+            # If the selected root is itself a date folder, show it in the date selector
+            base_label = None
+            if base_path:
+                base_name = os.path.basename(base_path.rstrip(os.sep))
+                if len(base_name) == 10 and base_name[4] == "-" and base_name[7] == "-":
+                    base_label = base_name
+            if base_label:
+                date_options = [{"label": base_label, "value": base_label}]
+                date_value = base_label
+            else:
+                date_options = [{"label": "Device folders", "value": "__device_only__"}]
+                date_value = "__device_only__"
         else:
             # Flat or unknown - use special marker to indicate direct loading
             date_options = [{"label": "(Direct)", "value": "__flat__"}]
@@ -344,6 +387,44 @@ def register_data_config_callbacks(app):
             output_display,
             trigger_value,  # Trigger data reload
         )
+
+    app.clientside_callback(
+        """
+        function(loadClicks, mode) {
+            var dc = (window.dash_clientside || {});
+            if (!loadClicks) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            var title = "Loading dataset...";
+            var subtitle = "Applying configuration and preparing your workspace.";
+            if (mode === "verify") {
+                subtitle = "Applying configuration and loading predictions.";
+            } else if (mode === "label") {
+                subtitle = "Applying configuration and loading items.";
+            } else if (mode === "explore") {
+                subtitle = "Applying configuration and loading items for exploration.";
+            }
+            return [{display: "flex"}, title, subtitle];
+        }
+        """,
+        Output("data-config-loading-overlay", "style", allow_duplicate=True),
+        Output("data-load-title", "children", allow_duplicate=True),
+        Output("data-load-subtitle", "children", allow_duplicate=True),
+        Input("data-config-load", "n_clicks"),
+        State("mode-tabs", "data"),
+        prevent_initial_call=True,
+    )
+
+    @app.callback(
+        Output("data-config-loading-overlay", "style", allow_duplicate=True),
+        Input("label-data-store", "data"),
+        Input("verify-data-store", "data"),
+        Input("explore-data-store", "data"),
+        prevent_initial_call=True,
+    )
+    def hide_loading_overlay_on_data_load(_label_data, _verify_data, _explore_data):
+        """Hide the loading overlay once any dataset finishes loading."""
+        return {"display": "none"}
     
     @app.callback(
         Output("verify-predictions-warning", "is_open"),

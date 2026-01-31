@@ -153,5 +153,27 @@ def create_main_layout(config: dict) -> html.Div:
                     dbc.Button("Save", id="profile-save", color="primary"),
                 ]),
             ], id="profile-modal", is_open=False),
+
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            dbc.Spinner(color="primary", size="lg"),
+                            html.Div("Loading...", id="data-load-title", className="data-load-title"),
+                            html.Div(
+                                "Preparing workspace.",
+                                id="data-load-subtitle",
+                                className="data-load-subtitle",
+                            ),
+                        ],
+                        className="data-load-card",
+                        role="status",
+                        **{"aria-live": "polite"},
+                    )
+                ],
+                id="data-config-loading-overlay",
+                className="data-load-overlay",
+                style={"display": "none"},
+            ),
         ], fluid=True, className="app-inner"),
     ], id="app-shell", className="app-shell theme-light")

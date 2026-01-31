@@ -19,6 +19,15 @@ def _find_latest_date(dashboard_root: str) -> Optional[str]:
     return sorted(candidates, reverse=True)[0] if candidates else None
 
 
+def _has_spectrograms(folder: Optional[str]) -> bool:
+    if not folder or not os.path.exists(folder):
+        return False
+    for pattern in ("*.mat", "*.npy", "*.png", "*.jpg", "*.jpeg"):
+        if glob.glob(os.path.join(folder, pattern)):
+            return True
+    return False
+
+
 def _find_first_hydrophone(dashboard_root: str, date_str: str) -> Optional[str]:
     if not dashboard_root or not date_str:
         return None
@@ -26,7 +35,21 @@ def _find_first_hydrophone(dashboard_root: str, date_str: str) -> Optional[str]:
     if not os.path.exists(date_dir):
         return None
     hydrophones = [d for d in os.listdir(date_dir) if os.path.isdir(os.path.join(date_dir, d))]
+    for device in sorted(hydrophones):
+        base_path = os.path.join(date_dir, device)
+        spec_folder = _get_spectrogram_folder(base_path)
+        if _has_spectrograms(spec_folder):
+            return device
     return sorted(hydrophones)[0] if hydrophones else None
+
+
+def _find_first_device_with_data(root_path: str, devices: list, spec_folder_names: list) -> Optional[str]:
+    for device in sorted(devices):
+        base_path = os.path.join(root_path, device)
+        spec_folder = _get_spectrogram_folder(base_path, spec_folder_names)
+        if _has_spectrograms(spec_folder):
+            return device
+    return sorted(devices)[0] if devices else None
 
 
 def _get_spectrogram_folder(base_path: str, folder_names: list = None) -> Optional[str]:
@@ -532,6 +555,178 @@ def load_verify_mode(
             
             data["summary"]["total_items"] = len(data["items"])
     
+    elif dashboard_root and structure_type == "device_only":
+        # Device-only structure (DATE folder selected as root)
+        devices = []
+        try:
+            for item in os.listdir(dashboard_root):
+                item_path = os.path.join(dashboard_root, item)
+                if os.path.isdir(item_path) and not item.startswith("."):
+                    devices.append(item)
+        except Exception:
+            devices = []
+
+        devices = sorted(devices)
+        if hydrophone == "__all__":
+            devices_to_load = devices
+        elif hydrophone:
+            devices_to_load = [hydrophone]
+        else:
+            preferred_device = _find_first_device_with_data(dashboard_root, devices, spec_folder_names)
+            devices_to_load = [preferred_device] if preferred_device else devices[:1]
+
+        # Use date label from folder name if it looks like YYYY-MM-DD
+        folder_name = os.path.basename(dashboard_root)
+        active_date_label = folder_name if len(folder_name) == 10 and folder_name[4] == '-' and folder_name[7] == '-' else None
+
+        all_items = []
+        audio_roots = []
+
+        # Cascading predictions: override > root-level > device-level
+        root_predictions_path = None
+        root_data = None
+
+        if predictions_file_override and os.path.exists(predictions_file_override):
+            whale_config = {"whale": {"predictions_json": predictions_file_override}}
+            root_data = load_whale_mode(whale_config)
+            predictions_path = predictions_file_override
+            predictions_paths_loaded.append(predictions_file_override)
+            _attach_predictions_path(root_data.get("items", []), predictions_path)
+        else:
+            root_pred_candidate = os.path.join(dashboard_root, "predictions.json")
+            if os.path.exists(root_pred_candidate):
+                root_predictions_path = root_pred_candidate
+                whale_config = {"whale": {"predictions_json": root_pred_candidate}}
+                root_data = load_whale_mode(whale_config)
+                predictions_path = root_pred_candidate
+                predictions_paths_loaded.append(root_pred_candidate)
+                _attach_predictions_path(root_data.get("items", []), predictions_path)
+
+        root_items = root_data.get("items", []) if root_data else []
+        root_has_device = any(item.get("device_code") for item in root_items)
+
+        for active_device in devices_to_load:
+            if not active_device:
+                continue
+
+            base_path = os.path.join(dashboard_root, active_device)
+            if not os.path.exists(base_path):
+                continue
+
+            # Try common spectrogram folder names if no override
+            if spec_folder_override:
+                local_mat_dir = spec_folder_override
+            else:
+                local_mat_dir = _get_spectrogram_folder(base_path, spec_folder_names)
+
+            # Find audio folder using configurable names
+            if audio_folder_override:
+                local_audio_dir = audio_folder_override
+            else:
+                local_audio_dir = None
+                for audio_name in audio_folder_names:
+                    candidate = os.path.join(base_path, audio_name)
+                    if os.path.exists(candidate):
+                        local_audio_dir = candidate
+                        break
+
+            folder_data = {"items": [], "summary": {}}
+
+            if root_data:
+                # Filter root-level predictions by device when possible
+                if root_has_device:
+                    filtered = [i for i in root_items if i.get("device_code") == active_device]
+                else:
+                    # No device codes in predictions - avoid duplicating items across devices
+                    filtered = root_items if active_device == devices_to_load[0] else []
+                folder_data = {"items": list(filtered), "summary": {}}
+            else:
+                # Check device-level predictions
+                local_predictions_path = os.path.join(base_path, "predictions.json")
+                if os.path.exists(local_predictions_path):
+                    whale_config = {"whale": {"predictions_json": local_predictions_path}}
+                    folder_data = load_whale_mode(whale_config)
+                    predictions_paths_loaded.append(local_predictions_path)
+                    _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
+                else:
+                    # Fallback to legacy labels.json if it exists
+                    labels_path = os.path.join(base_path, "labels.json")
+                    labels_json = read_json(labels_path) if os.path.exists(labels_path) else {}
+                    image_dir = os.path.join(base_path, "images")
+                    folder_data = convert_hydrophonedashboard_to_unified(labels_json, active_date_label, active_device, image_dir)
+
+            # Enrich items with spectrogram/mat file paths
+            spec_files = []
+            if local_mat_dir and os.path.exists(local_mat_dir):
+                mat_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.mat")))
+                npy_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.npy")))
+                png_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.png")))
+                jpg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpg")))
+                jpeg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpeg")))
+                image_files = png_files + jpg_files + jpeg_files
+                spec_files = mat_files + npy_files + image_files
+
+                mat_files_map = {os.path.basename(f): f for f in mat_files}
+                npy_files_map = {os.path.basename(f): f for f in npy_files}
+                image_files_map = {os.path.basename(f): f for f in image_files}
+                all_specs_map = {**mat_files_map, **npy_files_map}
+
+                for item in folder_data.get("items", []):
+                    item_id = item.get("item_id")
+                    if not item_id:
+                        continue
+                    if item_id in all_specs_map:
+                        item["mat_path"] = all_specs_map[item_id]
+                    elif f"{item_id}.mat" in all_specs_map:
+                        item["mat_path"] = all_specs_map[f"{item_id}.mat"]
+                    elif f"{item_id}.npy" in all_specs_map:
+                        item["mat_path"] = all_specs_map[f"{item_id}.npy"]
+
+                    if not item.get("spectrogram_path"):
+                        if item_id in image_files_map:
+                            item["spectrogram_path"] = image_files_map[item_id]
+                        elif f"{item_id}.png" in image_files_map:
+                            item["spectrogram_path"] = image_files_map[f"{item_id}.png"]
+                        elif f"{item_id}.jpg" in image_files_map:
+                            item["spectrogram_path"] = image_files_map[f"{item_id}.jpg"]
+                        elif f"{item_id}.jpeg" in image_files_map:
+                            item["spectrogram_path"] = image_files_map[f"{item_id}.jpeg"]
+
+                mat_dirs_loaded.append(local_mat_dir)
+
+            if local_audio_dir and os.path.exists(local_audio_dir):
+                audio_roots.append(local_audio_dir)
+                audio_folders_loaded.append(local_audio_dir)
+
+            all_items.extend(folder_data.get("items", []))
+
+        data["items"] = all_items
+        data["summary"]["total_items"] = len(all_items)
+        data["summary"]["active_date"] = active_date_label
+        data["summary"]["active_hydrophone"] = "All" if hydrophone == "__all__" else (devices_to_load[0] if devices_to_load else None)
+        data["audio_roots"] = list(set(audio_roots))
+
+        # When showing summary, use the actual folders based on selection
+        if len(devices_to_load) == 1:
+            single_base = os.path.join(dashboard_root, devices_to_load[0])
+            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if os.path.exists(single_base) else None
+            audio_dir = None
+            for audio_name in audio_folder_names:
+                candidate = os.path.join(single_base, audio_name)
+                if os.path.exists(candidate):
+                    audio_dir = candidate
+                    break
+            if predictions_file_override:
+                predictions_path = predictions_file_override
+            elif root_predictions_path:
+                predictions_path = root_predictions_path
+            else:
+                predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
+        else:
+            mat_dir = mat_dirs_loaded[0] if mat_dirs_loaded else None
+            audio_dir = audio_roots[0] if audio_roots else None
+            predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
+
     elif dashboard_root:
         # Hierarchical structure - use DATE/DEVICE paths
         # Handle "__all__" selections

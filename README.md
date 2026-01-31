@@ -73,7 +73,7 @@ The app supports:
 *   **Hierarchical** (Date/Device), **Device-Only**, and **Flat** folder structures
 *   **Configurable folder names** (e.g., `spectrograms/`, `mat_files/`, `audio/`)
 *   **.mat**, **.npy**, **.png** spectrograms and **.wav**, **.flac**, **.mp3** audio
-*   **Cascading Prediction Discovery**: Place a single `predictions.json` or `labels.json` at the root folder to apply to all data, or per-date/per-device for granular control.
+*   **Cascading Prediction Discovery**: Supports `predictions.json` or `labels.json` at the root, date, or device level. The ONC pipeline writes one `predictions.json` per date (`YYYY-MM-DD/predictions.json`) containing all devices and appends/updates it as devices are processed.
 *   **Cross-platform browsing**: Navigate to `/mnt` (WSL), `/Volumes` (macOS), or any mounted drives
 
 👉 **[Read the Full Application Usage Guide](docs/APP_USAGE_GUIDE.md)** for detailed instructions.
