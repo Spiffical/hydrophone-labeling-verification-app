@@ -11,7 +11,7 @@ from app.components.hierarchical_selector import create_hierarchical_selector
 from app.components.audio_player import create_audio_player, create_modal_audio_player
 from app.utils.data_loading import load_dataset
 from app.utils.image_utils import get_item_image_src
-from app.utils.image_processing import load_spectrogram_cached, create_spectrogram_figure
+from app.utils.image_processing import load_spectrogram_cached, create_spectrogram_figure, set_cache_sizes
 from app.utils.persistence import save_label_mode, save_verify_predictions
 
 
@@ -158,6 +158,8 @@ def _create_folder_display(display_text, folders_list, data_root, popover_id):
 
 
 def register_callbacks(app, config):
+    set_cache_sizes((config or {}).get("cache", {}).get("max_size", 400))
+
     # ── Tab switching: buttons → store ─────────────────────────
     app.clientside_callback(
         """
@@ -453,11 +455,11 @@ def register_callbacks(app, config):
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
         Input("label-current-page", "data"),
+        Input("config-store", "data"),
         State("mode-tabs", "data"),
-        State("config-store", "data"),
         prevent_initial_call=True,
     )
-    def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, mode, cfg):
+    def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
         # Render even if not in label mode (to maintain state when switching back)
         pass
 
@@ -532,10 +534,12 @@ def register_callbacks(app, config):
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "value"),
         Input("verify-current-page", "data"),
+        Input("verify-colormap-toggle", "value"),
+        Input("verify-yaxis-toggle", "value"),
+        Input("config-store", "data"),
         State("mode-tabs", "data"),
-        State("config-store", "data"),
     )
-    def render_verify(data, thresholds, class_filter, current_page, mode, cfg):
+    def render_verify(data, thresholds, class_filter, current_page, use_hydrophone_colormap, use_log_y_axis, cfg, mode):
         # Render even if not in verify mode (to maintain state when switching back)
         pass
 
@@ -574,6 +578,8 @@ def register_callbacks(app, config):
             display_item["predictions"] = display_predictions
             filtered_items.append(display_item)
 
+        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
+        y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         summary_block = html.Div([
             html.Span(f"Visible: {len(filtered_items)}", className="fw-semibold"),
@@ -594,8 +600,7 @@ def register_callbacks(app, config):
 
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "verify", cfg.get("display", {}).get("colormap", "default"),
-                           cfg.get("display", {}).get("y_axis_scale", "linear"), items_per_page)
+        grid = _build_grid(page_items, "verify", colormap, y_axis_scale, items_per_page)
         
         data_root = summary.get("data_root") or "Not set"
 
@@ -694,26 +699,41 @@ def register_callbacks(app, config):
     @app.callback(
         Output("explore-summary", "children"),
         Output("explore-grid", "children"),
+        Output("explore-page-info", "children"),
+        Output("explore-page-input", "max"),
         Output("explore-ui-ready-store", "data"),
         Input("explore-data-store", "data"),
-        State("config-store", "data"),
+        Input("explore-current-page", "data"),
+        Input("explore-colormap-toggle", "value"),
+        Input("explore-yaxis-toggle", "value"),
+        Input("config-store", "data"),
     )
-    def render_explore(data, cfg):
+    def render_explore(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
 
+        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
+        y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         summary_block = html.Div([
             html.Span(f"Items: {summary.get('total_items', len(items))}", className="fw-semibold"),
         ])
 
-        grid = _build_grid(items, "explore", cfg.get("display", {}).get("colormap", "default"),
-                           cfg.get("display", {}).get("y_axis_scale", "linear"), items_per_page)
+        total_items = len(items)
+        total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+        current_page = current_page or 0
+        current_page = max(0, min(current_page, total_pages - 1))
+        start_idx = current_page * items_per_page
+        end_idx = start_idx + items_per_page
+        page_items = items[start_idx:end_idx]
+        page_info = f"Page {current_page + 1} of {total_pages}"
+
+        grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page)
         ui_ready = no_update
         if (data or {}).get("load_timestamp"):
             ui_ready = {"timestamp": data.get("load_timestamp")}
-        return summary_block, grid, ui_ready
+        return summary_block, grid, page_info, total_pages, ui_ready
 
     @app.callback(
         Output("label-editor-modal", "is_open", allow_duplicate=True),
@@ -1071,7 +1091,7 @@ def register_callbacks(app, config):
     @app.callback(
         Output("profile-modal", "is_open"),
         Output("profile-name", "value"),
-        Output("profile-role", "value"),
+        Output("profile-email", "value"),
         Input("profile-btn", "n_clicks"),
         Input("profile-cancel", "n_clicks"),
         State("user-profile-store", "data"),
@@ -1081,7 +1101,7 @@ def register_callbacks(app, config):
         triggered = ctx.triggered_id
         if triggered == "profile-btn":
             profile = profile or {}
-            return True, profile.get("name", ""), profile.get("role", "")
+            return True, profile.get("name", ""), profile.get("email", "")
         if triggered == "profile-cancel":
             return False, no_update, no_update
         raise PreventUpdate
@@ -1091,29 +1111,105 @@ def register_callbacks(app, config):
         Output("profile-modal", "is_open", allow_duplicate=True),
         Input("profile-save", "n_clicks"),
         State("profile-name", "value"),
-        State("profile-role", "value"),
+        State("profile-email", "value"),
         prevent_initial_call=True,
     )
-    def save_profile(n_clicks, name, role):
+    def save_profile(n_clicks, name, email):
         if not n_clicks:
             raise PreventUpdate
-        return {"name": name or "", "role": role or ""}, False
+        return {"name": name or "", "email": email or ""}, False
+
+    @app.callback(
+        Output("profile-name-display", "children"),
+        Output("profile-email-display", "children"),
+        Input("user-profile-store", "data"),
+        prevent_initial_call=False,
+    )
+    def update_profile_display(profile):
+        profile = profile or {}
+        name = profile.get("name") or "Anonymous"
+        email = profile.get("email") or "email not set"
+        return name, email
+
+    def _coerce_positive_int(value, fallback):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return value if value > 0 else fallback
+
+    @app.callback(
+        Output("app-config-modal", "is_open"),
+        Output("app-config-items-per-page", "value"),
+        Output("app-config-cache-size", "value"),
+        Output("config-store", "data", allow_duplicate=True),
+        Input("app-config-btn", "n_clicks"),
+        Input("app-config-cancel", "n_clicks"),
+        Input("app-config-save", "n_clicks"),
+        State("config-store", "data"),
+        State("app-config-items-per-page", "value"),
+        State("app-config-cache-size", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_app_config(open_clicks, cancel_clicks, save_clicks, cfg, items_per_page, cache_size):
+        triggered = ctx.triggered_id
+        cfg = cfg or {}
+        display_cfg = cfg.get("display", {}) or {}
+        cache_cfg = cfg.get("cache", {}) or {}
+
+        if triggered == "app-config-btn":
+            return (
+                True,
+                display_cfg.get("items_per_page", 25),
+                cache_cfg.get("max_size", 400),
+                no_update,
+            )
+
+        if triggered == "app-config-cancel":
+            return False, no_update, no_update, no_update
+
+        if triggered != "app-config-save":
+            raise PreventUpdate
+
+        new_items_per_page = _coerce_positive_int(items_per_page, display_cfg.get("items_per_page", 25))
+        new_cache_size = _coerce_positive_int(cache_size, cache_cfg.get("max_size", 400))
+
+        updated_cfg = dict(cfg)
+        updated_cfg["display"] = dict(display_cfg)
+        updated_cfg["display"]["items_per_page"] = new_items_per_page
+        updated_cfg["cache"] = dict(cache_cfg)
+        updated_cfg["cache"]["max_size"] = new_cache_size
+
+        set_cache_sizes(new_cache_size)
+
+        return False, new_items_per_page, new_cache_size, updated_cfg
 
     @app.callback(
         Output("theme-store", "data"),
-        Input("theme-toggle", "value"),
+        Input("theme-toggle", "n_clicks"),
+        State("theme-store", "data"),
         prevent_initial_call=True,
     )
-    def update_theme_store(is_dark):
-        return "dark" if is_dark else "light"
+    def update_theme_store(n_clicks, theme):
+        if not n_clicks:
+            raise PreventUpdate
+        theme = theme or "light"
+        return "dark" if theme == "light" else "light"
 
     @app.callback(
-        Output("theme-toggle", "value"),
+        Output("theme-toggle", "children"),
+        Output("theme-toggle", "className"),
         Input("theme-store", "data"),
         prevent_initial_call=False,
     )
     def sync_theme_toggle(theme):
-        return theme == "dark"
+        theme = theme or "light"
+        is_dark = theme == "dark"
+        icon_class = "bi bi-sun" if is_dark else "bi bi-moon-stars"
+        btn_class = "icon-btn theme-btn"
+        if is_dark:
+            btn_class += " icon-btn--active"
+        return html.I(className=icon_class), btn_class
 
     @app.callback(
         Output("app-shell", "className"),

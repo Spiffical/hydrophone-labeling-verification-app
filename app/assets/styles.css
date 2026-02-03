@@ -175,82 +175,119 @@ body {
 }
 
 /* ============================================
-   THEME TOGGLE
+   HEADER ICONS + PROFILE
    ============================================ */
-.theme-toggle {
+.header-icons {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.theme-toggle .form-check-input {
-    width: 40px;
-    height: 20px;
-    border-radius: 20px;
+.icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     border: 1px solid var(--border);
-    background-color: var(--surface-2);
-    cursor: pointer;
-    transition: all var(--transition);
-}
-
-.theme-toggle .form-check-input:checked {
-    background-color: var(--accent);
-    border-color: var(--accent);
-}
-
-.theme-toggle .form-check-input:focus {
-    box-shadow: 0 0 0 3px var(--accent-subtle);
-    border-color: var(--accent);
-}
-
-.theme-toggle .form-check-label {
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    user-select: none;
-}
-
-/* ============================================
-   PROFILE BUTTON
-   ============================================ */
-.profile-btn {
-    display: inline-flex !important;
+    background: var(--surface);
+    color: var(--text);
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px !important;
-    border-radius: var(--radius) !important;
-    border: 1px solid var(--border) !important;
-    background: var(--surface) !important;
-    color: var(--text) !important;
-    font-size: 13px;
-    font-weight: 500;
+    justify-content: center;
     cursor: pointer;
     transition: all var(--transition);
     box-shadow: var(--shadow-sm);
 }
 
-.profile-btn i,
-.profile-btn svg {
-    font-size: 14px;
+.icon-btn i,
+.icon-btn svg {
+    font-size: 16px;
     color: var(--muted);
 }
 
-.profile-btn:hover {
-    border-color: var(--accent) !important;
-    background: var(--accent-subtle) !important;
-    color: var(--accent) !important;
+.icon-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
 }
 
-.profile-btn:hover i,
-.profile-btn:hover svg {
+.icon-btn:hover i,
+.icon-btn:hover svg {
     color: var(--accent);
 }
 
-.profile-btn:focus {
+.icon-btn:focus {
     outline: none;
     box-shadow: 0 0 0 3px var(--accent-subtle);
-    border-color: var(--accent) !important;
+    border-color: var(--accent);
+}
+
+.icon-btn--active {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.icon-btn--active i,
+.icon-btn--active svg {
+    color: var(--accent);
+}
+
+.profile-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: all var(--transition);
+    box-shadow: var(--shadow-sm);
+}
+
+.profile-summary i {
+    font-size: 18px;
+    color: var(--muted);
+}
+
+.profile-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.profile-name {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.profile-email {
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.profile-summary:hover {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.profile-summary:hover i {
+    color: var(--accent);
+}
+
+.profile-summary:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    border-color: var(--accent);
 }
 
 /* ============================================
@@ -964,10 +1001,21 @@ body {
 
 .app-shell.theme-dark .btn-secondary,
 .app-shell.theme-dark .btn-light,
-.app-shell.theme-dark .profile-btn {
+.app-shell.theme-dark .profile-summary,
+.app-shell.theme-dark .icon-btn {
     background: var(--surface-2) !important;
     border-color: var(--border) !important;
     color: var(--text) !important;
+}
+
+.app-shell.theme-dark .icon-btn--active {
+    background: var(--accent-subtle) !important;
+    border-color: var(--accent) !important;
+}
+
+.app-shell.theme-dark .icon-btn--active i,
+.app-shell.theme-dark .icon-btn--active svg {
+    color: var(--accent);
 }
 
 .app-shell.theme-dark .mode-tab {

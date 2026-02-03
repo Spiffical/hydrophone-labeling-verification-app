@@ -37,7 +37,7 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="explore-data-store", data=None, storage_type="memory"),
         dcc.Store(id="active-item-store", data=None, storage_type="memory"),
         dcc.Store(id="label-editor-clicks", data={}, storage_type="memory"),
-        dcc.Store(id="user-profile-store", data={"name": "", "role": ""}, storage_type="local"),
+        dcc.Store(id="user-profile-store", data={"name": "", "email": ""}, storage_type="local"),
         dcc.Store(id="theme-store", data="light", storage_type="local"),
         dcc.Store(id="verify-thresholds-store", data={"__global__": 0.5}, storage_type="memory"),
         dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
@@ -67,17 +67,39 @@ def create_main_layout(config: dict) -> html.Div:
                 ], className="brand-block"),
 
                 html.Div([
-                    dbc.Switch(
-                        id="theme-toggle",
-                        label="Dark",
-                        value=False,
-                        className="theme-toggle",
-                    ),
-                    dbc.Button(
-                        "Profile",
+                    html.Div([
+                        html.Button(
+                            html.I(className="bi bi-gear"),
+                            id="app-config-btn",
+                            className="icon-btn",
+                            n_clicks=0,
+                            type="button",
+                            **{"aria-label": "App settings"},
+                        ),
+                        html.Button(
+                            html.I(className="bi bi-moon-stars"),
+                            id="theme-toggle",
+                            className="icon-btn theme-btn",
+                            n_clicks=0,
+                            type="button",
+                            **{"aria-label": "Toggle dark mode"},
+                        ),
+                    ], className="header-icons"),
+                    html.Button(
+                        [
+                            html.I(className="bi bi-person-circle"),
+                            html.Div(
+                                [
+                                    html.Span("Anonymous", id="profile-name-display", className="profile-name"),
+                                    html.Span("email not set", id="profile-email-display", className="profile-email"),
+                                ],
+                                className="profile-text",
+                            ),
+                        ],
                         id="profile-btn",
-                        color="light",
-                        className="profile-btn ms-2",
+                        className="profile-summary",
+                        n_clicks=0,
+                        type="button",
                     ),
                 ], className="header-actions"),
             ], className="app-header"),
@@ -163,8 +185,8 @@ def create_main_layout(config: dict) -> html.Div:
                     dbc.Form([
                         dbc.Label("Name", html_for="profile-name", className="small fw-semibold"),
                         dbc.Input(id="profile-name", type="text", placeholder="Your name"),
-                        dbc.Label("Role", html_for="profile-role", className="small fw-semibold mt-3"),
-                        dbc.Input(id="profile-role", type="text", placeholder="e.g. verifier, labeler"),
+                        dbc.Label("Email", html_for="profile-email", className="small fw-semibold mt-3"),
+                        dbc.Input(id="profile-email", type="email", placeholder="name@example.com"),
                     ])
                 ]),
                 dbc.ModalFooter([
@@ -172,6 +194,34 @@ def create_main_layout(config: dict) -> html.Div:
                     dbc.Button("Save", id="profile-save", color="primary"),
                 ]),
             ], id="profile-modal", is_open=False),
+
+            dbc.Modal([
+                dbc.ModalHeader(dbc.ModalTitle("App Configuration")),
+                dbc.ModalBody([
+                    dbc.Form([
+                        dbc.Label("Spectrograms per page", html_for="app-config-items-per-page", className="small fw-semibold"),
+                        dbc.Input(
+                            id="app-config-items-per-page",
+                            type="number",
+                            min=1,
+                            step=1,
+                        ),
+                        dbc.FormText("Controls how many spectrograms are shown per page."),
+                        dbc.Label("Spectrogram cache size", html_for="app-config-cache-size", className="small fw-semibold mt-3"),
+                        dbc.Input(
+                            id="app-config-cache-size",
+                            type="number",
+                            min=1,
+                            step=1,
+                        ),
+                        dbc.FormText("Higher values keep more spectrograms cached in memory."),
+                    ])
+                ]),
+                dbc.ModalFooter([
+                    dbc.Button("Cancel", id="app-config-cancel", color="secondary", outline=True),
+                    dbc.Button("Save", id="app-config-save", color="primary"),
+                ]),
+            ], id="app-config-modal", is_open=False),
 
             html.Div(
                 [

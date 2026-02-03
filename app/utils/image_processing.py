@@ -20,10 +20,28 @@ spectrogram_cache = LRUCache(maxsize=400)
 image_cache = LRUCache(maxsize=800)
 
 
+def _resize_cache(cache: LRUCache, maxsize: int) -> None:
+    cache.clear()
+    if hasattr(cache, "_Cache__maxsize"):
+        cache._Cache__maxsize = maxsize
+        return
+    if hasattr(cache, "_LRUCache__maxsize"):
+        cache._LRUCache__maxsize = maxsize
+        return
+    try:
+        cache.maxsize = maxsize
+    except AttributeError:
+        pass
+
+
 def set_cache_sizes(maxsize: int) -> None:
-    global spectrogram_cache, image_cache
-    spectrogram_cache = LRUCache(maxsize=maxsize)
-    image_cache = LRUCache(maxsize=maxsize * 2)
+    try:
+        maxsize = int(maxsize)
+    except (TypeError, ValueError):
+        maxsize = 400
+    maxsize = max(1, maxsize)
+    _resize_cache(spectrogram_cache, maxsize)
+    _resize_cache(image_cache, maxsize * 2)
 
 
 def _load_mat(mat_path: str):
@@ -269,4 +287,3 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     )
 
     return fig
-

@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 
 def create_verify_layout(config: dict) -> html.Div:
     verify_cfg = config.get("verify", {})
+    display_cfg = config.get("display", {})
 
     return html.Div([
         html.Div([
@@ -104,6 +105,20 @@ def create_verify_layout(config: dict) -> html.Div:
                     ], md=6, sm=12, xs=12),
                 ], className="align-items-end g-4"),
             ]),
+            html.Div([
+                dbc.Switch(
+                    id="verify-colormap-toggle",
+                    label="Hydrophone colormap",
+                    value=display_cfg.get("colormap") == "hydrophone",
+                    className="control-switch",
+                ),
+                dbc.Switch(
+                    id="verify-yaxis-toggle",
+                    label="Log y-axis",
+                    value=display_cfg.get("y_axis_scale") == "log",
+                    className="control-switch",
+                ),
+            ], className="control-row mt-3"),
         ], className="panel-card"),
 
         html.Div(id="verify-summary", className="summary-bar"),
