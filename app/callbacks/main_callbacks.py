@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from dash import Input, Output, State, callback, ctx, no_update, ALL, dcc
 from dash.exceptions import PreventUpdate
@@ -219,7 +220,6 @@ def register_callbacks(app, config):
         State("config-store", "data"),
         State("mode-tabs", "data"),
         State("label-data-store", "data"),
-        prevent_initial_call=True,
     )
     def load_label_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_label_data):
         """Load data specifically for Label mode."""
@@ -276,6 +276,11 @@ def register_callbacks(app, config):
                     if old_summary.get("labels_file"):
                         data["summary"]["labels_file"] = old_summary["labels_file"]
 
+                if trigger_mode == "label" and isinstance(config_load_trigger, dict):
+                    data["load_timestamp"] = config_load_trigger.get("timestamp")
+                else:
+                    data["load_timestamp"] = time.time()
+
                 # Store the source data_dir so we can maintain context on filter changes
                 data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
                 from app.main import set_audio_roots
@@ -283,7 +288,11 @@ def register_callbacks(app, config):
                 return data
             except Exception as e:
                 print(f"Error loading label dataset: {e}")
-                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+                return {
+                    "items": [],
+                    "summary": {"total_items": 0, "error": str(e)},
+                    "load_timestamp": (config_load_trigger or {}).get("timestamp") or time.time(),
+                }
 
         raise PreventUpdate
 
@@ -296,7 +305,6 @@ def register_callbacks(app, config):
         State("config-store", "data"),
         State("mode-tabs", "data"),
         State("verify-data-store", "data"),
-        prevent_initial_call=True,
     )
     def load_verify_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_verify_data):
         """Load data specifically for Verify mode."""
@@ -345,13 +353,22 @@ def register_callbacks(app, config):
                     if old_summary.get("predictions_file"):
                         data["summary"]["predictions_file"] = old_summary["predictions_file"]
 
+                if trigger_mode == "verify" and isinstance(config_load_trigger, dict):
+                    data["load_timestamp"] = config_load_trigger.get("timestamp")
+                else:
+                    data["load_timestamp"] = time.time()
+
                 data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
                 return data
             except Exception as e:
                 print(f"Error loading verify dataset: {e}")
-                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+                return {
+                    "items": [],
+                    "summary": {"total_items": 0, "error": str(e)},
+                    "load_timestamp": (config_load_trigger or {}).get("timestamp") or time.time(),
+                }
 
         raise PreventUpdate
 
@@ -364,7 +381,6 @@ def register_callbacks(app, config):
         State("config-store", "data"),
         State("mode-tabs", "data"),
         State("explore-data-store", "data"),
-        prevent_initial_call=True,
     )
     def load_explore_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_explore_data):
         """Load data specifically for Explore mode."""
@@ -406,13 +422,21 @@ def register_callbacks(app, config):
                     effective_cfg["data"]["data_dir"] = source_data_dir
 
                 data = load_dataset(effective_cfg, "explore", date_str=date_val, hydrophone=device_val)
+                if trigger_mode == "explore" and isinstance(config_load_trigger, dict):
+                    data["load_timestamp"] = config_load_trigger.get("timestamp")
+                else:
+                    data["load_timestamp"] = time.time()
                 data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
                 return data
             except Exception as e:
                 print(f"Error loading explore dataset: {e}")
-                return {"items": [], "summary": {"total_items": 0, "error": str(e)}}
+                return {
+                    "items": [],
+                    "summary": {"total_items": 0, "error": str(e)},
+                    "load_timestamp": (config_load_trigger or {}).get("timestamp") or time.time(),
+                }
 
         raise PreventUpdate
 
@@ -424,6 +448,7 @@ def register_callbacks(app, config):
         Output("label-spec-folder-display", "children", allow_duplicate=True),
         Output("label-audio-folder-display", "children", allow_duplicate=True),
         Output("label-output-input", "value", allow_duplicate=True),
+        Output("label-ui-ready-store", "data"),
         Input("label-data-store", "data"),
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
@@ -478,22 +503,39 @@ def register_callbacks(app, config):
         )
         labels_file_display = summary.get("labels_file") or no_update
 
-        return summary_block, grid, page_info, total_pages, folder_display, audio_folder_display, labels_file_display
+        ui_ready = no_update
+        if (data or {}).get("load_timestamp"):
+            ui_ready = {"timestamp": data.get("load_timestamp")}
+
+        return (
+            summary_block,
+            grid,
+            page_info,
+            total_pages,
+            folder_display,
+            audio_folder_display,
+            labels_file_display,
+            ui_ready,
+        )
 
     @app.callback(
         Output("verify-summary", "children"),
         Output("verify-grid", "children"),
+        Output("verify-page-info", "children"),
+        Output("verify-page-input", "max"),
         Output("verify-spec-folder-display", "children"),
         Output("verify-audio-folder-display", "children"),
         Output("verify-predictions-display", "children"),
         Output("verify-data-root-display", "children"),
+        Output("verify-ui-ready-store", "data"),
         Input("verify-data-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "value"),
+        Input("verify-current-page", "data"),
         State("mode-tabs", "data"),
         State("config-store", "data"),
     )
-    def render_verify(data, thresholds, class_filter, mode, cfg):
+    def render_verify(data, thresholds, class_filter, current_page, mode, cfg):
         # Render even if not in verify mode (to maintain state when switching back)
         pass
 
@@ -541,7 +583,18 @@ def register_callbacks(app, config):
             html.Span(f"Filter: {class_filter}", className="ms-3 text-muted"),
         ], className="summary-info")
 
-        grid = _build_grid(filtered_items, "verify", cfg.get("display", {}).get("colormap", "default"),
+        total_items = len(filtered_items)
+        total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+        current_page = current_page or 0
+        current_page = max(0, min(current_page, total_pages - 1))
+
+        start_idx = current_page * items_per_page
+        end_idx = start_idx + items_per_page
+        page_items = filtered_items[start_idx:end_idx]
+
+        page_info = f"Page {current_page + 1} of {total_pages}"
+
+        grid = _build_grid(page_items, "verify", cfg.get("display", {}).get("colormap", "default"),
                            cfg.get("display", {}).get("y_axis_scale", "linear"), items_per_page)
         
         data_root = summary.get("data_root") or "Not set"
@@ -562,7 +615,21 @@ def register_callbacks(app, config):
             summary.get("data_root", ""), "pred-file-popover-trigger"
         )
 
-        return summary_block, grid, spec_folder_display, audio_folder_display, pred_file_display, data_root
+        ui_ready = no_update
+        if (data or {}).get("load_timestamp"):
+            ui_ready = {"timestamp": data.get("load_timestamp")}
+
+        return (
+            summary_block,
+            grid,
+            page_info,
+            total_pages,
+            spec_folder_display,
+            audio_folder_display,
+            pred_file_display,
+            data_root,
+            ui_ready,
+        )
 
     @app.callback(
         Output("verify-class-filter", "options"),
@@ -627,6 +694,7 @@ def register_callbacks(app, config):
     @app.callback(
         Output("explore-summary", "children"),
         Output("explore-grid", "children"),
+        Output("explore-ui-ready-store", "data"),
         Input("explore-data-store", "data"),
         State("config-store", "data"),
     )
@@ -642,7 +710,10 @@ def register_callbacks(app, config):
 
         grid = _build_grid(items, "explore", cfg.get("display", {}).get("colormap", "default"),
                            cfg.get("display", {}).get("y_axis_scale", "linear"), items_per_page)
-        return summary_block, grid
+        ui_ready = no_update
+        if (data or {}).get("load_timestamp"):
+            ui_ready = {"timestamp": data.get("load_timestamp")}
+        return summary_block, grid, ui_ready
 
     @app.callback(
         Output("label-editor-modal", "is_open", allow_duplicate=True),
@@ -1214,7 +1285,7 @@ def register_callbacks(app, config):
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
-        prevent_initial_call=True,
+        prevent_initial_call="initial_duplicate",
     )
     def discover_dates(mode, cfg, label_data, verify_data, explore_data):
         # Use the tab's own source_data_dir (not the global config which may have been overwritten)

@@ -328,7 +328,12 @@ def create_multi_folder_display(folders: list, folder_type: str = "spectrogram")
     ], className="multi-folder-container")
 
 
-def create_multi_file_display(files: list, base_path: str = "", file_type: str = "predictions") -> html.Div:
+def create_multi_file_display(
+    files: list,
+    base_path: str = "",
+    file_type: str = "predictions",
+    editable: bool = False,
+) -> html.Div:
     """
     Create a display showing multiple files found (e.g., predictions.json files).
 
@@ -353,22 +358,51 @@ def create_multi_file_display(files: list, base_path: str = "", file_type: str =
 
     # Create file list items
     file_items = []
-    for file_path in files:
-        # Show relative path if possible
-        if base_path:
-            try:
-                rel_path = os.path.relpath(file_path, base_path)
-            except ValueError:
+    if editable and file_type == "predictions":
+        for entry in files:
+            rel_path = entry.get("relative_path") or entry.get("path", "")
+            label = entry.get("label") or rel_path
+            index = entry.get("index")
+            file_items.append(
+                html.Div([
+                    html.Div([
+                        html.Span(label, className="fw-semibold"),
+                        html.Small(rel_path, className="text-muted d-block mono-muted"),
+                    ], className="multi-file-editor-label"),
+                    dbc.InputGroup([
+                        dbc.Input(
+                            id={"type": "predictions-file-input", "index": index},
+                            type="text",
+                            value=entry.get("path") or "",
+                            placeholder="Path to predictions.json",
+                            className="mono-muted",
+                        ),
+                        dbc.Button(
+                            html.I(className="bi bi-file-earmark"),
+                            id={"type": "predictions-file-browse", "index": index},
+                            color="secondary",
+                            outline=True,
+                        ),
+                    ], className="mt-1"),
+                ], className="multi-file-editor-item")
+            )
+    else:
+        for file_path in files:
+            # Show relative path if possible
+            if base_path:
+                try:
+                    rel_path = os.path.relpath(file_path, base_path)
+                except ValueError:
+                    rel_path = file_path
+            else:
                 rel_path = file_path
-        else:
-            rel_path = file_path
 
-        file_items.append(
-            html.Div([
-                html.I(className=f"bi {icon} me-2 text-muted"),
-                html.Span(rel_path, className="mono-muted folder-path"),
-            ], className="multi-folder-item")
-        )
+            file_items.append(
+                html.Div([
+                    html.I(className=f"bi {icon} me-2 text-muted"),
+                    html.Span(rel_path, className="mono-muted folder-path"),
+                ], className="multi-folder-item")
+            )
 
     return html.Div([
         # Summary header

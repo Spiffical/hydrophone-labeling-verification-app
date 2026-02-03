@@ -1,6 +1,6 @@
 import glob
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from app.utils.audio_matching import find_matching_audio_files, get_representative_audio_file
 from app.utils.file_io import read_json
@@ -17,6 +17,46 @@ def _find_latest_date(dashboard_root: str) -> Optional[str]:
         return None
     candidates = [d for d in os.listdir(dashboard_root) if len(d) == 10]
     return sorted(candidates, reverse=True)[0] if candidates else None
+
+
+def _build_predictions_override_index(predictions_overrides: Optional[list]) -> Tuple[dict, dict, dict]:
+    """Build indices for fast lookup of prediction overrides."""
+    date_device = {}
+    date_only = {}
+    device_only = {}
+
+    for entry in predictions_overrides or []:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if not path:
+            continue
+        date = entry.get("date")
+        device = entry.get("device")
+        if date and device:
+            date_device[(date, device)] = path
+        elif date:
+            date_only[date] = path
+        elif device:
+            device_only[device] = path
+
+    return date_device, date_only, device_only
+
+
+def _get_predictions_override_path(
+    override_index: Tuple[dict, dict, dict],
+    date: Optional[str],
+    device: Optional[str],
+) -> Optional[str]:
+    """Resolve an override path for the given date/device."""
+    date_device, date_only, device_only = override_index
+    if date and device and (date, device) in date_device:
+        return date_device[(date, device)]
+    if date and date in date_only:
+        return date_only[date]
+    if device and device in device_only:
+        return device_only[device]
+    return None
 
 
 def _has_spectrograms(folder: Optional[str]) -> bool:
@@ -478,6 +518,18 @@ def load_verify_mode(
     spec_folder_override = data_cfg.get("spectrogram_folder")
     audio_folder_override = data_cfg.get("audio_folder")
     predictions_file_override = data_cfg.get("predictions_file")
+    predictions_overrides = data_cfg.get("predictions_overrides")
+    override_index = _build_predictions_override_index(predictions_overrides)
+    override_cache = {}
+
+    def load_predictions_cached(predictions_path: str) -> Dict:
+        if predictions_path in override_cache:
+            return override_cache[predictions_path]
+        whale_config = {"whale": {"predictions_json": predictions_path}}
+        loaded = load_whale_mode(whale_config)
+        _attach_predictions_path(loaded.get("items", []), predictions_path)
+        override_cache[predictions_path] = loaded
+        return loaded
     
     data = {"items": [], "summary": {"total_items": 0}}
     predictions_path = None
@@ -632,7 +684,15 @@ def load_verify_mode(
 
             folder_data = {"items": [], "summary": {}}
 
-            if root_data:
+            override_path = None
+            if not predictions_file_override:
+                override_path = _get_predictions_override_path(override_index, active_date_label, active_device)
+
+            if override_path and os.path.exists(override_path):
+                override_data = load_predictions_cached(override_path)
+                folder_data = {"items": list(override_data.get("items", [])), "summary": {}}
+                predictions_paths_loaded.append(override_path)
+            elif root_data:
                 # Filter root-level predictions by device when possible
                 if root_has_device:
                     filtered = [i for i in root_items if i.get("device_code") == active_device]
@@ -786,11 +846,21 @@ def load_verify_mode(
             predictions_path = root_predictions_path
             predictions_paths_loaded.append(root_predictions_path)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
+
+        date_device_overrides, date_overrides, _device_overrides = override_index
         
         for active_date in dates_to_load:
             if not active_date:
                 continue
             
+            date_override_path = None
+            date_override_data = None
+            if not predictions_file_override:
+                date_override_path = date_overrides.get(active_date)
+                if date_override_path and os.path.exists(date_override_path):
+                    date_override_data = load_predictions_cached(date_override_path)
+                    predictions_paths_loaded.append(date_override_path)
+
             # Check for date-level predictions (e.g., root/2024-01-15/predictions.json)
             date_predictions_path = None
             date_labels_path = None
@@ -838,8 +908,18 @@ def load_verify_mode(
                 # Load predictions using cascading discovery:
                 # Priority: root > date > device
                 folder_data = {"items": [], "summary": {}}
-                
-                if root_data:
+
+                device_override_path = None
+                if not predictions_file_override:
+                    device_override_path = date_device_overrides.get((active_date, active_device))
+
+                if device_override_path and os.path.exists(device_override_path):
+                    override_data = load_predictions_cached(device_override_path)
+                    folder_data = {"items": list(override_data.get("items", [])), "summary": {}}
+                    predictions_paths_loaded.append(device_override_path)
+                elif date_override_data:
+                    folder_data = {"items": list(date_override_data.get("items", [])), "summary": {}}
+                elif root_data:
                     # Use root-level predictions - filter items relevant to this device/date
                     # The items should match based on item_id or mat file matching
                     folder_data = {"items": list(root_data.get("items", [])), "summary": {}}

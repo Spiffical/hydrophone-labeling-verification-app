@@ -53,6 +53,26 @@ def create_verify_layout(config: dict) -> html.Div:
                 ], className="info-line"),
             ], className="info-grid", style={"maxHeight": "200px", "overflowY": "auto"}),
 
+            # Pagination controls
+            html.Div([
+                dbc.Button("← Previous", id="verify-prev-page", n_clicks=0, color="primary", size="sm", className="me-2"),
+                dbc.Button("Next →", id="verify-next-page", n_clicks=0, color="primary", size="sm", className="me-3"),
+                html.Div([
+                    html.Label("Go to page:", className="me-2", style={'font-weight': '500'}),
+                    dbc.Input(
+                        id="verify-page-input",
+                        type="number",
+                        min=1,
+                        step=1,
+                        value=1,
+                        className="me-2",
+                        style={'width': '80px', 'display': 'inline-block'}
+                    ),
+                    dbc.Button("Go", id="verify-goto-page", n_clicks=0, color="secondary", size="sm"),
+                ], style={'display': 'inline-flex', 'align-items': 'center'}),
+                html.Span(id="verify-page-info", className="ms-3", style={'font-weight': '500', 'color': '#667eea'}),
+            ], className="mb-3", style={'display': 'flex', 'align-items': 'center'}),
+
             html.Div([
                 dbc.Row([
                     dbc.Col([
@@ -87,5 +107,6 @@ def create_verify_layout(config: dict) -> html.Div:
         ], className="panel-card"),
 
         html.Div(id="verify-summary", className="summary-bar"),
+        dcc.Store(id="verify-current-page", data=0, storage_type="session"),
         dcc.Loading(html.Div(id="verify-grid", className="grid-shell"), type="circle"),
     ])

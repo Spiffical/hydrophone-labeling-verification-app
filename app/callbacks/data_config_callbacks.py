@@ -3,6 +3,7 @@ Callbacks for the data configuration panel.
 Handles data structure detection, manual path overrides, and loading.
 """
 import os
+import re
 from dash import Input, Output, State, callback, ctx, no_update, ALL
 from dash.exceptions import PreventUpdate
 from dash import html
@@ -24,6 +25,7 @@ def register_data_config_callbacks(app):
         Output("data-config-spec-folder", "value"),
         Output("data-config-audio-folder", "value"),
         Output("data-config-predictions-file", "value"),
+        Output("predictions-files-store", "data"),
         Output("data-config-spec-info", "children"),
         Output("data-config-audio-info", "children"),
         Output("data-config-predictions-info", "children"),
@@ -51,9 +53,30 @@ def register_data_config_callbacks(app):
         triggered = ctx.triggered_id
 
         if triggered in ["data-config-cancel", "data-config-close"]:
-            return (False, no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, no_update, no_update, {"display": "none"})
+            return (
+                False,
+                no_update,  # data-discovery-store
+                no_update,  # structure type
+                no_update,  # structure message
+                no_update,  # spec folder
+                no_update,  # audio folder
+                no_update,  # predictions file
+                no_update,  # predictions-files-store
+                no_update,  # spec info
+                no_update,  # audio info
+                no_update,  # predictions info
+                no_update,  # predictions label
+                no_update,  # hierarchy detail
+                no_update,  # hierarchy toggle
+                no_update,  # labels recommendation
+                no_update,  # spec multi
+                no_update,  # audio multi
+                no_update,  # spec single container
+                no_update,  # audio single container
+                no_update,  # predictions multi
+                no_update,  # predictions single container
+                {"display": "none"},
+            )
 
         if triggered != "folder-browser-confirm" or not selected_path:
             raise PreventUpdate
@@ -90,6 +113,14 @@ def register_data_config_callbacks(app):
         is_label_mode = current_mode == "label"
         predictions_label = "Labels File" if is_label_mode else "Predictions File"
         predictions_info = _create_predictions_info(bool(discovery.get("predictions_file")), is_label_mode)
+        if not is_label_mode and not discovery.get("predictions_file"):
+            subfolder_predictions_count = discovery.get("subfolder_predictions_count", 0)
+            if subfolder_predictions_count > 0:
+                file_word = "file" if subfolder_predictions_count == 1 else "files"
+                predictions_info = html.Div([
+                    dbc.Badge("Found in subfolders", color="info", className="me-2"),
+                    html.Small(f"{subfolder_predictions_count} predictions.json {file_word} detected", className="text-muted"),
+                ])
 
         # Create hierarchy detail tree (for hierarchical and device_only structures)
         hierarchy_tree = create_hierarchy_tree(discovery)
@@ -163,25 +194,32 @@ def register_data_config_callbacks(app):
         spec_multi = create_multi_folder_display(spec_folders, "spectrogram") if spec_folders else html.Div()
         audio_multi = create_multi_folder_display(audio_folders, "audio") if audio_folders else html.Div()
 
-        # Create multi-predictions display if multiple files found
+        # Create multi-predictions display if subfolder files found
         predictions_locations = discovery.get("subfolder_predictions_locations", [])
         if is_label_mode:
             predictions_locations = discovery.get("subfolder_labels_locations", [])
-        
-        has_multiple_predictions = len(predictions_locations) > 1
+
+        has_subfolder_predictions = len(predictions_locations) > 0
+        predictions_entries = []
         predictions_multi = html.Div()
-        if has_multiple_predictions:
+        if has_subfolder_predictions:
             file_type = "labels" if is_label_mode else "predictions"
-            predictions_multi = create_multi_file_display(predictions_locations, selected_path, file_type)
-            # Update label to use plural form
-            predictions_label = "Labels Files" if is_label_mode else "Predictions Files"
+            if is_label_mode:
+                predictions_multi = create_multi_file_display(predictions_locations, selected_path, file_type)
+                predictions_label = "Labels Files"
+            else:
+                predictions_entries = _build_predictions_entries(predictions_locations, selected_path)
+                predictions_multi = create_multi_file_display(
+                    predictions_entries, selected_path, file_type, editable=True
+                )
+                predictions_label = "Predictions Files"
 
         # Show/hide single input vs multi-folder display
         show_single = {"display": "block"} if not is_hierarchical else {"display": "none"}
         hide_single = {"display": "none"} if is_hierarchical else {"display": "block"}
         
-        # For predictions: hide the single input when multiple files are shown in multi-display
-        show_predictions_single = {"display": "none"} if has_multiple_predictions else {"display": "block"}
+        # Hide global override when subfolder predictions are present
+        show_predictions_single = {"display": "none"} if (has_subfolder_predictions and not is_label_mode) else {"display": "block"}
 
         return (
             True,  # Open modal
@@ -191,6 +229,7 @@ def register_data_config_callbacks(app):
             discovery.get("spectrogram_folder") or "",
             discovery.get("audio_folder") or "",
             predictions_file_value,
+            predictions_entries,
             spec_info,
             audio_info,
             predictions_info,
@@ -206,6 +245,21 @@ def register_data_config_callbacks(app):
             show_predictions_single,  # Always show predictions input
             {"display": "none"},
         )
+
+    @app.callback(
+        Output("data-root-path-store", "data"),
+        Input("folder-browser-confirm", "n_clicks"),
+        State("folder-browser-selected-store", "data"),
+        State("path-browse-target-store", "data"),
+        prevent_initial_call=True,
+    )
+    def update_data_root_path(confirm_clicks, selected_path, browse_target):
+        """Persist the base data directory without being overridden by file selection."""
+        if not confirm_clicks or not selected_path:
+            raise PreventUpdate
+        if browse_target and browse_target.get("target"):
+            raise PreventUpdate
+        return selected_path
 
     app.clientside_callback(
         """
@@ -271,15 +325,33 @@ def register_data_config_callbacks(app):
         State("data-config-spec-folder", "value"),
         State("data-config-audio-folder", "value"),
         State("data-config-predictions-file", "value"),
-        State("folder-browser-selected-store", "data"),
+        State("predictions-files-store", "data"),
+        State({"type": "predictions-file-input", "index": ALL}, "value"),
+        State({"type": "predictions-file-input", "index": ALL}, "id"),
+        State("data-root-path-store", "data"),
         State("config-store", "data"),
         State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def load_data_from_config(load_clicks, discovery, spec_folder, audio_folder, predictions_file, base_path, config, current_mode):
+    def load_data_from_config(
+        load_clicks,
+        discovery,
+        spec_folder,
+        audio_folder,
+        predictions_file,
+        predictions_entries,
+        predictions_values,
+        predictions_ids,
+        base_path,
+        config,
+        current_mode,
+    ):
         """Load data based on configuration panel settings."""
         if not load_clicks:
             raise PreventUpdate
+
+        if not base_path:
+            base_path = (config or {}).get("data", {}).get("data_dir")
         
         # Update config with paths
         if "data" not in config:
@@ -302,6 +374,23 @@ def register_data_config_callbacks(app):
             config["data"]["spectrogram_folder"] = spec_folder or None
             config["data"]["audio_folder"] = audio_folder or None
             config["data"]["predictions_file"] = predictions_file or None
+
+        predictions_overrides = []
+        if predictions_entries and predictions_ids:
+            entry_map = {entry.get("index"): entry for entry in predictions_entries}
+            for entry_id, value in zip(predictions_ids, predictions_values or []):
+                index = entry_id.get("index") if isinstance(entry_id, dict) else None
+                entry = entry_map.get(index)
+                if not entry or not value:
+                    continue
+                scope = entry.get("scope") or {}
+                predictions_overrides.append({
+                    "date": scope.get("date"),
+                    "device": scope.get("device"),
+                    "path": value,
+                })
+
+        config["data"]["predictions_overrides"] = predictions_overrides or None
         
         # Prepare date/device options based on structure
         date_options = []
@@ -375,7 +464,7 @@ def register_data_config_callbacks(app):
         trigger_value = {"timestamp": time.time(), "mode": current_mode}
 
         return (
-            False,  # Close modal
+            True,  # Keep modal open until data finishes loading
             config,
             display_path,
             date_options,
@@ -417,14 +506,50 @@ def register_data_config_callbacks(app):
 
     @app.callback(
         Output("data-config-loading-overlay", "style", allow_duplicate=True),
-        Input("label-data-store", "data"),
-        Input("verify-data-store", "data"),
-        Input("explore-data-store", "data"),
+        Input("label-ui-ready-store", "data"),
+        Input("verify-ui-ready-store", "data"),
+        Input("explore-ui-ready-store", "data"),
+        State("data-load-trigger-store", "data"),
         prevent_initial_call=True,
     )
-    def hide_loading_overlay_on_data_load(_label_data, _verify_data, _explore_data):
-        """Hide the loading overlay once any dataset finishes loading."""
-        return {"display": "none"}
+    def hide_loading_overlay_on_data_load(label_ready, verify_ready, explore_ready, load_trigger):
+        """Hide the loading overlay once the UI has rendered for the triggered load."""
+        trigger_ts = load_trigger.get("timestamp") if isinstance(load_trigger, dict) else None
+        if trigger_ts:
+            if (label_ready or {}).get("timestamp") == trigger_ts:
+                return {"display": "none"}
+            if (verify_ready or {}).get("timestamp") == trigger_ts:
+                return {"display": "none"}
+            if (explore_ready or {}).get("timestamp") == trigger_ts:
+                return {"display": "none"}
+            raise PreventUpdate
+        if label_ready or verify_ready or explore_ready:
+            return {"display": "none"}
+        raise PreventUpdate
+
+    @app.callback(
+        Output("data-config-modal", "is_open", allow_duplicate=True),
+        Input("label-ui-ready-store", "data"),
+        Input("verify-ui-ready-store", "data"),
+        Input("explore-ui-ready-store", "data"),
+        State("data-load-trigger-store", "data"),
+        State("data-config-modal", "is_open"),
+        prevent_initial_call=True,
+    )
+    def close_data_config_on_data_load(label_ready, verify_ready, explore_ready, load_trigger, is_open):
+        """Close the data config modal once the UI finishes rendering for the triggered load."""
+        if not is_open or not isinstance(load_trigger, dict):
+            raise PreventUpdate
+
+        trigger_ts = load_trigger.get("timestamp")
+        if (label_ready or {}).get("timestamp") == trigger_ts:
+            return False
+        if (verify_ready or {}).get("timestamp") == trigger_ts:
+            return False
+        if (explore_ready or {}).get("timestamp") == trigger_ts:
+            return False
+
+        raise PreventUpdate
     
     @app.callback(
         Output("verify-predictions-warning", "is_open"),
@@ -484,15 +609,37 @@ def register_data_config_callbacks(app):
         Input("data-config-audio-browse", "n_clicks"),
         Input("data-config-predictions-browse", "n_clicks"),
         Input("label-output-browse-btn", "n_clicks"),
+        Input({"type": "predictions-file-browse", "index": ALL}, "n_clicks"),
         State("data-config-spec-folder", "value"),
         State("data-config-audio-folder", "value"),
         State("label-output-input", "value"),
-        State("folder-browser-selected-store", "data"),
+        State("data-root-path-store", "data"),
+        State("predictions-files-store", "data"),
         prevent_initial_call=True,
     )
-    def open_path_browser(spec_clicks, audio_clicks, predictions_clicks, labels_clicks, spec_folder, audio_folder, labels_path, base_path):
+    def open_path_browser(
+        spec_clicks,
+        audio_clicks,
+        predictions_clicks,
+        labels_clicks,
+        predictions_multi_clicks,
+        spec_folder,
+        audio_folder,
+        labels_path,
+        base_path,
+        predictions_entries,
+    ):
         """Open folder browser for path selection."""
         triggered = ctx.triggered_id
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        triggered_value = ctx.triggered[0].get("value")
+        if isinstance(triggered_value, list):
+            if not any(v for v in triggered_value):
+                raise PreventUpdate
+        elif not triggered_value:
+            raise PreventUpdate
         
         if triggered == "data-config-spec-browse":
             # Start from current spec folder or base path
@@ -508,6 +655,15 @@ def register_data_config_callbacks(app):
             # Start from current labels path or base path
             start_path = os.path.dirname(labels_path) if labels_path else (base_path or os.path.expanduser("~"))
             return True, start_path, {"target": "labels", "type": "file"}
+        elif isinstance(triggered, dict) and triggered.get("type") == "predictions-file-browse":
+            index = triggered.get("index")
+            start_path = base_path or os.path.expanduser("~")
+            if predictions_entries:
+                for entry in predictions_entries:
+                    if entry.get("index") == index and entry.get("path"):
+                        start_path = os.path.dirname(entry["path"])
+                        break
+            return True, start_path, {"target": "predictions", "type": "file", "index": index}
         
         raise PreventUpdate
 
@@ -521,6 +677,7 @@ def register_data_config_callbacks(app):
         Output("data-config-modal", "is_open", allow_duplicate=True),
         Output("folder-browser-modal", "is_open", allow_duplicate=True),
         Output("label-output-input", "value", allow_duplicate=True),
+        Output({"type": "predictions-file-input", "index": ALL}, "value"),
         Input("folder-browser-confirm", "n_clicks"),
         State("folder-browser-selected-store", "data"),
         State("path-browse-target-store", "data"),
@@ -530,9 +687,23 @@ def register_data_config_callbacks(app):
         State("data-config-modal", "is_open"),
         State("label-output-input", "value"),
         State("mode-tabs", "data"),
+        State({"type": "predictions-file-input", "index": ALL}, "value"),
+        State({"type": "predictions-file-input", "index": ALL}, "id"),
         prevent_initial_call=True,
     )
-    def update_path_from_browser(confirm_clicks, selected_path, browse_target, current_spec, current_audio, current_predictions, config_modal_open, current_labels, current_mode):
+    def update_path_from_browser(
+        confirm_clicks,
+        selected_path,
+        browse_target,
+        current_spec,
+        current_audio,
+        current_predictions,
+        config_modal_open,
+        current_labels,
+        current_mode,
+        current_pred_values,
+        current_pred_ids,
+    ):
         """Update the appropriate path field after folder browser selection."""
         if not confirm_clicks or not selected_path:
             raise PreventUpdate
@@ -579,7 +750,7 @@ def register_data_config_callbacks(app):
             spec_info = _create_info_badge(spec_count > 0, spec_count, ", ".join(spec_exts))
             audio_info = _create_info_badge(count_audio(current_audio) > 0, count_audio(current_audio))
             pred_info = _create_predictions_info(current_predictions and os.path.isfile(current_predictions), is_label_mode)
-            return selected_path, current_audio, current_predictions, spec_info, audio_info, pred_info, True, False, no_update
+            return selected_path, current_audio, current_predictions, spec_info, audio_info, pred_info, True, False, no_update, no_update
 
         elif target == "audio":
             audio_count = count_audio(selected_path)
@@ -587,9 +758,31 @@ def register_data_config_callbacks(app):
             spec_info = _create_info_badge(spec_count > 0, spec_count, ", ".join(spec_exts))
             audio_info = _create_info_badge(audio_count > 0, audio_count)
             pred_info = _create_predictions_info(current_predictions and os.path.isfile(current_predictions), is_label_mode)
-            return current_spec, selected_path, current_predictions, spec_info, audio_info, pred_info, True, False, no_update
+            return current_spec, selected_path, current_predictions, spec_info, audio_info, pred_info, True, False, no_update, no_update
 
         elif target == "predictions":
+            if browse_target and browse_target.get("index") is not None:
+                updated_values = list(current_pred_values or [])
+                updated_ids = list(current_pred_ids or [])
+                for i, item_id in enumerate(updated_ids):
+                    if item_id.get("index") == browse_target.get("index"):
+                        if i < len(updated_values):
+                            updated_values[i] = selected_path
+                        else:
+                            updated_values.append(selected_path)
+                        break
+                return (
+                    current_spec,
+                    current_audio,
+                    current_predictions,
+                    no_update,
+                    no_update,
+                    no_update,
+                    True,
+                    False,
+                    no_update,
+                    updated_values,
+                )
             # For predictions/labels, check if it's a directory with the appropriate file
             pred_path = selected_path
             if os.path.isdir(selected_path):
@@ -607,7 +800,7 @@ def register_data_config_callbacks(app):
             spec_info = _create_info_badge(spec_count > 0, spec_count, ", ".join(spec_exts))
             audio_info = _create_info_badge(count_audio(current_audio) > 0, count_audio(current_audio))
             pred_info = _create_predictions_info(os.path.isfile(pred_path), is_label_mode)
-            return current_spec, current_audio, pred_path, spec_info, audio_info, pred_info, True, False, no_update
+            return current_spec, current_audio, pred_path, spec_info, audio_info, pred_info, True, False, no_update, no_update
         
         elif target == "labels":
             # For labels, check if it's a directory with labels.json
@@ -617,7 +810,7 @@ def register_data_config_callbacks(app):
                 labels_path = labels_file
             
             # Return with no_update for data config fields since we're only updating labels
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, False, labels_path
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, False, labels_path, no_update
         
         raise PreventUpdate
 
@@ -627,6 +820,52 @@ def register_data_config_callbacks(app):
     # The previous update_dynamic_path_displays callback was removed because it
     # used generic path-building logic that conflicted with the multi-folder
     # popover displays and caused stale values on tab switch.
+
+
+def _build_predictions_entries(predictions_locations: list, base_path: str) -> list:
+    """Build editable entries for predictions files in subfolders."""
+    entries = []
+    if not predictions_locations:
+        return entries
+
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    for idx, file_path in enumerate(predictions_locations):
+        rel_path = file_path
+        if base_path:
+            try:
+                rel_path = os.path.relpath(file_path, base_path)
+            except ValueError:
+                rel_path = file_path
+
+        scope = {"date": None, "device": None}
+        label = rel_path
+
+        if not os.path.isabs(rel_path) and not rel_path.startswith(".."):
+            parts = rel_path.split(os.sep)
+            if parts and date_pattern.match(parts[0]):
+                scope["date"] = parts[0]
+                if len(parts) > 2:
+                    scope["device"] = parts[1]
+            elif parts:
+                scope["device"] = parts[0]
+
+            if scope["date"] and scope["device"]:
+                label = f"{scope['date']} / {scope['device']}"
+            elif scope["date"]:
+                label = scope["date"]
+            elif scope["device"]:
+                label = scope["device"]
+
+        entries.append({
+            "index": idx,
+            "path": file_path,
+            "relative_path": rel_path,
+            "scope": scope,
+            "label": label,
+        })
+
+    return entries
 
 
 def _create_info_badge(found: bool, count: int = 0, ext_info: str = "") -> html.Div:

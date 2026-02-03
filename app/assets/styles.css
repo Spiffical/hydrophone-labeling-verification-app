@@ -1373,6 +1373,22 @@ body.theme-dark .structure-info-section,
     word-break: break-all;
 }
 
+.multi-file-editor-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.multi-file-editor-item:last-child {
+    border-bottom: none;
+}
+
+.multi-file-editor-label {
+    font-size: 12px;
+}
+
 /* Dark mode for multi-folder display */
 body.theme-dark .multi-folder-container,
 .theme-dark .multi-folder-container {

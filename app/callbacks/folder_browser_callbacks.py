@@ -109,6 +109,23 @@ def register_folder_browser_callbacks(app):
         return folder_list, path
 
     @app.callback(
+        Output("folder-browser-title", "children"),
+        Output("folder-browser-confirm", "children"),
+        Output("folder-browser-list-label", "children"),
+        Input("path-browse-target-store", "data"),
+    )
+    def update_folder_browser_labels(browse_target):
+        """Update folder browser labels based on selection target."""
+        if browse_target and browse_target.get("type") == "file":
+            target = browse_target.get("target")
+            if target == "predictions":
+                return "Select Predictions File", "Select File", "Folders & Files"
+            if target == "labels":
+                return "Select Labels File", "Select File", "Folders & Files"
+            return "Select File", "Select File", "Folders & Files"
+        return "Select Data Directory", "Load Directory", "Folders:"
+
+    @app.callback(
         Output("folder-browser-path-store", "data"),
         Input({"type": "folder-navigate-btn", "path": ALL}, "n_clicks"),
         Input("folder-browser-up", "n_clicks"),

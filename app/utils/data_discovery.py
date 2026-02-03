@@ -45,6 +45,20 @@ def detect_data_structure(path: str) -> Dict:
             "audio_count": 0,
             "message": "Path does not exist"
         }
+
+    if os.path.isfile(path):
+        return {
+            "structure_type": "unknown",
+            "dates": [],
+            "devices": [],
+            "spectrogram_folder": None,
+            "audio_folder": None,
+            "predictions_file": None,
+            "spectrogram_extensions": [],
+            "spectrogram_count": 0,
+            "audio_count": 0,
+            "message": "Path is a file; please select a directory",
+        }
     
     # Check for different structures
     hierarchical = _check_hierarchical_structure(path)

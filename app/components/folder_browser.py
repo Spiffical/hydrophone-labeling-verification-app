@@ -124,7 +124,7 @@ def create_folder_browser_modal() -> dbc.Modal:
     
     return dbc.Modal([
         dbc.ModalHeader([
-            dbc.ModalTitle("Select Data Directory"),
+            dbc.ModalTitle("Select Data Directory", id="folder-browser-title"),
             dbc.Button("×", id="folder-browser-close", className="btn-close ms-auto"),
         ], close_button=False),
         dbc.ModalBody([
@@ -156,7 +156,7 @@ def create_folder_browser_modal() -> dbc.Modal:
             
             # Folder list
             html.Div([
-                html.Label("Folders:", className="text-muted small mb-2 d-block"),
+                html.Label("Folders:", id="folder-browser-list-label", className="text-muted small mb-2 d-block"),
                 dcc.Loading(
                     html.Div(id="folder-browser-list", className="folder-list"),
                     type="circle",

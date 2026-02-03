@@ -57,6 +57,7 @@ def main():
     elif args.data_dir:
         # Create dynamic config from data directory
         config = {
+            'mode': 'verify',
             'data': {
                 'mode': 'verify',  # Default to verify mode for browsing
                 'data_dir': args.data_dir
@@ -74,6 +75,7 @@ def main():
     else:
         # No arguments - start in browse mode
         config = {
+            'mode': 'verify',
             'data': {
                 'mode': 'verify',
                 'data_dir': None  # Will be set via folder browser

@@ -44,3 +44,41 @@ def register_pagination_callbacks(app):
     def sync_page_input(current_page):
         """Sync page input with current page."""
         return (current_page or 0) + 1  # Convert 0-indexed to 1-indexed
+
+    @app.callback(
+        Output("verify-current-page", "data"),
+        Input("verify-prev-page", "n_clicks"),
+        Input("verify-next-page", "n_clicks"),
+        Input("verify-goto-page", "n_clicks"),
+        State("verify-current-page", "data"),
+        State("verify-page-input", "value"),
+        State("verify-page-input", "max"),
+        prevent_initial_call=True
+    )
+    def handle_verify_pagination(prev_clicks, next_clicks, goto_clicks, current_page, goto_page, max_pages):
+        """Handle pagination button clicks in verify mode."""
+        from dash import callback_context
+
+        if not callback_context.triggered:
+            raise PreventUpdate
+
+        button_id = callback_context.triggered[0]["prop_id"].split(".")[0]
+        current_page = current_page or 0
+        max_pages = max_pages or 1
+
+        if button_id == "verify-prev-page":
+            return max(0, current_page - 1)
+        elif button_id == "verify-next-page":
+            return min(max_pages - 1, current_page + 1)
+        elif button_id == "verify-goto-page" and goto_page:
+            return max(0, min(int(goto_page) - 1, max_pages - 1))
+
+        return current_page
+
+    @app.callback(
+        Output("verify-page-input", "value"),
+        Input("verify-current-page", "data"),
+    )
+    def sync_verify_page_input(current_page):
+        """Sync verify page input with current page."""
+        return (current_page or 0) + 1

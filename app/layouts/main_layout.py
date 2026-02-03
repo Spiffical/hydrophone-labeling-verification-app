@@ -12,8 +12,22 @@ from app.layouts.data_config_panel import create_data_config_modal, create_predi
 
 def create_main_layout(config: dict) -> html.Div:
     # Determine initial data directory
-    initial_data_dir = config.get("data", {}).get("data_dir") or os.path.expanduser("~")
-    initial_mode = config.get("mode", "label")
+    initial_data_dir = (
+        config.get("data", {}).get("data_dir")
+        or config.get("verify", {}).get("dashboard_root")
+        or os.path.expanduser("~")
+    )
+    initial_data_root = (
+        config.get("data", {}).get("data_dir")
+        or config.get("verify", {}).get("dashboard_root")
+    )
+    initial_mode = config.get("mode") or config.get("data", {}).get("mode") or "label"
+    has_data_root = bool(
+        config.get("data", {}).get("data_dir") or config.get("verify", {}).get("dashboard_root")
+    )
+    initial_load_trigger = (
+        {"timestamp": 0, "mode": initial_mode, "source": "startup"} if has_data_root else None
+    )
 
     return html.Div([
         # ── Stores ──────────────────────────────────────────────────
@@ -29,8 +43,13 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
         dcc.Store(id="folder-browser-selected-store", data=None, storage_type="memory"),
         dcc.Store(id="path-browse-target-store", data=None, storage_type="memory"),
+        dcc.Store(id="data-root-path-store", data=initial_data_root, storage_type="memory"),
+        dcc.Store(id="predictions-files-store", data=None, storage_type="memory"),
         dcc.Store(id="data-discovery-store", data=None, storage_type="memory"),
-        dcc.Store(id="data-load-trigger-store", data=0, storage_type="memory"),
+        dcc.Store(id="data-load-trigger-store", data=initial_load_trigger, storage_type="memory"),
+        dcc.Store(id="label-ui-ready-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-ui-ready-store", data=None, storage_type="memory"),
+        dcc.Store(id="explore-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
 
         # Active tab store (replaces dcc.Tabs value)
