@@ -43,6 +43,10 @@ def main():
         help='Run in debug mode'
     )
     args = parser.parse_args()
+
+    if args.data_dir:
+        expanded = os.path.expanduser(os.path.expandvars(args.data_dir))
+        args.data_dir = expanded if os.path.isabs(expanded) else os.path.abspath(expanded)
     
     # Priority: config file > data_dir argument > DATA_DIR env var > browse mode
     if args.config:
