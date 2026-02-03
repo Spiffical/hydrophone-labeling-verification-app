@@ -509,20 +509,10 @@ def register_data_config_callbacks(app):
         Input("label-ui-ready-store", "data"),
         Input("verify-ui-ready-store", "data"),
         Input("explore-ui-ready-store", "data"),
-        State("data-load-trigger-store", "data"),
         prevent_initial_call=True,
     )
-    def hide_loading_overlay_on_data_load(label_ready, verify_ready, explore_ready, load_trigger):
-        """Hide the loading overlay once the UI has rendered for the triggered load."""
-        trigger_ts = load_trigger.get("timestamp") if isinstance(load_trigger, dict) else None
-        if trigger_ts:
-            if (label_ready or {}).get("timestamp") == trigger_ts:
-                return {"display": "none"}
-            if (verify_ready or {}).get("timestamp") == trigger_ts:
-                return {"display": "none"}
-            if (explore_ready or {}).get("timestamp") == trigger_ts:
-                return {"display": "none"}
-            raise PreventUpdate
+    def hide_loading_overlay_on_data_load(label_ready, verify_ready, explore_ready):
+        """Hide the loading overlay once any UI render completes."""
         if label_ready or verify_ready or explore_ready:
             return {"display": "none"}
         raise PreventUpdate
