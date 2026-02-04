@@ -278,7 +278,9 @@ def register_callbacks(app, config):
                     if old_summary.get("labels_file"):
                         data["summary"]["labels_file"] = old_summary["labels_file"]
 
-                if trigger_mode == "label" and isinstance(config_load_trigger, dict):
+                if filter_triggered:
+                    data["load_timestamp"] = time.time()
+                elif trigger_mode == "label" and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 else:
                     data["load_timestamp"] = time.time()
@@ -355,7 +357,9 @@ def register_callbacks(app, config):
                     if old_summary.get("predictions_file"):
                         data["summary"]["predictions_file"] = old_summary["predictions_file"]
 
-                if trigger_mode == "verify" and isinstance(config_load_trigger, dict):
+                if filter_triggered:
+                    data["load_timestamp"] = time.time()
+                elif trigger_mode == "verify" and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 else:
                     data["load_timestamp"] = time.time()
@@ -424,7 +428,9 @@ def register_callbacks(app, config):
                     effective_cfg["data"]["data_dir"] = source_data_dir
 
                 data = load_dataset(effective_cfg, "explore", date_str=date_val, hydrophone=device_val)
-                if trigger_mode == "explore" and isinstance(config_load_trigger, dict):
+                if filter_triggered:
+                    data["load_timestamp"] = time.time()
+                elif trigger_mode == "explore" and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 else:
                     data["load_timestamp"] = time.time()
