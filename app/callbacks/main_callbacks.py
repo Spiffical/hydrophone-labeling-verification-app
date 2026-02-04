@@ -1328,7 +1328,7 @@ def register_callbacks(app, config):
             return '';
         }
         """,
-        Output("dummy-output", "children"),
+        Output("dummy-output-audio", "children"),
         [Input("label-grid", "children"), 
          Input("verify-grid", "children"), 
          Input("modal-audio-player", "children")],

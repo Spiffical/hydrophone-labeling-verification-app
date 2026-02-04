@@ -55,8 +55,9 @@ def create_main_layout(config: dict) -> html.Div:
         # Active tab store (replaces dcc.Tabs value)
         dcc.Store(id="mode-tabs", data=initial_mode, storage_type="memory"),
 
-        # Dummy element for clientside callbacks
-        html.Div(id="dummy-output", style={"display": "none"}),
+        # Dummy elements for clientside callbacks
+        dcc.Store(id="dummy-output", data=None, storage_type="memory"),
+        html.Div(id="dummy-output-audio", style={"display": "none"}),
 
         dbc.Container([
             # ── Header ──────────────────────────────────────────────
