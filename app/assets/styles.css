@@ -617,12 +617,14 @@ body {
 
 .control-dropdown .Select__dropdown-indicator,
 .control-dropdown .Select__clear-indicator {
-    color: var(--muted) !important;
+    color: var(--text) !important;
+    opacity: 0.9;
 }
 
 .control-dropdown .Select__dropdown-indicator:hover,
 .control-dropdown .Select__clear-indicator:hover {
     color: var(--accent) !important;
+    opacity: 1;
 }
 
 /* React-Select v5 without classNamePrefix (Dash 4 default) */
@@ -715,6 +717,7 @@ body {
 /* Ensure indicator SVGs inherit visible colors */
 .control-dropdown [class*="indicator"] svg,
 .dash-dropdown [class*="indicator"] svg {
+    color: var(--text) !important;
     fill: currentColor !important;
     stroke: currentColor !important;
     opacity: 1;
@@ -722,6 +725,7 @@ body {
 
 .control-dropdown [class*="indicator"]:hover svg,
 .dash-dropdown [class*="indicator"]:hover svg {
+    color: var(--accent) !important;
     opacity: 1;
 }
 
@@ -810,21 +814,25 @@ body {
 }
 
 .rc-slider-mark-text {
-    color: var(--text-secondary) !important;
+    color: var(--text) !important;
     font-weight: 500;
+    opacity: 1 !important;
 }
 
 .rc-slider-mark-text-active {
     color: var(--text) !important;
+    opacity: 1 !important;
 }
 
 /* Ensure control sliders also get readable mark text */
 .control-slider .rc-slider-mark-text {
-    color: var(--text-secondary) !important;
+    color: var(--text) !important;
+    opacity: 1 !important;
 }
 
 .control-slider .rc-slider-mark-text-active {
     color: var(--text) !important;
+    opacity: 1 !important;
 }
 
 /* ============================================
