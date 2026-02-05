@@ -564,6 +564,67 @@ body {
     margin-top: 4px;
 }
 
+/* React-Select v5 (Dash 4) */
+.control-dropdown .Select__control {
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    min-height: 36px;
+}
+
+.control-dropdown .Select__control:hover {
+    border-color: var(--accent) !important;
+}
+
+.control-dropdown .Select__single-value,
+.control-dropdown .Select__placeholder {
+    color: var(--text) !important;
+}
+
+.control-dropdown .Select__input-container,
+.control-dropdown .Select__input-container input {
+    color: var(--text) !important;
+}
+
+.control-dropdown .Select__menu {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-lg) !important;
+    margin-top: 4px !important;
+}
+
+.control-dropdown .Select__option {
+    padding: 10px 14px !important;
+    line-height: 1.15 !important;
+    border-bottom: 2px solid var(--border) !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    transition: all 0.1s ease;
+}
+
+.control-dropdown .Select__option--is-focused,
+.control-dropdown .Select__option--is-selected {
+    background: var(--accent-subtle) !important;
+    color: var(--accent) !important;
+    border-bottom-color: var(--accent) !important;
+    font-weight: 500;
+}
+
+.control-dropdown .Select__indicator-separator {
+    background-color: var(--border) !important;
+}
+
+.control-dropdown .Select__dropdown-indicator,
+.control-dropdown .Select__clear-indicator {
+    color: var(--muted) !important;
+}
+
+.control-dropdown .Select__dropdown-indicator:hover,
+.control-dropdown .Select__clear-indicator:hover {
+    color: var(--accent) !important;
+}
+
 /* Virtualized dropdown options - use alternating backgrounds for separation */
 .control-dropdown .VirtualizedSelectOption,
 .control-dropdown .Select-option {
