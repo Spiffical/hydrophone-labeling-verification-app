@@ -729,6 +729,31 @@ body {
     opacity: 1;
 }
 
+/* Dash dropdown (non React-Select) classnames */
+.control-dropdown .dash-dropdown-trigger,
+.control-dropdown .dash-dropdown-value,
+.control-dropdown .dash-dropdown-value-item,
+.control-dropdown .dash-dropdown-clear,
+.control-dropdown .dash-dropdown-trigger-icon,
+.control-dropdown .dash-dropdown-trigger svg,
+.control-dropdown .dash-dropdown-clear svg,
+.control-dropdown .dash-dropdown-trigger-icon svg,
+.control-dropdown .dash-dropdown-trigger-icon path {
+    color: var(--text) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.control-dropdown .dash-dropdown-clear:hover,
+.control-dropdown .dash-dropdown-trigger-icon:hover,
+.control-dropdown .dash-dropdown-clear:hover svg,
+.control-dropdown .dash-dropdown-trigger-icon:hover svg,
+.control-dropdown .dash-dropdown-trigger-icon:hover path {
+    color: var(--accent) !important;
+}
+
 /* React-Select alternate className patterns (kebab-case / container variants) */
 .control-dropdown [class*="dropdown-indicator"],
 .control-dropdown [class*="clear-indicator"],
@@ -856,6 +881,18 @@ body {
 
 .control-slider .rc-slider-mark-text-active {
     color: var(--text) !important;
+    opacity: 1 !important;
+}
+
+/* Slider tooltip bubble text contrast (Dash dropdown uses role=tooltip) */
+.control-slider [role="tooltip"],
+.panel-card [role="tooltip"],
+.rc-slider-tooltip .rc-tooltip-inner,
+.rc-tooltip-inner {
+    background: var(--surface-2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: var(--shadow-sm);
     opacity: 1 !important;
 }
 
