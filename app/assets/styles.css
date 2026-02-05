@@ -698,7 +698,8 @@ body {
 .control-dropdown[class*="clearIndicator"],
 .control-dropdown [class*="clearIndicator"],
 .dash-dropdown [class*="clearIndicator"] {
-    color: var(--muted) !important;
+    color: var(--text) !important;
+    opacity: 0.9;
 }
 
 .control-dropdown[class*="dropdownIndicator"]:hover,
@@ -708,6 +709,7 @@ body {
 .control-dropdown [class*="clearIndicator"]:hover,
 .dash-dropdown [class*="clearIndicator"]:hover {
     color: var(--accent) !important;
+    opacity: 1;
 }
 
 /* Ensure indicator SVGs inherit visible colors */
@@ -715,7 +717,7 @@ body {
 .dash-dropdown [class*="indicator"] svg {
     fill: currentColor !important;
     stroke: currentColor !important;
-    opacity: 0.9;
+    opacity: 1;
 }
 
 .control-dropdown [class*="indicator"]:hover svg,
@@ -809,9 +811,19 @@ body {
 
 .rc-slider-mark-text {
     color: var(--text-secondary) !important;
+    font-weight: 500;
 }
 
 .rc-slider-mark-text-active {
+    color: var(--text) !important;
+}
+
+/* Ensure control sliders also get readable mark text */
+.control-slider .rc-slider-mark-text {
+    color: var(--text-secondary) !important;
+}
+
+.control-slider .rc-slider-mark-text-active {
     color: var(--text) !important;
 }
 
