@@ -625,6 +625,63 @@ body {
     color: var(--accent) !important;
 }
 
+/* React-Select v5 without classNamePrefix (Dash 4 default) */
+.control-dropdown [class*="control"] {
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+    min-height: 36px;
+}
+
+.control-dropdown [class*="control"]:hover {
+    border-color: var(--accent) !important;
+}
+
+.control-dropdown [class*="singleValue"],
+.control-dropdown [class*="placeholder"],
+.control-dropdown [class*="input"] {
+    color: var(--text) !important;
+}
+
+.control-dropdown [class*="menu"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-lg) !important;
+    margin-top: 4px !important;
+}
+
+.control-dropdown [class*="option"] {
+    padding: 10px 14px !important;
+    line-height: 1.15 !important;
+    border-bottom: 2px solid var(--border) !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    transition: all 0.1s ease;
+}
+
+.control-dropdown [class*="option"][class*="is-focused"],
+.control-dropdown [class*="option"][class*="is-selected"] {
+    background: var(--accent-subtle) !important;
+    color: var(--accent) !important;
+    border-bottom-color: var(--accent) !important;
+    font-weight: 500;
+}
+
+.control-dropdown [class*="indicatorSeparator"] {
+    background-color: var(--border) !important;
+}
+
+.control-dropdown [class*="dropdownIndicator"],
+.control-dropdown [class*="clearIndicator"] {
+    color: var(--muted) !important;
+}
+
+.control-dropdown [class*="dropdownIndicator"]:hover,
+.control-dropdown [class*="clearIndicator"]:hover {
+    color: var(--accent) !important;
+}
+
 /* Virtualized dropdown options - use alternating backgrounds for separation */
 .control-dropdown .VirtualizedSelectOption,
 .control-dropdown .Select-option {
@@ -679,6 +736,20 @@ body {
 .control-slider .rc-slider-handle:hover,
 .control-slider .rc-slider-handle:focus {
     box-shadow: 0 0 0 4px var(--accent-subtle);
+}
+
+/* Dash 4 rc-slider fallback (ensure accent even if wrapper class changes) */
+.panel-card .rc-slider-rail {
+    background-color: var(--surface-3) !important;
+}
+
+.panel-card .rc-slider-track {
+    background-color: var(--accent) !important;
+}
+
+.panel-card .rc-slider-handle {
+    border: 2px solid var(--accent) !important;
+    background: var(--surface) !important;
 }
 
 /* ============================================
