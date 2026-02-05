@@ -710,6 +710,19 @@ body {
     color: var(--accent) !important;
 }
 
+/* Ensure indicator SVGs inherit visible colors */
+.control-dropdown [class*="indicator"] svg,
+.dash-dropdown [class*="indicator"] svg {
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 0.9;
+}
+
+.control-dropdown [class*="indicator"]:hover svg,
+.dash-dropdown [class*="indicator"]:hover svg {
+    opacity: 1;
+}
+
 /* Virtualized dropdown options - use alternating backgrounds for separation */
 .control-dropdown .VirtualizedSelectOption,
 .control-dropdown .Select-option {
@@ -792,6 +805,14 @@ body {
 .rc-slider-handle {
     border: 2px solid var(--accent) !important;
     background: var(--surface) !important;
+}
+
+.rc-slider-mark-text {
+    color: var(--text-secondary) !important;
+}
+
+.rc-slider-mark-text-active {
+    color: var(--text) !important;
 }
 
 /* ============================================
