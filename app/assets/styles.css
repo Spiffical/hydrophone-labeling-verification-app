@@ -729,6 +729,30 @@ body {
     opacity: 1;
 }
 
+/* React-Select alternate className patterns (kebab-case / container variants) */
+.control-dropdown [class*="dropdown-indicator"],
+.control-dropdown [class*="clear-indicator"],
+.control-dropdown [class*="indicator-container"],
+.dash-dropdown [class*="dropdown-indicator"],
+.dash-dropdown [class*="clear-indicator"],
+.dash-dropdown [class*="indicator-container"] {
+    color: var(--text) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-dropdown [class*="indicator"] svg,
+.control-dropdown [class*="indicator"] path,
+.dash-dropdown [class*="indicator"] svg,
+.dash-dropdown [class*="indicator"] path {
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}
+
 /* Virtualized dropdown options - use alternating backgrounds for separation */
 .control-dropdown .VirtualizedSelectOption,
 .control-dropdown .Select-option {
@@ -833,6 +857,15 @@ body {
 .control-slider .rc-slider-mark-text-active {
     color: var(--text) !important;
     opacity: 1 !important;
+}
+
+/* Slider tooltip bubble text contrast */
+.rc-slider-tooltip .rc-tooltip-inner,
+.rc-tooltip-inner {
+    background: var(--surface-2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: var(--shadow-sm);
 }
 
 /* ============================================
