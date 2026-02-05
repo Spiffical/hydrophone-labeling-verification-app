@@ -905,6 +905,54 @@ body {
     box-shadow: var(--shadow-sm);
 }
 
+/* Force tooltip text contrast (some tooltips render outside slider container) */
+.rc-slider-tooltip,
+.rc-slider-tooltip * {
+    color: var(--text) !important;
+    opacity: 1 !important;
+}
+
+.rc-tooltip,
+.rc-tooltip * {
+    color: var(--text) !important;
+}
+
+.rc-tooltip-arrow,
+.rc-tooltip-arrow-inner {
+    border-top-color: var(--surface-2) !important;
+    border-bottom-color: var(--surface-2) !important;
+}
+
+/* Brute-force slider tooltip styling for dark mode (some tooltips render outside containers) */
+body.theme-dark .rc-slider-tooltip,
+body.theme-dark .rc-tooltip,
+.theme-dark .rc-slider-tooltip,
+.theme-dark .rc-tooltip,
+body.theme-dark .rc-slider-tooltip-inner,
+body.theme-dark .rc-tooltip-inner,
+.theme-dark .rc-slider-tooltip-inner,
+.theme-dark .rc-tooltip-inner {
+    background: var(--surface-2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .rc-slider-tooltip *,
+body.theme-dark .rc-tooltip *,
+.theme-dark .rc-slider-tooltip *,
+.theme-dark .rc-tooltip * {
+    color: var(--text) !important;
+    opacity: 1 !important;
+}
+
+/* Ensure modal audio slider mark text is readable */
+body.theme-dark .modal-audio-container .rc-slider-mark-text,
+.theme-dark .modal-audio-container .rc-slider-mark-text {
+    color: var(--text) !important;
+    opacity: 1 !important;
+}
+
 /* ============================================
    SUMMARY BAR
    ============================================ */
@@ -1888,7 +1936,9 @@ body.theme-dark .multi-folder-item .folder-path,
 
 .pitch-shift-slider .rc-slider-mark-text,
 .bass-boost-slider .rc-slider-mark-text {
-    color: var(--muted) !important;
+    color: var(--text) !important;
+    opacity: 1 !important;
+    font-weight: 500;
 }
 
 /* Dark mode specific styles for modal audio */
@@ -1960,7 +2010,8 @@ body.theme-dark .pitch-shift-slider .rc-slider-mark-text,
 body.theme-dark .bass-boost-slider .rc-slider-mark-text,
 .theme-dark .pitch-shift-slider .rc-slider-mark-text,
 .theme-dark .bass-boost-slider .rc-slider-mark-text {
-    color: #7d8590 !important;
+    color: #e6edf3 !important;
+    opacity: 1 !important;
 }
 
 /* Spectrogram modal header */
