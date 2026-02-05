@@ -626,24 +626,36 @@ body {
 }
 
 /* React-Select v5 without classNamePrefix (Dash 4 default) */
-.control-dropdown [class*="control"] {
+.control-dropdown[class*="control"],
+.control-dropdown [class*="control"],
+.dash-dropdown [class*="control"] {
     border-radius: var(--radius) !important;
     border: 1px solid var(--border) !important;
     background: var(--surface) !important;
     min-height: 36px;
 }
 
-.control-dropdown [class*="control"]:hover {
+.control-dropdown[class*="control"]:hover,
+.control-dropdown [class*="control"]:hover,
+.dash-dropdown [class*="control"]:hover {
     border-color: var(--accent) !important;
 }
 
+.control-dropdown[class*="singleValue"],
 .control-dropdown [class*="singleValue"],
+.dash-dropdown [class*="singleValue"],
+.control-dropdown[class*="placeholder"],
 .control-dropdown [class*="placeholder"],
-.control-dropdown [class*="input"] {
+.dash-dropdown [class*="placeholder"],
+.control-dropdown[class*="input"],
+.control-dropdown [class*="input"],
+.dash-dropdown [class*="input"] {
     color: var(--text) !important;
 }
 
-.control-dropdown [class*="menu"] {
+.control-dropdown[class*="menu"],
+.control-dropdown [class*="menu"],
+.dash-dropdown [class*="menu"] {
     background: var(--surface) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
@@ -651,7 +663,9 @@ body {
     margin-top: 4px !important;
 }
 
-.control-dropdown [class*="option"] {
+.control-dropdown[class*="option"],
+.control-dropdown [class*="option"],
+.dash-dropdown [class*="option"] {
     padding: 10px 14px !important;
     line-height: 1.15 !important;
     border-bottom: 2px solid var(--border) !important;
@@ -660,25 +674,39 @@ body {
     transition: all 0.1s ease;
 }
 
+.control-dropdown[class*="option"][class*="is-focused"],
 .control-dropdown [class*="option"][class*="is-focused"],
-.control-dropdown [class*="option"][class*="is-selected"] {
+.dash-dropdown [class*="option"][class*="is-focused"],
+.control-dropdown[class*="option"][class*="is-selected"],
+.control-dropdown [class*="option"][class*="is-selected"],
+.dash-dropdown [class*="option"][class*="is-selected"] {
     background: var(--accent-subtle) !important;
     color: var(--accent) !important;
     border-bottom-color: var(--accent) !important;
     font-weight: 500;
 }
 
-.control-dropdown [class*="indicatorSeparator"] {
+.control-dropdown[class*="indicatorSeparator"],
+.control-dropdown [class*="indicatorSeparator"],
+.dash-dropdown [class*="indicatorSeparator"] {
     background-color: var(--border) !important;
 }
 
+.control-dropdown[class*="dropdownIndicator"],
 .control-dropdown [class*="dropdownIndicator"],
-.control-dropdown [class*="clearIndicator"] {
+.dash-dropdown [class*="dropdownIndicator"],
+.control-dropdown[class*="clearIndicator"],
+.control-dropdown [class*="clearIndicator"],
+.dash-dropdown [class*="clearIndicator"] {
     color: var(--muted) !important;
 }
 
+.control-dropdown[class*="dropdownIndicator"]:hover,
 .control-dropdown [class*="dropdownIndicator"]:hover,
-.control-dropdown [class*="clearIndicator"]:hover {
+.dash-dropdown [class*="dropdownIndicator"]:hover,
+.control-dropdown[class*="clearIndicator"]:hover,
+.control-dropdown [class*="clearIndicator"]:hover,
+.dash-dropdown [class*="clearIndicator"]:hover {
     color: var(--accent) !important;
 }
 
@@ -748,6 +776,20 @@ body {
 }
 
 .panel-card .rc-slider-handle {
+    border: 2px solid var(--accent) !important;
+    background: var(--surface) !important;
+}
+
+/* Ultimate fallback for rc-slider if wrapper classes change */
+.rc-slider-rail {
+    background-color: var(--surface-3) !important;
+}
+
+.rc-slider-track {
+    background-color: var(--accent) !important;
+}
+
+.rc-slider-handle {
     border: 2px solid var(--accent) !important;
     background: var(--surface) !important;
 }
