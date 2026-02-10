@@ -257,17 +257,14 @@ def register_callbacks(app, config):
 
         if should_load:
             try:
-                # Use the current tab's own source_data_dir if available, 
-                # to avoid pollution from global config overwritten by other tabs
+                # The configured data root is authoritative across tabs.
                 effective_cfg = cfg.copy() if cfg else {}
-                source_data_dir = current_label_data.get("source_data_dir") if current_label_data else None
-                
-                # If we're reloading due to filter changes, prioritize the known data source
-                if filter_triggered and source_data_dir:
-                    if "data" not in effective_cfg:
-                        effective_cfg["data"] = {}
-                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
-                    effective_cfg["data"]["data_dir"] = source_data_dir
+                data_cfg = dict(effective_cfg.get("data", {}))
+                current_source_data_dir = current_label_data.get("source_data_dir") if current_label_data else None
+                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                if active_data_dir:
+                    data_cfg["data_dir"] = active_data_dir
+                effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "label", date_str=date_val, hydrophone=device_val)
 
@@ -285,8 +282,8 @@ def register_callbacks(app, config):
                 else:
                     data["load_timestamp"] = time.time()
 
-                # Store the source data_dir so we can maintain context on filter changes
-                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                # Keep source root aligned with the loaded configuration.
+                data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
                 return data
@@ -339,15 +336,13 @@ def register_callbacks(app, config):
 
         if should_load:
             try:
-                # Use the current tab's own source_data_dir if available
                 effective_cfg = cfg.copy() if cfg else {}
-                source_data_dir = current_verify_data.get("source_data_dir") if current_verify_data else None
-                
-                if filter_triggered and source_data_dir:
-                    if "data" not in effective_cfg:
-                        effective_cfg["data"] = {}
-                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
-                    effective_cfg["data"]["data_dir"] = source_data_dir
+                data_cfg = dict(effective_cfg.get("data", {}))
+                current_source_data_dir = current_verify_data.get("source_data_dir") if current_verify_data else None
+                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                if active_data_dir:
+                    data_cfg["data_dir"] = active_data_dir
+                effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "verify", date_str=date_val, hydrophone=device_val)
 
@@ -364,7 +359,7 @@ def register_callbacks(app, config):
                 else:
                     data["load_timestamp"] = time.time()
 
-                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
                 return data
@@ -417,15 +412,13 @@ def register_callbacks(app, config):
 
         if should_load:
             try:
-                # Use the current tab's own source_data_dir if available
                 effective_cfg = cfg.copy() if cfg else {}
-                source_data_dir = current_explore_data.get("source_data_dir") if current_explore_data else None
-                
-                if filter_triggered and source_data_dir:
-                    if "data" not in effective_cfg:
-                        effective_cfg["data"] = {}
-                    effective_cfg["data"] = dict(effective_cfg.get("data", {}))
-                    effective_cfg["data"]["data_dir"] = source_data_dir
+                data_cfg = dict(effective_cfg.get("data", {}))
+                current_source_data_dir = current_explore_data.get("source_data_dir") if current_explore_data else None
+                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                if active_data_dir:
+                    data_cfg["data_dir"] = active_data_dir
+                effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "explore", date_str=date_val, hydrophone=device_val)
                 if "data-load-trigger-store" in triggered_props and trigger_mode == "explore" and isinstance(config_load_trigger, dict):
@@ -434,7 +427,7 @@ def register_callbacks(app, config):
                     data["load_timestamp"] = time.time()
                 else:
                     data["load_timestamp"] = time.time()
-                data["source_data_dir"] = source_data_dir or effective_cfg.get("data", {}).get("data_dir")
+                data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
                 return data
@@ -1434,11 +1427,11 @@ def register_callbacks(app, config):
         prevent_initial_call="initial_duplicate",
     )
     def discover_dates(mode, cfg, label_data, verify_data, explore_data):
-        # Use the tab's own source_data_dir (not the global config which may have been overwritten)
+        # Prefer the configured data root so root changes persist across tab switches.
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        data_dir = tab_data.get("source_data_dir") if tab_data else None
-        if not data_dir:
-            data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        configured_data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
+        data_dir = configured_data_dir or tab_data_dir
         if not data_dir or not os.path.exists(data_dir):
             return [], None
 
@@ -1491,9 +1484,11 @@ def register_callbacks(app, config):
         if selected_date == "__flat__":
             return [], None
 
-        # Use the current tab's source_data_dir to avoid cross-tab pollution
+        # Prefer the configured data root so root changes persist across tab switches.
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        data_dir = (tab_data.get("source_data_dir") if tab_data else None) or cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        configured_data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
+        data_dir = configured_data_dir or tab_data_dir
         if not data_dir:
             return [], None
         
@@ -1543,14 +1538,16 @@ def register_callbacks(app, config):
         Input("verify-data-store", "data"),
         Input("explore-data-store", "data"),
         Input("mode-tabs", "data"),
+        Input("config-store", "data"),
         prevent_initial_call=True,
     )
-    def update_active_selection_display(label_data, verify_data, explore_data, mode):
+    def update_active_selection_display(label_data, verify_data, explore_data, mode, cfg):
         # Select the appropriate data store based on mode
         data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
 
         # Show the current tab's data directory
-        data_dir = data.get("source_data_dir") if data else None
+        configured_data_dir = cfg.get("data", {}).get("data_dir") if isinstance(cfg, dict) else None
+        data_dir = configured_data_dir or (data.get("source_data_dir") if data else None)
         data_dir_display = data_dir or "Not selected"
 
         if not data:

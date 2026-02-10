@@ -331,6 +331,8 @@ def register_data_config_callbacks(app):
         State("data-root-path-store", "data"),
         State("config-store", "data"),
         State("mode-tabs", "data"),
+        State("global-date-selector", "value"),
+        State("global-device-selector", "value"),
         prevent_initial_call=True,
     )
     def load_data_from_config(
@@ -345,6 +347,8 @@ def register_data_config_callbacks(app):
         base_path,
         config,
         current_mode,
+        current_date_value,
+        current_device_value,
     ):
         """Load data based on configuration panel settings."""
         if not load_clicks:
@@ -404,13 +408,29 @@ def register_data_config_callbacks(app):
             # Add "All" option at the beginning
             date_options = [{"label": "All Dates", "value": "__all__"}] + [{"label": d, "value": d} for d in dates]
             device_options = [{"label": "All Devices", "value": "__all__"}] + [{"label": d, "value": d} for d in devices]
-            date_value = "__all__"  # Default to all dates (no filter)
-            device_value = "__all__"  # Default to all devices (no filter)
+            if current_date_value in dates:
+                date_value = current_date_value
+            elif len(dates) == 1:
+                date_value = dates[0]
+            else:
+                date_value = "__all__"
+
+            if current_device_value in devices:
+                device_value = current_device_value
+            elif len(devices) == 1:
+                device_value = devices[0]
+            else:
+                device_value = "__all__"
         elif structure_type == "device_only":
             devices = discovery.get("devices", [])
             # Add "All" option for devices
             device_options = [{"label": "All Devices", "value": "__all__"}] + [{"label": d, "value": d} for d in devices]
-            device_value = "__all__"  # Default to all devices (no filter)
+            if current_device_value in devices:
+                device_value = current_device_value
+            elif len(devices) == 1:
+                device_value = devices[0]
+            else:
+                device_value = "__all__"
             # If the selected root is itself a date folder, show it in the date selector
             base_label = None
             if base_path:
