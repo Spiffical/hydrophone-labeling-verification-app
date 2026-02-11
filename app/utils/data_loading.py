@@ -442,6 +442,106 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["verified"] = bool(match.get("verified"))
                 item["annotations"] = annotations
 
+    elif structure_type == "device_only" and data_dir:
+        # Device-only structure (DATE folder selected as root)
+        devices = []
+        try:
+            for item in os.listdir(data_dir):
+                item_path = os.path.join(data_dir, item)
+                if os.path.isdir(item_path) and not item.startswith("."):
+                    devices.append(item)
+        except Exception:
+            devices = []
+
+        devices = sorted(devices)
+        if hydrophone == "__all__":
+            devices_to_load = devices
+        elif hydrophone:
+            devices_to_load = [hydrophone]
+        else:
+            preferred_device = _find_first_device_with_data(data_dir, devices, spec_folder_names)
+            devices_to_load = [preferred_device] if preferred_device else devices[:1]
+
+        # Use date from selector when available, otherwise infer from root folder name.
+        active_date_label = None
+        if date_str and date_str not in ("__all__", "__flat__", "__device_only__"):
+            active_date_label = date_str
+        else:
+            folder_name = os.path.basename(data_dir.rstrip(os.sep))
+            if len(folder_name) == 10 and folder_name[4] == "-" and folder_name[7] == "-":
+                active_date_label = folder_name
+
+        all_items = []
+        folders_loaded = []
+
+        for dev in devices_to_load:
+            if not dev:
+                continue
+
+            base_device_path = os.path.join(data_dir, dev)
+            if not os.path.exists(base_device_path):
+                continue
+
+            spec_folder = _get_spectrogram_folder(base_device_path, spec_folder_names)
+
+            # Find audio folder using configurable names
+            device_audio_folder = None
+            for audio_name in audio_folder_names:
+                candidate = os.path.join(base_device_path, audio_name)
+                if os.path.exists(candidate):
+                    device_audio_folder = candidate
+                    break
+
+            device_labels_file = os.path.join(base_device_path, "labels.json")
+            selected_labels_file = labels_file
+            if os.path.exists(device_labels_file):
+                selected_labels_file = device_labels_file
+
+            if device_audio_folder and os.path.exists(device_audio_folder):
+                audio_roots.append(device_audio_folder)
+
+            items = _load_items_from_folder(
+                spec_folder,
+                device_audio_folder if device_audio_folder and os.path.exists(device_audio_folder) else None,
+                selected_labels_file if selected_labels_file and os.path.exists(selected_labels_file) else None,
+                dev,
+                active_date_label,
+            )
+            all_items.extend(items)
+            if spec_folder:
+                folders_loaded.append(spec_folder)
+
+        data["items"] = all_items
+        data["_spec_folders_loaded"] = folders_loaded
+        data["_audio_folders_loaded"] = [r for r in audio_roots]
+        folder = ", ".join(folders_loaded[:3]) + ("..." if len(folders_loaded) > 3 else "") if folders_loaded else None
+
+        # Overlay root-level labels.json when present (useful for shared labels at date root).
+        root_labels = os.path.join(data_dir, "labels.json")
+        root_labels_map = _extract_labels_map(read_json(root_labels) or {}) if os.path.exists(root_labels) else {}
+        if root_labels_map and data["items"]:
+            for item in data["items"]:
+                item_id = item.get("item_id")
+                match = root_labels_map.get(item_id) or root_labels_map.get(_normalize_item_key(item_id))
+                if not match:
+                    continue
+                annotations = item.get("annotations") or {
+                    "labels": [],
+                    "annotated_by": None,
+                    "annotated_at": None,
+                    "verified": False,
+                    "notes": "",
+                }
+                annotations["labels"] = match.get("labels", [])
+                annotations["notes"] = match.get("notes", "") or ""
+                annotations["annotated_by"] = match.get("annotated_by")
+                annotations["annotated_at"] = match.get("annotated_at")
+                annotations["verified"] = bool(match.get("verified"))
+                item["annotations"] = annotations
+
+        if not labels_file:
+            labels_file = root_labels if os.path.exists(root_labels) else os.path.join(data_dir, "labels.json")
+
     elif not folder:
         # Flat structure - load directly from data_dir
         folder = data_dir
