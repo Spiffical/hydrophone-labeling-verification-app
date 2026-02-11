@@ -1442,13 +1442,13 @@ body.theme-dark .modal-audio-container .rc-slider-mark-text,
 }
 
 .custom-time-slider .rc-slider-track {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
     height: 4px !important;
     border-radius: 2px !important;
 }
 
 .custom-time-slider .rc-slider-handle {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
     border: 2px solid white !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
     width: 16px !important;
@@ -1463,7 +1463,7 @@ body.theme-dark .modal-audio-container .rc-slider-mark-text,
 .custom-time-slider .rc-slider-handle:hover,
 .custom-time-slider .rc-slider-handle:active,
 .custom-time-slider .rc-slider-handle:focus {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
     border-color: white !important;
     transform: none !important;
@@ -1892,7 +1892,7 @@ body.theme-dark .multi-folder-item .folder-path,
 .modal-control-display {
     text-align: center;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--accent);
     margin-top: 4px;
 }
@@ -1912,7 +1912,7 @@ body.theme-dark .multi-folder-item .folder-path,
 
 .pitch-shift-slider .rc-slider-track,
 .bass-boost-slider .rc-slider-track {
-    background: linear-gradient(135deg, var(--accent) 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
     height: 6px;
     border-radius: 3px;
 }
@@ -1939,6 +1939,14 @@ body.theme-dark .multi-folder-item .folder-path,
     color: var(--text) !important;
     opacity: 1 !important;
     font-weight: 500;
+}
+
+/* Strong fallback for Dash 4 generated slider mark classes */
+.modal-audio-container [class*="markText"],
+.modal-audio-container [class*="mark-text"] {
+    color: var(--text) !important;
+    opacity: 1 !important;
+    font-weight: 600 !important;
 }
 
 /* Dark mode specific styles for modal audio */
@@ -1978,7 +1986,7 @@ body.theme-dark .modal-audio-filename,
 
 body.theme-dark .modal-time-display,
 .theme-dark .modal-time-display {
-    color: #7d8590 !important;
+    color: #c9d1d9 !important;
 }
 
 body.theme-dark .modal-control-icon,
@@ -1988,7 +1996,8 @@ body.theme-dark .modal-control-icon,
 
 body.theme-dark .modal-control-display,
 .theme-dark .modal-control-display {
-    color: #58a6ff !important;
+    color: #79b8ff !important;
+    font-weight: 700 !important;
 }
 
 body.theme-dark .pitch-shift-slider .rc-slider-rail,
@@ -2010,6 +2019,55 @@ body.theme-dark .pitch-shift-slider .rc-slider-mark-text,
 body.theme-dark .bass-boost-slider .rc-slider-mark-text,
 .theme-dark .pitch-shift-slider .rc-slider-mark-text,
 .theme-dark .bass-boost-slider .rc-slider-mark-text {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .pitch-shift-slider .rc-slider-mark-text-active,
+body.theme-dark .bass-boost-slider .rc-slider-mark-text-active,
+.theme-dark .pitch-shift-slider .rc-slider-mark-text-active,
+.theme-dark .bass-boost-slider .rc-slider-mark-text-active,
+body.theme-dark .modal-audio-container [class*="markText"],
+body.theme-dark .modal-audio-container [class*="mark-text"],
+.theme-dark .modal-audio-container [class*="markText"],
+.theme-dark .modal-audio-container [class*="mark-text"] {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+    font-weight: 600 !important;
+}
+
+/* Modal slider tooltip/readout contrast in dark mode */
+body.theme-dark .modal-audio-container .rc-slider-tooltip .rc-tooltip-inner,
+body.theme-dark .modal-audio-container .rc-tooltip-inner,
+.theme-dark .modal-audio-container .rc-slider-tooltip .rc-tooltip-inner,
+.theme-dark .modal-audio-container .rc-tooltip-inner {
+    background: #21262d !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}
+
+body.theme-dark .modal-audio-container .rc-slider-tooltip *,
+body.theme-dark .modal-audio-container .rc-tooltip *,
+.theme-dark .modal-audio-container .rc-slider-tooltip *,
+.theme-dark .modal-audio-container .rc-tooltip * {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .modal-audio-container .rc-tooltip-arrow,
+body.theme-dark .modal-audio-container .rc-tooltip-arrow-inner,
+.theme-dark .modal-audio-container .rc-tooltip-arrow,
+.theme-dark .modal-audio-container .rc-tooltip-arrow-inner {
+    border-top-color: #21262d !important;
+    border-bottom-color: #21262d !important;
+}
+
+/* Ensure verify panel slider marks remain readable in dark mode too */
+body.theme-dark .control-slider .rc-slider-mark-text,
+body.theme-dark .control-slider .rc-slider-mark-text-active,
+.theme-dark .control-slider .rc-slider-mark-text,
+.theme-dark .control-slider .rc-slider-mark-text-active {
     color: #e6edf3 !important;
     opacity: 1 !important;
 }

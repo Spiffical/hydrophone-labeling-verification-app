@@ -103,30 +103,12 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 const pitchSlider = document.getElementById(playerId + '-pitch-slider');
                 const pitchDisplay = document.getElementById(playerId + '-pitch-display');
 
-                if (pitchSlider && !pitchSlider.hasPitchListener) {
-                    pitchSlider.hasPitchListener = true;
-
-                    // Listen for changes to the Dash slider value
-                    const pitchObserver = new MutationObserver(function (mutations) {
-                        const sliderElement = pitchSlider.querySelector('.rc-slider-handle');
-                        if (sliderElement) {
-                            const ariaValue = sliderElement.getAttribute('aria-valuenow');
-                            if (ariaValue) {
-                                const rate = parseFloat(ariaValue);
-                                if (!isNaN(rate) && rate >= 0.1 && rate <= 4.0) {
-                                    audio.playbackRate = rate;
-                                    if (pitchDisplay) {
-                                        pitchDisplay.textContent = rate.toFixed(2) + 'x';
-                                    }
-                                }
-                            }
+                if (pitchSlider) {
+                    bindSliderValueSync(pitchSlider, 0.1, 4.0, function (rate) {
+                        audio.playbackRate = rate;
+                        if (pitchDisplay) {
+                            pitchDisplay.textContent = rate.toFixed(2) + 'x';
                         }
-                    });
-
-                    pitchObserver.observe(pitchSlider, {
-                        attributes: true,
-                        subtree: true,
-                        attributeFilter: ['aria-valuenow', 'style']
                     });
                 }
 
@@ -134,32 +116,16 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 const bassSlider = document.getElementById(playerId + '-bass-slider');
                 const bassDisplay = document.getElementById(playerId + '-bass-display');
 
-                if (bassSlider && !bassSlider.hasBassListener) {
-                    bassSlider.hasBassListener = true;
-
-                    const bassObserver = new MutationObserver(function (mutations) {
-                        const sliderElement = bassSlider.querySelector('.rc-slider-handle');
-                        if (sliderElement) {
-                            const ariaValue = sliderElement.getAttribute('aria-valuenow');
-                            if (ariaValue) {
-                                const gain = parseFloat(ariaValue);
-                                if (!isNaN(gain) && gain >= 0 && gain <= 24) {
-                                    // Apply bass boost via Web Audio API
-                                    if (audio.bassFilter) {
-                                        audio.bassFilter.gain.value = gain;
-                                    }
-                                    if (bassDisplay) {
-                                        bassDisplay.textContent = (gain > 0 ? '+' : '') + gain + ' dB';
-                                    }
-                                }
-                            }
+                if (bassSlider) {
+                    bindSliderValueSync(bassSlider, 0, 24, function (gain) {
+                        const roundedGain = Math.round(gain);
+                        // Apply bass boost via Web Audio API
+                        if (audio.bassFilter) {
+                            audio.bassFilter.gain.value = roundedGain;
                         }
-                    });
-
-                    bassObserver.observe(bassSlider, {
-                        attributes: true,
-                        subtree: true,
-                        attributeFilter: ['aria-valuenow', 'style']
+                        if (bassDisplay) {
+                            bassDisplay.textContent = (roundedGain > 0 ? '+' : '') + roundedGain + ' dB';
+                        }
                     });
                 }
 
@@ -341,6 +307,69 @@ function updateSliderPositionImmediately(slider, progress) {
     } catch (e) {
         console.warn('Error updating slider position immediately:', e);
     }
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function readSliderValue(slider, min, max) {
+    if (!slider) return null;
+    const handle = slider.querySelector('.rc-slider-handle');
+    if (!handle) return null;
+
+    // Preferred source: aria-valuenow
+    const aria = handle.getAttribute('aria-valuenow');
+    let value = aria !== null ? parseFloat(aria) : NaN;
+
+    // Fallback: handle left percentage
+    if (isNaN(value)) {
+        const pct = parseFloat(handle.style.left);
+        if (!isNaN(pct)) {
+            value = min + (pct / 100) * (max - min);
+        }
+    }
+
+    if (isNaN(value)) return null;
+    return clamp(value, min, max);
+}
+
+// Robust slider value sync for Dash 4 DOM changes:
+// events + mutation observer + initial delayed sync.
+function bindSliderValueSync(slider, min, max, applyValue) {
+    if (!slider || slider.hasValueSyncBinding) return;
+    slider.hasValueSyncBinding = true;
+
+    const syncNow = function () {
+        const value = readSliderValue(slider, min, max);
+        if (value !== null) {
+            applyValue(value);
+        }
+    };
+
+    const scheduleSync = function () {
+        requestAnimationFrame(syncNow);
+    };
+
+    ['input', 'change', 'mousedown', 'mousemove', 'mouseup', 'click', 'touchstart', 'touchmove', 'touchend', 'keydown']
+        .forEach(function (eventName) {
+            slider.addEventListener(eventName, scheduleSync, { passive: true });
+        });
+
+    const observer = new MutationObserver(function () {
+        scheduleSync();
+    });
+    observer.observe(slider, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    // Initial and delayed sync so first render and async hydration are covered.
+    syncNow();
+    setTimeout(syncNow, 100);
+    setTimeout(syncNow, 350);
 }
 
 // Initialize when DOM is ready
