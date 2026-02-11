@@ -340,10 +340,11 @@ def _discover_dates_and_devices(data_dir: str) -> tuple:
 
 def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Optional[str] = None) -> Dict:
     from app.utils.label_operations import get_default_labels_path
+    from app.utils.data_discovery import detect_data_structure
     
     label_cfg = config.get("label", {})
     data_cfg = config.get("data", {})
-    structure_type = data_cfg.get("structure_type", "flat")
+    structure_type = data_cfg.get("structure_type", "unknown")
     
     # Get configurable folder names
     spec_folder_names = data_cfg.get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"])
@@ -353,6 +354,17 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
     folder = data_cfg.get("spectrogram_folder")
     labels_file = data_cfg.get("labels_file") or label_cfg.get("output_file")
     audio_folder = data_cfg.get("audio_folder") or label_cfg.get("audio_folder")
+
+    # Auto-detect structure when config is missing/stale so top-level Load works
+    # without requiring a manual "Reload data" or repeated folder browsing.
+    if data_dir and structure_type in {"unknown", "flat", None, ""}:
+        try:
+            detected = detect_data_structure(data_dir).get("structure_type")
+        except Exception:
+            detected = None
+        if detected in {"hierarchical", "device_only", "flat"}:
+            if structure_type in {"unknown", None, ""} or (structure_type == "flat" and detected != "flat"):
+                structure_type = detected
     
     data = {
         "items": [],

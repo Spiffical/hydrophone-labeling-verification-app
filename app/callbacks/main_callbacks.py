@@ -214,6 +214,29 @@ def register_callbacks(app, config):
     )
 
     @app.callback(
+        Output("data-load-trigger-store", "data", allow_duplicate=True),
+        Input("global-load-btn", "n_clicks"),
+        State("mode-tabs", "data"),
+        State("config-store", "data"),
+        State("global-date-selector", "value"),
+        State("global-device-selector", "value"),
+        prevent_initial_call=True,
+    )
+    def trigger_global_load(n_clicks, mode, cfg, date_value, device_value):
+        """Trigger data loading for the active tab from the top-level Load button."""
+        if not n_clicks:
+            raise PreventUpdate
+        active_mode = mode or "label"
+        return {
+            "timestamp": time.time(),
+            "mode": active_mode,
+            "source": "global-load",
+            "config": cfg or {},
+            "date_value": date_value,
+            "device_value": device_value,
+        }
+
+    @app.callback(
         Output("label-data-store", "data"),
         Input("label-reload", "n_clicks"),
         Input("data-load-trigger-store", "data"),
@@ -230,8 +253,10 @@ def register_callbacks(app, config):
 
         # Get the mode that triggered the data load (if any)
         trigger_mode = None
+        trigger_source = None
         if isinstance(config_load_trigger, dict):
             trigger_mode = config_load_trigger.get("mode")
+            trigger_source = config_load_trigger.get("source")
 
         # Only process if in label mode
         if mode != "label":
@@ -249,16 +274,28 @@ def register_callbacks(app, config):
         # Load on: reload button, config load (for label mode only), or filter change (only if label data exists)
         # Note: trigger_mode == "label" means data-load-trigger-store was set for label mode,
         # even if ctx.triggered_id reports a different input (due to simultaneous updates)
+        config_panel_trigger = (
+            "data-load-trigger-store" in triggered_props and trigger_source == "data-config-load"
+        )
         should_load = (
             "label-reload" in triggered_props or
             trigger_mode == "label" or
+            config_panel_trigger or
             (filter_triggered and has_source)
         )
 
         if should_load:
             try:
+                trigger_cfg = None
+                requested_date = date_val
+                requested_device = device_val
+                if isinstance(config_load_trigger, dict) and "data-load-trigger-store" in triggered_props:
+                    trigger_cfg = config_load_trigger.get("config")
+                    requested_date = config_load_trigger.get("date_value", requested_date)
+                    requested_device = config_load_trigger.get("device_value", requested_device)
+
                 # The configured data root is authoritative across tabs.
-                effective_cfg = cfg.copy() if cfg else {}
+                effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
                 current_source_data_dir = current_label_data.get("source_data_dir") if current_label_data else None
                 active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
@@ -266,7 +303,7 @@ def register_callbacks(app, config):
                     data_cfg["data_dir"] = active_data_dir
                 effective_cfg["data"] = data_cfg
 
-                data = load_dataset(effective_cfg, "label", date_str=date_val, hydrophone=device_val)
+                data = load_dataset(effective_cfg, "label", date_str=requested_date, hydrophone=requested_device)
 
                 # Preserve manual labels path if it exists in current data
                 # This prevents filter changes or tab switches from resetting a manually entered path
@@ -275,7 +312,7 @@ def register_callbacks(app, config):
                     if old_summary.get("labels_file"):
                         data["summary"]["labels_file"] = old_summary["labels_file"]
 
-                if "data-load-trigger-store" in triggered_props and trigger_mode == "label" and isinstance(config_load_trigger, dict):
+                if "data-load-trigger-store" in triggered_props and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 elif filter_triggered:
                     data["load_timestamp"] = time.time()
@@ -314,8 +351,10 @@ def register_callbacks(app, config):
 
         # Get the mode that triggered the data load (if any)
         trigger_mode = None
+        trigger_source = None
         if isinstance(config_load_trigger, dict):
             trigger_mode = config_load_trigger.get("mode")
+            trigger_source = config_load_trigger.get("source")
 
         # Only process if in verify mode
         if mode != "verify":
@@ -328,15 +367,27 @@ def register_callbacks(app, config):
         has_source = current_verify_data and current_verify_data.get("source_data_dir")
 
         # Load on: reload button, config load (for verify mode only), or filter change (only if verify data exists)
+        config_panel_trigger = (
+            "data-load-trigger-store" in triggered_props and trigger_source == "data-config-load"
+        )
         should_load = (
             "verify-reload" in triggered_props or
             trigger_mode == "verify" or
+            config_panel_trigger or
             (filter_triggered and has_source)
         )
 
         if should_load:
             try:
-                effective_cfg = cfg.copy() if cfg else {}
+                trigger_cfg = None
+                requested_date = date_val
+                requested_device = device_val
+                if isinstance(config_load_trigger, dict) and "data-load-trigger-store" in triggered_props:
+                    trigger_cfg = config_load_trigger.get("config")
+                    requested_date = config_load_trigger.get("date_value", requested_date)
+                    requested_device = config_load_trigger.get("device_value", requested_device)
+
+                effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
                 current_source_data_dir = current_verify_data.get("source_data_dir") if current_verify_data else None
                 active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
@@ -344,7 +395,7 @@ def register_callbacks(app, config):
                     data_cfg["data_dir"] = active_data_dir
                 effective_cfg["data"] = data_cfg
 
-                data = load_dataset(effective_cfg, "verify", date_str=date_val, hydrophone=device_val)
+                data = load_dataset(effective_cfg, "verify", date_str=requested_date, hydrophone=requested_device)
 
                 # Preserve manual predictions path if it exists in current data
                 if current_verify_data and isinstance(current_verify_data, dict):
@@ -352,7 +403,7 @@ def register_callbacks(app, config):
                     if old_summary.get("predictions_file"):
                         data["summary"]["predictions_file"] = old_summary["predictions_file"]
 
-                if "data-load-trigger-store" in triggered_props and trigger_mode == "verify" and isinstance(config_load_trigger, dict):
+                if "data-load-trigger-store" in triggered_props and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 elif filter_triggered:
                     data["load_timestamp"] = time.time()
@@ -390,8 +441,10 @@ def register_callbacks(app, config):
 
         # Get the mode that triggered the data load (if any)
         trigger_mode = None
+        trigger_source = None
         if isinstance(config_load_trigger, dict):
             trigger_mode = config_load_trigger.get("mode")
+            trigger_source = config_load_trigger.get("source")
 
         # Only process if in explore mode
         if mode != "explore":
@@ -404,15 +457,27 @@ def register_callbacks(app, config):
         has_source = current_explore_data and current_explore_data.get("source_data_dir")
 
         # Load on: reload button, config load (for explore mode only), or filter change (only if explore data exists)
+        config_panel_trigger = (
+            "data-load-trigger-store" in triggered_props and trigger_source == "data-config-load"
+        )
         should_load = (
             "explore-reload" in triggered_props or
             trigger_mode == "explore" or
+            config_panel_trigger or
             (filter_triggered and has_source)
         )
 
         if should_load:
             try:
-                effective_cfg = cfg.copy() if cfg else {}
+                trigger_cfg = None
+                requested_date = date_val
+                requested_device = device_val
+                if isinstance(config_load_trigger, dict) and "data-load-trigger-store" in triggered_props:
+                    trigger_cfg = config_load_trigger.get("config")
+                    requested_date = config_load_trigger.get("date_value", requested_date)
+                    requested_device = config_load_trigger.get("device_value", requested_device)
+
+                effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
                 current_source_data_dir = current_explore_data.get("source_data_dir") if current_explore_data else None
                 active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
@@ -420,8 +485,8 @@ def register_callbacks(app, config):
                     data_cfg["data_dir"] = active_data_dir
                 effective_cfg["data"] = data_cfg
 
-                data = load_dataset(effective_cfg, "explore", date_str=date_val, hydrophone=device_val)
-                if "data-load-trigger-store" in triggered_props and trigger_mode == "explore" and isinstance(config_load_trigger, dict):
+                data = load_dataset(effective_cfg, "explore", date_str=requested_date, hydrophone=requested_device)
+                if "data-load-trigger-store" in triggered_props and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
                 elif filter_triggered:
                     data["load_timestamp"] = time.time()
@@ -1284,7 +1349,7 @@ def register_callbacks(app, config):
         # Create enhanced audio player for modal with pitch shift
         audio_path = active_item.get("audio_path")
         modal_audio = create_modal_audio_player(
-            audio_path, item_id, player_id=f"modal-{hash(item_id) % 10000}"
+            audio_path, item_id, player_id="modal-player"
         ) if audio_path else html.P("No audio available for this segment.", className="text-muted italic")
 
         return True, item_id, fig, f"Spectrogram: {item_id}", modal_audio
@@ -1333,6 +1398,33 @@ def register_callbacks(app, config):
          Input("modal-audio-player", "children")],
         prevent_initial_call=True
     )
+
+    @app.callback(
+        Output("modal-player-pitch-display", "children"),
+        Input("modal-player-pitch-slider", "value"),
+        prevent_initial_call=True,
+    )
+    def update_modal_pitch_display(value):
+        if value is None:
+            raise PreventUpdate
+        try:
+            return f"{float(value):.2f}x"
+        except (TypeError, ValueError):
+            return "1.00x"
+
+    @app.callback(
+        Output("modal-player-bass-display", "children"),
+        Input("modal-player-bass-slider", "value"),
+        prevent_initial_call=True,
+    )
+    def update_modal_bass_display(value):
+        if value is None:
+            raise PreventUpdate
+        try:
+            rounded = int(round(float(value)))
+            return f"{rounded:+d} dB" if rounded != 0 else "0 dB"
+        except (TypeError, ValueError):
+            return "0 dB"
 
 
 

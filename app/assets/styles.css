@@ -1996,7 +1996,7 @@ body.theme-dark .modal-control-icon,
 
 body.theme-dark .modal-control-display,
 .theme-dark .modal-control-display {
-    color: #79b8ff !important;
+    color: #e6edf3 !important;
     font-weight: 700 !important;
 }
 
@@ -2070,6 +2070,90 @@ body.theme-dark .control-slider .rc-slider-mark-text-active,
 .theme-dark .control-slider .rc-slider-mark-text-active {
     color: #e6edf3 !important;
     opacity: 1 !important;
+}
+
+/* Final global fallback: any slider tooltip in dark mode should be high-contrast */
+body.theme-dark [class*="slider-tooltip"],
+body.theme-dark [class*="slider-tooltip"] *,
+body.theme-dark [class*="tooltip-inner"],
+body.theme-dark [class*="tooltip-inner"] *,
+body.theme-dark [class*="tooltip-content"],
+body.theme-dark [class*="tooltip-content"] *,
+.theme-dark [class*="slider-tooltip"],
+.theme-dark [class*="slider-tooltip"] *,
+.theme-dark [class*="tooltip-inner"],
+.theme-dark [class*="tooltip-inner"] *,
+.theme-dark [class*="tooltip-content"],
+.theme-dark [class*="tooltip-content"] * {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark [class*="slider-tooltip"],
+body.theme-dark [class*="tooltip-inner"],
+body.theme-dark [class*="tooltip-content"],
+.theme-dark [class*="slider-tooltip"],
+.theme-dark [class*="tooltip-inner"],
+.theme-dark [class*="tooltip-content"] {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+/* Dash 4 tooltip class used by dcc.Slider values */
+body.theme-dark .dash-slider-tooltip,
+.theme-dark .dash-slider-tooltip {
+    background: #21262d !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .dash-slider-tooltip *,
+.theme-dark .dash-slider-tooltip * {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+/* Keep slider tick labels readable in dark mode across wrapper variants */
+body.theme-dark .rc-slider-mark-text,
+body.theme-dark .rc-slider-mark-text-active,
+.theme-dark .rc-slider-mark-text,
+.theme-dark .rc-slider-mark-text-active {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+/* Dash 4 slider primitives (replaces rc-slider classes) */
+body.theme-dark .dash-slider-track,
+.theme-dark .dash-slider-track {
+    background: #30363d !important;
+}
+
+body.theme-dark .dash-slider-range,
+.theme-dark .dash-slider-range {
+    background: linear-gradient(135deg, #58a6ff 0%, #79b8ff 100%) !important;
+}
+
+body.theme-dark .dash-slider-thumb,
+.theme-dark .dash-slider-thumb {
+    background: #161b22 !important;
+    border: 2px solid #58a6ff !important;
+}
+
+body.theme-dark .dash-slider-mark,
+.theme-dark .dash-slider-mark,
+body.theme-dark .dash-slider-mark.dash-slider-mark-outside-selection,
+.theme-dark .dash-slider-mark.dash-slider-mark-outside-selection {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .dash-range-slider-input,
+.theme-dark .dash-range-slider-input {
+    background: #21262d !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
 }
 
 /* Spectrogram modal header */

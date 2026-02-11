@@ -273,17 +273,17 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
                     step=0.05,
                     value=1.0,
                     marks={
-                        0.1: {'label': '0.1x', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        0.25: {'label': '0.25x', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        0.5: {'label': '0.5x', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        1.0: {'label': '1x', 'style': {'fontSize': '10px', 'fontWeight': 'bold', 'color': 'var(--text)'}},
-                        2.0: {'label': '2x', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        4.0: {'label': '4x', 'style': {'fontSize': '9px', 'color': 'var(--text)'}}
+                        0.1: {'label': '0.1x', 'style': {'fontSize': '9px'}},
+                        0.25: {'label': '0.25x', 'style': {'fontSize': '9px'}},
+                        0.5: {'label': '0.5x', 'style': {'fontSize': '9px'}},
+                        1.0: {'label': '1x', 'style': {'fontSize': '10px', 'fontWeight': 'bold'}},
+                        2.0: {'label': '2x', 'style': {'fontSize': '9px'}},
+                        4.0: {'label': '4x', 'style': {'fontSize': '9px'}}
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
                     className='pitch-shift-slider'
                 ),
-                html.Div(id=f'{player_id}-pitch-display', children="1.0x", className="modal-control-display")
+                html.Div(id=f'{player_id}-pitch-display', children="1.00x", className="modal-control-display")
             ])
         ], className="modal-control-section"),
 
@@ -302,11 +302,11 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
                     step=1,
                     value=0,
                     marks={
-                        0: {'label': '0 dB', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        6: {'label': '+6', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        12: {'label': '+12', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        18: {'label': '+18', 'style': {'fontSize': '9px', 'color': 'var(--text)'}},
-                        24: {'label': '+24 dB', 'style': {'fontSize': '9px', 'color': 'var(--text)'}}
+                        0: {'label': '0 dB', 'style': {'fontSize': '9px'}},
+                        6: {'label': '+6', 'style': {'fontSize': '9px'}},
+                        12: {'label': '+12', 'style': {'fontSize': '9px'}},
+                        18: {'label': '+18', 'style': {'fontSize': '9px'}},
+                        24: {'label': '+24 dB', 'style': {'fontSize': '9px'}}
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
                     className='bass-boost-slider'

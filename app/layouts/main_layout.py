@@ -29,6 +29,10 @@ def create_main_layout(config: dict) -> html.Div:
         {"timestamp": 0, "mode": initial_mode, "source": "startup"} if has_data_root else None
     )
 
+    initial_theme = str(os.getenv("HYDROPHONE_UI_THEME", "light")).strip().lower()
+    if initial_theme not in {"light", "dark"}:
+        initial_theme = "light"
+
     return html.Div([
         # ── Stores ──────────────────────────────────────────────────
         dcc.Store(id="config-store", data=config),
@@ -38,7 +42,7 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="active-item-store", data=None, storage_type="memory"),
         dcc.Store(id="label-editor-clicks", data={}, storage_type="memory"),
         dcc.Store(id="user-profile-store", data={"name": "", "email": ""}, storage_type="local"),
-        dcc.Store(id="theme-store", data="light", storage_type="local"),
+        dcc.Store(id="theme-store", data=initial_theme, storage_type="local"),
         dcc.Store(id="verify-thresholds-store", data={"__global__": 0.5}, storage_type="memory"),
         dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
         dcc.Store(id="folder-browser-selected-store", data=None, storage_type="memory"),
@@ -246,4 +250,4 @@ def create_main_layout(config: dict) -> html.Div:
                 style={"display": "none"},
             ),
         ], fluid=True, className="app-inner"),
-    ], id="app-shell", className="app-shell theme-light")
+    ], id="app-shell", className=f"app-shell theme-{initial_theme}")

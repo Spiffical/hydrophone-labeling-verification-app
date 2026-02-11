@@ -479,9 +479,17 @@ def register_data_config_callbacks(app):
             audio_display = no_update
             output_display = no_update
 
-        # Create a trigger value that includes the current mode so only that mode loads data
+        # Create a trigger payload with config snapshot to avoid race conditions
+        # between config-store updates and mode-specific load callbacks.
         import time
-        trigger_value = {"timestamp": time.time(), "mode": current_mode}
+        trigger_value = {
+            "timestamp": time.time(),
+            "mode": current_mode,
+            "source": "data-config-load",
+            "config": config,
+            "date_value": date_value,
+            "device_value": device_value,
+        }
 
         return (
             True,  # Keep modal open until data finishes loading

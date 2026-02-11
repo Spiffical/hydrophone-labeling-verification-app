@@ -13,6 +13,10 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 const timeSlider = document.getElementById(playerId + '-time-slider');
                 const currentTimeEl = document.getElementById(playerId + '-current-time');
                 const durationEl = document.getElementById(playerId + '-duration');
+                const pitchSlider = document.getElementById(playerId + '-pitch-slider');
+                const pitchDisplay = document.getElementById(playerId + '-pitch-display');
+                const bassSlider = document.getElementById(playerId + '-bass-slider');
+                const bassDisplay = document.getElementById(playerId + '-bass-display');
 
                 if (!audio.hasEventListeners) {
                     audio.hasEventListeners = true;
@@ -76,8 +80,8 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     });
                 }
 
-                // Set up Web Audio API context and nodes for this audio element
-                if (!audio.audioContext) {
+                // Set up Web Audio API only for modal players that expose tone controls.
+                if (!audio.audioContext && (pitchSlider || bassSlider)) {
                     try {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
                         audio.audioContext = new AudioContext();
@@ -99,10 +103,6 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     }
                 }
 
-                // Handle pitch shift sliders (for modal audio players)
-                const pitchSlider = document.getElementById(playerId + '-pitch-slider');
-                const pitchDisplay = document.getElementById(playerId + '-pitch-display');
-
                 if (pitchSlider) {
                     bindSliderValueSync(pitchSlider, 0.1, 4.0, function (rate) {
                         audio.playbackRate = rate;
@@ -111,10 +111,6 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         }
                     });
                 }
-
-                // Handle bass boost slider
-                const bassSlider = document.getElementById(playerId + '-bass-slider');
-                const bassDisplay = document.getElementById(playerId + '-bass-display');
 
                 if (bassSlider) {
                     bindSliderValueSync(bassSlider, 0, 24, function (gain) {
@@ -137,6 +133,9 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         e.stopPropagation();
 
                         if (audio.paused) {
+                            if (audio.audioContext && audio.audioContext.state === 'suspended') {
+                                audio.audioContext.resume().catch(function () { });
+                            }
                             // If audio has ended, reset it to the beginning
                             if (audio.ended) {
                                 audio.currentTime = 0;
@@ -164,6 +163,21 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     timeSlider.hasSliderListeners = true;
                     setupSliderInteraction(timeSlider, audio);
                 }
+
+                // Keep audio currentTime synchronized with timeline slider value.
+                // This is required for Dash 4 slider DOM where internal value changes
+                // may occur without our custom drag handler firing consistently.
+                if (timeSlider && !timeSlider.hasTimeSyncBinding) {
+                    timeSlider.hasTimeSyncBinding = true;
+                    bindSliderValueSync(timeSlider, 0, 100, function (progress) {
+                        if (!audio.duration || isNaN(progress)) return;
+                        const targetTime = (progress / 100) * audio.duration;
+                        const delta = Math.abs((audio.currentTime || 0) - targetTime);
+                        if (timeSlider.isUserInteracting || delta > 2) {
+                            audio.currentTime = targetTime;
+                        }
+                    });
+                }
             });
 
             return '';
@@ -176,29 +190,81 @@ function updateSliderPositionSafely(slider, progress) {
         // Only update if we're confident we won't interfere with user interaction
         if (slider.isUserInteracting) return;
 
-        const sliderContainer = slider.querySelector('.rc-slider');
-        if (sliderContainer) {
-            const handle = sliderContainer.querySelector('.rc-slider-handle');
-            const track = sliderContainer.querySelector('.rc-slider-track');
-            if (handle && track) {
-                // Use requestAnimationFrame to ensure smooth updates
-                requestAnimationFrame(() => {
-                    if (!slider.isUserInteracting) {
-                        handle.style.left = progress + '%';
-                        track.style.width = progress + '%';
-                        handle.setAttribute('aria-valuenow', progress);
-                    }
-                });
+        // Use requestAnimationFrame to ensure smooth updates
+        requestAnimationFrame(() => {
+            if (!slider.isUserInteracting) {
+                setSliderVisualProgress(slider, progress);
             }
-        }
+        });
     } catch (e) {
         console.warn('Error updating slider position:', e);
     }
 }
 
+function getSliderRoot(slider) {
+    if (!slider) return null;
+    return slider.querySelector('.dash-slider-root') || slider.querySelector('.rc-slider');
+}
+
+function getSliderHandle(slider) {
+    if (!slider) return null;
+    return slider.querySelector('.dash-slider-thumb[role="slider"]') || slider.querySelector('.rc-slider-handle');
+}
+
+function setSliderVisualProgress(slider, progress) {
+    const clamped = clamp(progress, 0, 100);
+
+    const dashRoot = slider.querySelector('.dash-slider-root');
+    if (dashRoot) {
+        const dashRange = dashRoot.querySelector('.dash-slider-range');
+        const dashThumb = dashRoot.querySelector('.dash-slider-thumb[role="slider"]');
+        const dashThumbWrapper = dashThumb ? dashThumb.parentElement : null;
+        const dashInput = slider.querySelector('.dash-range-slider-input');
+
+        if (dashRange) {
+            dashRange.style.left = '0%';
+            dashRange.style.right = (100 - clamped) + '%';
+        }
+
+        if (dashThumbWrapper) {
+            // Match Dash slider offset behavior: +8px at 0%, -8px at 100%.
+            const pxOffset = (8 - (clamped * 0.16)).toFixed(3);
+            dashThumbWrapper.style.left = `calc(${clamped}% + ${pxOffset}px)`;
+        }
+
+        if (dashThumb) {
+            dashThumb.setAttribute('aria-valuenow', String(clamped));
+        }
+
+        if (dashInput && !Number.isNaN(clamped)) {
+            dashInput.value = String(Math.round(clamped * 10) / 10);
+        }
+
+        return;
+    }
+
+    const rcRoot = slider.querySelector('.rc-slider');
+    if (rcRoot) {
+        const rcHandle = rcRoot.querySelector('.rc-slider-handle');
+        const rcTrack = rcRoot.querySelector('.rc-slider-track');
+        if (rcHandle && rcTrack) {
+            rcHandle.style.left = clamped + '%';
+            rcTrack.style.width = clamped + '%';
+            rcHandle.setAttribute('aria-valuenow', String(clamped));
+        }
+    }
+}
+
+function getClientXFromEvent(e) {
+    if (e && e.touches && e.touches.length > 0) return e.touches[0].clientX;
+    if (e && e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+    if (e && typeof e.clientX === 'number') return e.clientX;
+    return null;
+}
+
 // Improved slider interaction setup - better click/drag detection
 function setupSliderInteraction(slider, audio) {
-    const sliderContainer = slider.querySelector('.rc-slider');
+    const sliderContainer = getSliderRoot(slider);
     if (!sliderContainer) return;
 
     let isActivelyDragging = false;
@@ -217,6 +283,15 @@ function setupSliderInteraction(slider, audio) {
         e.stopPropagation();
     });
 
+    sliderContainer.addEventListener('touchstart', function (e) {
+        mouseDownTime = Date.now();
+        dragStarted = false;
+        isActivelyDragging = true;
+        slider.isUserInteracting = true;
+        e.preventDefault();
+        e.stopPropagation();
+    }, { passive: false });
+
     // Handle mouse move while potentially dragging
     document.addEventListener('mousemove', function (e) {
         if (isActivelyDragging) {
@@ -224,9 +299,18 @@ function setupSliderInteraction(slider, audio) {
                 // This is the start of an actual drag
                 dragStarted = true;
             }
-            handleSliderSeek(e, sliderContainer, audio);
+            handleSliderSeek(e, sliderContainer, slider, audio);
         }
     });
+
+    document.addEventListener('touchmove', function (e) {
+        if (isActivelyDragging) {
+            if (!dragStarted) {
+                dragStarted = true;
+            }
+            handleSliderSeek(e, sliderContainer, slider, audio);
+        }
+    }, { passive: false });
 
     // Handle mouse up (end of interaction)
     document.addEventListener('mouseup', function (e) {
@@ -235,7 +319,7 @@ function setupSliderInteraction(slider, audio) {
 
             // If it was a quick click (not a drag), handle it as a seek
             if (!dragStarted && clickDuration < 200) {
-                handleSliderSeek(e, sliderContainer, audio);
+                handleSliderSeek(e, sliderContainer, slider, audio);
             }
 
             isActivelyDragging = false;
@@ -248,6 +332,21 @@ function setupSliderInteraction(slider, audio) {
         }
     });
 
+    document.addEventListener('touchend', function (e) {
+        if (isActivelyDragging) {
+            const clickDuration = Date.now() - mouseDownTime;
+            if (!dragStarted && clickDuration < 250) {
+                handleSliderSeek(e, sliderContainer, slider, audio);
+            }
+
+            isActivelyDragging = false;
+            dragStarted = false;
+            setTimeout(() => {
+                slider.isUserInteracting = false;
+            }, 100);
+        }
+    }, { passive: false });
+
     // Disable Dash's default click handling on the slider
     sliderContainer.addEventListener('click', function (e) {
         e.preventDefault();
@@ -256,11 +355,14 @@ function setupSliderInteraction(slider, audio) {
 }
 
 // Improved slider seeking function
-function handleSliderSeek(e, sliderContainer, audio) {
+function handleSliderSeek(e, sliderContainer, slider, audio) {
     if (!audio.duration) return;
 
     const rect = sliderContainer.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const clientX = getClientXFromEvent(e);
+    if (clientX === null) return;
+
+    const x = clientX - rect.left;
     const width = rect.width;
 
     // Ensure we stay within bounds
@@ -286,7 +388,7 @@ function handleSliderSeek(e, sliderContainer, audio) {
     }
 
     // Update the visual position immediately during manual interaction
-    updateSliderPositionImmediately(sliderContainer.parentElement, progress);
+    updateSliderPositionImmediately(slider, progress);
 
     console.log('Seeking to:', newTime, 'seconds (', progress, '%)');
 }
@@ -294,16 +396,7 @@ function handleSliderSeek(e, sliderContainer, audio) {
 // Function to update slider position immediately (used during manual seeking)
 function updateSliderPositionImmediately(slider, progress) {
     try {
-        const sliderContainer = slider.querySelector('.rc-slider');
-        if (sliderContainer) {
-            const handle = sliderContainer.querySelector('.rc-slider-handle');
-            const track = sliderContainer.querySelector('.rc-slider-track');
-            if (handle && track) {
-                handle.style.left = progress + '%';
-                track.style.width = progress + '%';
-                handle.setAttribute('aria-valuenow', progress);
-            }
-        }
+        setSliderVisualProgress(slider, progress);
     } catch (e) {
         console.warn('Error updating slider position immediately:', e);
     }
@@ -315,12 +408,18 @@ function clamp(value, min, max) {
 
 function readSliderValue(slider, min, max) {
     if (!slider) return null;
-    const handle = slider.querySelector('.rc-slider-handle');
+    const handle = getSliderHandle(slider);
     if (!handle) return null;
 
     // Preferred source: aria-valuenow
     const aria = handle.getAttribute('aria-valuenow');
     let value = aria !== null ? parseFloat(aria) : NaN;
+
+    // Dash/React variants may expose value text instead of numeric now
+    if (isNaN(value)) {
+        const ariaText = handle.getAttribute('aria-valuetext');
+        value = ariaText !== null ? parseFloat(ariaText) : NaN;
+    }
 
     // Fallback: handle left percentage
     if (isNaN(value)) {
@@ -370,6 +469,12 @@ function bindSliderValueSync(slider, min, max, applyValue) {
     syncNow();
     setTimeout(syncNow, 100);
     setTimeout(syncNow, 350);
+
+    // Polling fallback for environments where slider value updates bypass DOM events.
+    // This keeps readouts (e.g., 1.00x / +12 dB) in sync with the actual handle value.
+    if (!slider.valueSyncInterval) {
+        slider.valueSyncInterval = setInterval(syncNow, 200);
+    }
 }
 
 // Initialize when DOM is ready
