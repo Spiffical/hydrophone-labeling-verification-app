@@ -32,8 +32,11 @@ def main():
 
     app = create_app(config)
 
-    host = os.environ.get("HOST", "127.0.0.1")
-    preferred_port = int(os.environ.get("PORT", "8050"))
+    server_cfg = config.get("server", {})
+    host = server_cfg.get("host") or os.environ.get("HOST", "127.0.0.1")
+    preferred_port = server_cfg.get("port")
+    if preferred_port is None:
+        preferred_port = int(os.environ.get("PORT", "8050"))
     port = find_free_port(preferred_port)
     if port != preferred_port:
         print(f"Port {preferred_port} in use, switching to {port}")

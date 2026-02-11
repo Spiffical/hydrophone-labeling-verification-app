@@ -45,6 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified Spectrogram Labeling & Verification App")
     parser.add_argument("--config", type=str, default="config/default.yaml", help="Path to config YAML")
     parser.add_argument("--mode", type=str, choices=["label", "verify", "explore"], help="Initial mode")
+    parser.add_argument("--host", type=str, help="Host to bind the web server")
+    parser.add_argument("--port", type=int, help="Preferred port for the web server")
 
     # Label mode
     parser.add_argument("--label-folder", type=str, help="Folder with MAT spectrograms")
@@ -121,6 +123,10 @@ def get_config() -> Dict[str, Any]:
         },
         "cache": {
             "max_size": cache_max_size,
+        },
+        "server": {
+            "host": args.host,
+            "port": args.port,
         },
         "data": {
             "spectrogram_folder_names": config.get("data", {}).get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"]),

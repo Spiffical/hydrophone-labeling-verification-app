@@ -47,6 +47,9 @@ python run.py --config config/my_research_setup.yaml
 
 # Start directly pointing to a data directory (CLI override)
 python run.py --data-dir /path/to/my/hydrophone/data
+
+# Choose a preferred server port
+python run.py --port 8060
 ```
 
 **Configuration Priority:**
