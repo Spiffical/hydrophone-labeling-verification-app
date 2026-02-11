@@ -55,6 +55,11 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="verify-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="explore-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
+        dcc.Store(
+            id="modal-audio-settings-store",
+            data={"pitch": 1.0, "bass": 0.0, "gain": 1.0},
+            storage_type="local",
+        ),
 
         # Active tab store (replaces dcc.Tabs value)
         dcc.Store(id="mode-tabs", data=initial_mode, storage_type="memory"),

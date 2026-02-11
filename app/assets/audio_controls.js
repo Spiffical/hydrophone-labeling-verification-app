@@ -17,6 +17,8 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 const pitchDisplay = document.getElementById(playerId + '-pitch-display');
                 const bassSlider = document.getElementById(playerId + '-bass-slider');
                 const bassDisplay = document.getElementById(playerId + '-bass-display');
+                const gainSlider = document.getElementById(playerId + '-gain-slider');
+                const gainDisplay = document.getElementById(playerId + '-gain-display');
 
                 if (!audio.hasEventListeners) {
                     audio.hasEventListeners = true;
@@ -81,7 +83,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 }
 
                 // Set up Web Audio API only for modal players that expose tone controls.
-                if (!audio.audioContext && (pitchSlider || bassSlider)) {
+                if (!audio.audioContext && (pitchSlider || bassSlider || gainSlider)) {
                     try {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
                         audio.audioContext = new AudioContext();
@@ -93,9 +95,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         audio.bassFilter.frequency.value = 200; // Boost frequencies below 200Hz
                         audio.bassFilter.gain.value = 0; // Initial gain (0 dB)
 
-                        // Connect: source -> bass filter -> destination
+                        // Create gain node for post-EQ amplification.
+                        audio.gainNode = audio.audioContext.createGain();
+                        audio.gainNode.gain.value = 1.0;
+
+                        // Connect: source -> bass filter -> gain -> destination
                         audio.sourceNode.connect(audio.bassFilter);
-                        audio.bassFilter.connect(audio.audioContext.destination);
+                        audio.bassFilter.connect(audio.gainNode);
+                        audio.gainNode.connect(audio.audioContext.destination);
 
                         console.log('Web Audio API initialized for:', playerId);
                     } catch (e) {
@@ -121,6 +128,21 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         }
                         if (bassDisplay) {
                             bassDisplay.textContent = (roundedGain > 0 ? '+' : '') + roundedGain + ' dB';
+                        }
+                    });
+                }
+
+                if (gainSlider) {
+                    bindSliderValueSync(gainSlider, 1, 8, function (amplification) {
+                        const normalized = Math.round(amplification * 10) / 10;
+                        if (audio.gainNode) {
+                            audio.gainNode.gain.value = normalized;
+                        } else {
+                            // Fallback when Web Audio API is not available.
+                            audio.volume = clamp(normalized, 0, 1);
+                        }
+                        if (gainDisplay) {
+                            gainDisplay.textContent = normalized.toFixed(1) + 'x';
                         }
                     });
                 }

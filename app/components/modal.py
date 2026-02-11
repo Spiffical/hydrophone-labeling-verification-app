@@ -7,9 +7,40 @@ def create_spectrogram_modal():
     """
     return dbc.Modal(
         [
-            dbc.ModalHeader([
-                html.H4(id='modal-header', className="modal-title-text")
-            ], className="spectrogram-modal-header", close_button=True),
+            dbc.ModalHeader(
+                html.Div(
+                    [
+                        html.H4(id='modal-header', className="modal-title-text"),
+                        html.Div(
+                            [
+                                dbc.Button(
+                                    html.Span("←", className="modal-nav-arrow"),
+                                    id="modal-nav-prev",
+                                    color="light",
+                                    size="sm",
+                                    n_clicks=0,
+                                    className="modal-nav-btn",
+                                    title="Previous spectrogram",
+                                ),
+                                html.Span("1 / 1", id="modal-nav-position", className="modal-nav-position"),
+                                dbc.Button(
+                                    html.Span("→", className="modal-nav-arrow"),
+                                    id="modal-nav-next",
+                                    color="light",
+                                    size="sm",
+                                    n_clicks=0,
+                                    className="modal-nav-btn",
+                                    title="Next spectrogram",
+                                ),
+                            ],
+                            className="modal-nav-controls",
+                        ),
+                    ],
+                    className="modal-header-row",
+                ),
+                className="spectrogram-modal-header",
+                close_button=True,
+            ),
             dbc.ModalBody([
                 # Control panel for modal settings
                 html.Div([
@@ -69,9 +100,21 @@ def create_spectrogram_modal():
                         )
                     ], className="p-0")
                 ], className="spectrogram-zoom-card mb-4"),
-                
-                # Audio player section
-                html.Div(id='modal-audio-player', className="modal-audio-section"),
+
+                # Bottom split layout: labels/actions + audio controls
+                html.Div(
+                    [
+                        html.Div(
+                            id="modal-item-actions",
+                            className="modal-item-actions modal-bottom-pane",
+                        ),
+                        html.Div(
+                            id='modal-audio-player',
+                            className="modal-audio-section modal-bottom-pane",
+                        ),
+                    ],
+                    className="modal-bottom-layout",
+                ),
                 
                 # Current filename store
                 dcc.Store(id='current-filename', data=None)

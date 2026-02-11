@@ -129,6 +129,167 @@ def _build_grid(items, mode, colormap, y_axis_scale, items_per_page):
     return dbc.Row(grid)
 
 
+def _label_badges(labels, color="primary"):
+    labels = labels or []
+    if not labels:
+        return html.Div("No labels", className="text-muted small")
+    return html.Div(
+        [dbc.Badge(label, color=color, className="me-1 mb-1", style={"font-size": "0.75em"}) for label in labels],
+        style={"display": "flex", "flex-wrap": "wrap"},
+    )
+
+
+def _build_modal_item_actions(item, mode, thresholds):
+    if not item:
+        return html.Div("No item selected.", className="text-muted small")
+
+    predictions = item.get("predictions") or {}
+    annotations = item.get("annotations") or {}
+    predicted_labels = _filter_predictions(predictions, thresholds or {"__global__": 0.5})
+    verified_labels = annotations.get("labels") or []
+    is_verified = bool(annotations.get("verified"))
+    needs_reverify = bool(annotations.get("needs_reverify"))
+
+    badges = []
+    if mode == "verify":
+        badges = [
+            html.Div(
+                [
+                    html.Small("Predicted", className="text-muted mb-1 d-block"),
+                    _label_badges(predicted_labels, color="primary"),
+                ],
+                className="modal-label-column",
+            ),
+            html.Div(
+                [
+                    html.Small("Verified", className="text-muted mb-1 d-block"),
+                    _label_badges(verified_labels, color="success"),
+                ],
+                className="modal-label-column",
+            ),
+        ]
+    else:
+        labels = verified_labels or predictions.get("labels") or []
+        badges = [
+            html.Div(
+                [
+                    html.Small("Labels", className="text-muted mb-1 d-block"),
+                    _label_badges(labels, color="primary"),
+                ],
+                className="modal-label-column modal-label-column--full",
+            )
+        ]
+
+    action_buttons = []
+    status_note = None
+
+    if mode == "verify":
+        if is_verified:
+            status_note = "Verified" if not needs_reverify else "Verified, label edits require re-verification"
+            action_buttons = [
+                dbc.Button(
+                    "Re-verify",
+                    id={"type": "modal-action-confirm", "scope": "modal"},
+                    color="success" if needs_reverify else "secondary",
+                    size="sm",
+                    disabled=not needs_reverify,
+                    outline=not needs_reverify,
+                    className="me-2",
+                ),
+                dbc.Button(
+                    "Revise",
+                    id={"type": "modal-action-edit", "scope": "modal"},
+                    color="primary",
+                    size="sm",
+                ),
+            ]
+        else:
+            status_note = "Unverified"
+            action_buttons = [
+                dbc.Button(
+                    "Confirm",
+                    id={"type": "modal-action-confirm", "scope": "modal"},
+                    color="success",
+                    size="sm",
+                    className="me-2",
+                ),
+                dbc.Button(
+                    "Edit",
+                    id={"type": "modal-action-edit", "scope": "modal"},
+                    color="secondary",
+                    size="sm",
+                ),
+            ]
+    elif mode == "label":
+        action_buttons = [
+            dbc.Button(
+                "Edit Labels",
+                id={"type": "modal-action-edit", "scope": "modal"},
+                color="primary",
+                size="sm",
+            ),
+        ]
+    else:
+        status_note = "Explore mode is read-only."
+
+    return html.Div(
+        [
+            html.Div(badges, className="modal-label-grid"),
+            html.Div(status_note, className="modal-status-note") if status_note else None,
+            html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
+        ],
+        className="modal-item-actions-card",
+    )
+
+
+def _get_modal_navigation_items(
+    mode,
+    label_data,
+    verify_data,
+    explore_data,
+    thresholds,
+    class_filter,
+):
+    mode = mode or "label"
+
+    if mode == "verify":
+        data = verify_data or {}
+        items = data.get("items", [])
+        thresholds = thresholds or {"__global__": 0.5}
+        class_filter = class_filter or "all"
+        filtered_items = []
+        for item in items:
+            if not item:
+                continue
+            annotations = (item.get("annotations") or {})
+            is_verified = bool(annotations.get("verified"))
+            predictions = item.get("predictions") or {}
+            predicted_labels = _filter_predictions(predictions, thresholds)
+            if not is_verified and not predicted_labels:
+                continue
+            if class_filter != "all" and class_filter not in predicted_labels:
+                continue
+            display_item = dict(item)
+            display_predictions = dict(predictions)
+            display_predictions["labels"] = predicted_labels
+            display_item["predictions"] = display_predictions
+            filtered_items.append(display_item)
+        return filtered_items
+
+    if mode == "explore":
+        data = explore_data or {}
+        items = data.get("items", [])
+        return items
+
+    data = label_data or {}
+    items = data.get("items", [])
+    return items
+
+
+def _get_mode_data(mode, label_data, verify_data, explore_data):
+    return {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+
+
 def _create_folder_display(display_text, folders_list, data_root, popover_id):
     """Create a folder display — hoverable popover if multiple folders, plain text if single."""
     if folders_list and len(folders_list) > 1:
@@ -875,9 +1036,11 @@ def register_callbacks(app, config):
         Output("active-item-store", "data"),
         Output("label-editor-clicks", "data"),
         Input({"type": "edit-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
         Input("label-editor-cancel", "n_clicks"),
         State("label-editor-clicks", "data"),
         State({"type": "edit-btn", "item_id": ALL}, "id"),
+        State("current-filename", "data"),
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
@@ -886,10 +1049,10 @@ def register_callbacks(app, config):
         State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def open_label_editor(n_clicks_list, cancel_clicks, click_store, edit_ids, label_data, verify_data,
+    def open_label_editor(n_clicks_list, modal_edit_clicks_list, cancel_clicks, click_store, edit_ids, modal_item_id, label_data, verify_data,
                           explore_data, active_item_id, thresholds, mode):
         # Select the appropriate data store based on mode
-        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+        data = _get_mode_data(mode, label_data, verify_data, explore_data)
         triggered = ctx.triggered_id
         if triggered == "label-editor-cancel":
             return False, no_update, None, click_store or {}
@@ -897,22 +1060,27 @@ def register_callbacks(app, config):
             return False, no_update, None, click_store or {}
 
         click_store = click_store or {}
-
-        if not n_clicks_list or not edit_ids:
-            return no_update, no_update, no_update, click_store
-
-        chosen_item_id = None
         updated_store = dict(click_store)
+        chosen_item_id = None
 
-        for i, id_dict in enumerate(edit_ids):
-            item_id = id_dict.get("item_id")
-            if not item_id:
-                continue
-            current_clicks = n_clicks_list[i] or 0
-            previous_clicks = click_store.get(item_id, 0)
-            updated_store[item_id] = current_clicks
-            if current_clicks > previous_clicks:
-                chosen_item_id = item_id
+        if isinstance(triggered, dict) and triggered.get("type") == "modal-action-edit":
+            if not modal_edit_clicks_list or not any(modal_edit_clicks_list) or not modal_item_id:
+                return no_update, no_update, no_update, click_store
+            chosen_item_id = modal_item_id
+            updated_store[chosen_item_id] = (updated_store.get(chosen_item_id, 0) or 0) + 1
+        else:
+            if not n_clicks_list or not edit_ids:
+                return no_update, no_update, no_update, click_store
+
+            for i, id_dict in enumerate(edit_ids):
+                item_id = id_dict.get("item_id")
+                if not item_id:
+                    continue
+                current_clicks = n_clicks_list[i] or 0
+                previous_clicks = click_store.get(item_id, 0)
+                updated_store[item_id] = current_clicks
+                if current_clicks > previous_clicks:
+                    chosen_item_id = item_id
 
         if not chosen_item_id:
             return no_update, no_update, no_update, updated_store
@@ -1014,6 +1182,8 @@ def register_callbacks(app, config):
     @app.callback(
         Output("verify-data-store", "data", allow_duplicate=True),
         Input({"type": "confirm-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
+        State("current-filename", "data"),
         State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
         State({"type": "verify-actions-store", "filename": ALL}, "data"),
@@ -1021,16 +1191,20 @@ def register_callbacks(app, config):
         State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
-    def confirm_verification(n_clicks_list, data, thresholds, actions_list, actions_ids, profile):
-
-        if not n_clicks_list or not any(n_clicks_list):
-            raise PreventUpdate
+    def confirm_verification(n_clicks_list, modal_confirm_clicks_list, modal_item_id, data, thresholds, actions_list, actions_ids, profile):
 
         triggered = ctx.triggered_id
-        if not isinstance(triggered, dict) or "item_id" not in triggered:
-            raise PreventUpdate
+        if isinstance(triggered, dict) and triggered.get("type") == "modal-action-confirm":
+            if not modal_confirm_clicks_list or not any(modal_confirm_clicks_list) or not modal_item_id:
+                raise PreventUpdate
+            item_id = modal_item_id
+        else:
+            if not n_clicks_list or not any(n_clicks_list):
+                raise PreventUpdate
+            if not isinstance(triggered, dict) or "item_id" not in triggered:
+                raise PreventUpdate
+            item_id = triggered["item_id"]
 
-        item_id = triggered["item_id"]
         items = (data or {}).get("items", [])
         labels_to_confirm = []
         predictions = {}
@@ -1307,52 +1481,129 @@ def register_callbacks(app, config):
         Output("modal-image-graph", "figure"),
         Output("modal-header", "children"),
         Output("modal-audio-player", "children"),
+        Output("modal-item-actions", "children"),
+        Output("modal-nav-prev", "disabled"),
+        Output("modal-nav-next", "disabled"),
+        Output("modal-nav-position", "children"),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
+        Input("modal-nav-prev", "n_clicks"),
+        Input("modal-nav-next", "n_clicks"),
         Input("close-modal", "n_clicks"),
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
         State("mode-tabs", "data"),
+        State("verify-thresholds-store", "data"),
+        State("verify-class-filter", "value"),
+        State("modal-audio-settings-store", "data"),
+        State("current-filename", "data"),
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
         prevent_initial_call=True,
     )
-    def handle_modal_trigger(image_clicks_list, close_clicks, label_data, verify_data, explore_data, mode, colormap, y_axis_scale):
-        # Select the appropriate data store based on mode
-        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+    def handle_modal_trigger(
+        image_clicks_list,
+        prev_clicks,
+        next_clicks,
+        close_clicks,
+        label_data,
+        verify_data,
+        explore_data,
+        mode,
+        thresholds,
+        class_filter,
+        audio_settings,
+        current_item_id,
+        colormap,
+        y_axis_scale,
+    ):
+        mode = mode or "label"
+        data = _get_mode_data(mode, label_data, verify_data, explore_data)
         triggered = ctx.triggered_id
         if triggered == "close-modal":
-            return False, no_update, no_update, no_update, no_update
+            return False, None, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
-        if not isinstance(triggered, dict) or triggered.get("type") != "spectrogram-image":
+        page_items = _get_modal_navigation_items(
+            mode,
+            label_data,
+            verify_data,
+            explore_data,
+            thresholds,
+            class_filter,
+        )
+        page_item_ids = [item.get("item_id") for item in page_items if item and item.get("item_id")]
+
+        item_id = None
+        if isinstance(triggered, dict) and triggered.get("type") == "spectrogram-image":
+            if not any(image_clicks_list):
+                raise PreventUpdate
+            item_id = triggered.get("item_id")
+        elif triggered in {"modal-nav-prev", "modal-nav-next"}:
+            if not current_item_id or not page_item_ids:
+                raise PreventUpdate
+            if current_item_id not in page_item_ids:
+                item_id = page_item_ids[0]
+            else:
+                current_index = page_item_ids.index(current_item_id)
+                if triggered == "modal-nav-prev":
+                    item_id = page_item_ids[max(0, current_index - 1)]
+                else:
+                    item_id = page_item_ids[min(len(page_item_ids) - 1, current_index + 1)]
+        else:
             raise PreventUpdate
 
-        # Find the item for the clicked image
-        item_id = triggered.get("item_id")
         if not item_id:
             raise PreventUpdate
 
-        # Verify it was an actual click
-        if not any(image_clicks_list):
-             raise PreventUpdate
-
-        items = (data or {}).get("items", [])
-        active_item = next((i for i in items if i.get("item_id") == item_id), None)
+        active_item = next((i for i in page_items if i.get("item_id") == item_id), None)
+        if not active_item:
+            items = (data or {}).get("items", [])
+            active_item = next((i for i in items if i.get("item_id") == item_id), None)
         if not active_item:
             raise PreventUpdate
 
-        # Load spectrogram and create figure
         mat_path = active_item.get("mat_path")
         spectrogram = load_spectrogram_cached(mat_path)
         fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
 
-        # Create enhanced audio player for modal with pitch shift
+        settings = audio_settings or {}
+        pitch_value = settings.get("pitch", 1.0)
+        bass_value = settings.get("bass", 0.0)
+        gain_value = settings.get("gain", 1.0)
+
         audio_path = active_item.get("audio_path")
         modal_audio = create_modal_audio_player(
-            audio_path, item_id, player_id="modal-player"
+            audio_path,
+            item_id,
+            player_id="modal-player",
+            pitch_value=pitch_value,
+            bass_value=bass_value,
+            gain_value=gain_value,
         ) if audio_path else html.P("No audio available for this segment.", className="text-muted italic")
 
-        return True, item_id, fig, f"Spectrogram: {item_id}", modal_audio
+        modal_actions = _build_modal_item_actions(active_item, mode, thresholds or {"__global__": 0.5})
+
+        if not page_item_ids:
+            prev_disabled = True
+            next_disabled = True
+            position = "1 / 1"
+        else:
+            current_index = page_item_ids.index(item_id) if item_id in page_item_ids else 0
+            prev_disabled = current_index <= 0
+            next_disabled = current_index >= len(page_item_ids) - 1
+            position = f"{current_index + 1} / {len(page_item_ids)}"
+
+        return (
+            True,
+            item_id,
+            fig,
+            f"Spectrogram: {item_id}",
+            modal_audio,
+            modal_actions,
+            prev_disabled,
+            next_disabled,
+            position,
+        )
 
     @app.callback(
         Output("modal-image-graph", "figure", allow_duplicate=True),
@@ -1367,7 +1618,7 @@ def register_callbacks(app, config):
     )
     def update_modal_view(colormap, y_axis_scale, item_id, label_data, verify_data, explore_data, mode):
         # Select the appropriate data store based on mode
-        data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+        data = _get_mode_data(mode, label_data, verify_data, explore_data)
         if not item_id or not data:
             raise PreventUpdate
 
@@ -1379,6 +1630,26 @@ def register_callbacks(app, config):
         mat_path = active_item.get("mat_path")
         spectrogram = load_spectrogram_cached(mat_path)
         return create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
+
+    @app.callback(
+        Output("modal-item-actions", "children", allow_duplicate=True),
+        Input("current-filename", "data"),
+        Input("label-data-store", "data"),
+        Input("verify-data-store", "data"),
+        Input("explore-data-store", "data"),
+        Input("mode-tabs", "data"),
+        Input("verify-thresholds-store", "data"),
+        prevent_initial_call=True,
+    )
+    def refresh_modal_item_actions(item_id, label_data, verify_data, explore_data, mode, thresholds):
+        if not item_id:
+            raise PreventUpdate
+        data = _get_mode_data(mode, label_data, verify_data, explore_data)
+        items = (data or {}).get("items", [])
+        active_item = next((i for i in items if i.get("item_id") == item_id), None)
+        if not active_item:
+            raise PreventUpdate
+        return _build_modal_item_actions(active_item, mode, thresholds or {"__global__": 0.5})
 
     # Initialize audio players when page content or modal changes
     app.clientside_callback(
@@ -1425,6 +1696,63 @@ def register_callbacks(app, config):
             return f"{rounded:+d} dB" if rounded != 0 else "0 dB"
         except (TypeError, ValueError):
             return "0 dB"
+
+    @app.callback(
+        Output("modal-player-gain-display", "children"),
+        Input("modal-player-gain-slider", "value"),
+        prevent_initial_call=True,
+    )
+    def update_modal_gain_display(value):
+        if value is None:
+            raise PreventUpdate
+        try:
+            return f"{float(value):.1f}x"
+        except (TypeError, ValueError):
+            return "1.0x"
+
+    @app.callback(
+        Output("modal-audio-settings-store", "data"),
+        Input("modal-player-pitch-slider", "value"),
+        Input("modal-player-bass-slider", "value"),
+        Input("modal-player-gain-slider", "value"),
+        State("modal-audio-settings-store", "data"),
+        prevent_initial_call=True,
+    )
+    def persist_modal_audio_settings(pitch, bass, gain, current_settings):
+        current_settings = current_settings or {"pitch": 1.0, "bass": 0.0, "gain": 1.0}
+        updated = dict(current_settings)
+        changed = False
+
+        if pitch is not None:
+            try:
+                pitch_value = float(pitch)
+                if updated.get("pitch") != pitch_value:
+                    updated["pitch"] = pitch_value
+                    changed = True
+            except (TypeError, ValueError):
+                pass
+
+        if bass is not None:
+            try:
+                bass_value = float(bass)
+                if updated.get("bass") != bass_value:
+                    updated["bass"] = bass_value
+                    changed = True
+            except (TypeError, ValueError):
+                pass
+
+        if gain is not None:
+            try:
+                gain_value = float(gain)
+                if updated.get("gain") != gain_value:
+                    updated["gain"] = gain_value
+                    changed = True
+            except (TypeError, ValueError):
+                pass
+
+        if not changed:
+            raise PreventUpdate
+        return updated
 
 
 

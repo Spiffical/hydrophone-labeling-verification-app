@@ -163,7 +163,14 @@ def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: st
     })
 
 
-def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:
+def create_modal_audio_player(
+    audio_file_path: Optional[str],
+    spectrogram_filename: str,
+    player_id: str = None,
+    pitch_value: float = 1.0,
+    bass_value: float = 0.0,
+    gain_value: float = 1.0,
+) -> html.Div:
     """
     Create an enhanced audio player for the modal with pitch shift controls.
     
@@ -205,6 +212,18 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
         player_id = f"audio-{hash(spectrogram_filename) % 10000}"
     
     audio_filename = os.path.basename(audio_file_path)
+    try:
+        pitch_value = max(0.1, min(4.0, float(pitch_value)))
+    except (TypeError, ValueError):
+        pitch_value = 1.0
+    try:
+        bass_value = max(0.0, min(24.0, float(bass_value)))
+    except (TypeError, ValueError):
+        bass_value = 0.0
+    try:
+        gain_value = max(1.0, min(8.0, float(gain_value)))
+    except (TypeError, ValueError):
+        gain_value = 1.0
     
     return html.Div([
         # Audio icon and filename
@@ -213,9 +232,8 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
             html.Span(f"Audio: {audio_filename}", className="modal-audio-filename")
         ], className="modal-audio-header"),
 
-        # Custom audio controls with time slider
+        # Transport controls and timeline
         html.Div([
-            # Play/Pause button
             html.Div([
                 dbc.Button([
                     html.I(
@@ -227,13 +245,12 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
                 id=f'{player_id}-play-btn',
                 size='sm',
                 className="modal-play-btn")
-            ], style={'display': 'flex', 'align-items': 'center'}),
-
-            # Time slider and duration
+            ], className="modal-transport-play"),
             html.Div([
-                html.Span("0:00", id=f'{player_id}-current-time', className="modal-time-display"),
-
-                # Dash slider for time control
+                html.Div([
+                    html.Span("0:00", id=f'{player_id}-current-time', className="modal-time-display"),
+                    html.Span("0:00", id=f'{player_id}-duration', className="modal-time-display"),
+                ], className="modal-time-row"),
                 dcc.Slider(
                     id=f'{player_id}-time-slider',
                     min=0,
@@ -242,78 +259,94 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
                     value=0,
                     marks=None,
                     tooltip={"placement": "bottom", "always_visible": False},
-                    className='custom-time-slider',
+                    className='custom-time-slider modal-time-slider',
                     updatemode='drag'
                 ),
+            ], className="modal-transport-track")
+        ], className="modal-transport-row"),
 
-                html.Span("0:00", id=f'{player_id}-duration', className="modal-time-display")
-            ], style={
-                'display': 'flex',
-                'align-items': 'center',
-                'flex': '1'
-            })
-        ], style={
-            'display': 'flex',
-            'align-items': 'center',
-            'margin-bottom': '12px'
-        }),
-        
-        # Pitch shift controls
+        # Compact control grid
         html.Div([
-            html.Label([
-                html.I(className="fas fa-gauge-high modal-control-icon"),
-                html.Span("Playback Speed:", className="modal-control-label")
-            ], className="modal-control-header"),
-
             html.Div([
+                html.Div([
+                    html.Label([
+                        html.I(className="fas fa-gauge-high modal-control-icon"),
+                        html.Span("Playback Speed", className="modal-control-label")
+                    ], className="modal-control-header"),
+                    html.Div(id=f'{player_id}-pitch-display', children=f"{pitch_value:.2f}x", className="modal-control-display")
+                ], className="modal-control-top"),
                 dcc.Slider(
                     id=f'{player_id}-pitch-slider',
                     min=0.1,
                     max=4.0,
                     step=0.05,
-                    value=1.0,
+                    value=pitch_value,
                     marks={
                         0.1: {'label': '0.1x', 'style': {'fontSize': '9px'}},
-                        0.25: {'label': '0.25x', 'style': {'fontSize': '9px'}},
                         0.5: {'label': '0.5x', 'style': {'fontSize': '9px'}},
                         1.0: {'label': '1x', 'style': {'fontSize': '10px', 'fontWeight': 'bold'}},
                         2.0: {'label': '2x', 'style': {'fontSize': '9px'}},
                         4.0: {'label': '4x', 'style': {'fontSize': '9px'}}
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
-                    className='pitch-shift-slider'
+                    className='pitch-shift-slider modal-control-slider'
                 ),
-                html.Div(id=f'{player_id}-pitch-display', children="1.00x", className="modal-control-display")
-            ])
-        ], className="modal-control-section"),
-
-        # Bass boost / Low frequency equalizer
-        html.Div([
-            html.Label([
-                html.I(className="fas fa-volume-low modal-control-icon"),
-                html.Span("Bass Boost (Low Freq):", className="modal-control-label")
-            ], className="modal-control-header"),
-
+            ], className="modal-control-section"),
             html.Div([
+                html.Div([
+                    html.Label([
+                        html.I(className="fas fa-volume-low modal-control-icon"),
+                        html.Span("Bass Boost", className="modal-control-label")
+                    ], className="modal-control-header"),
+                    html.Div(
+                        id=f'{player_id}-bass-display',
+                        children=(f"+{int(round(bass_value))} dB" if int(round(bass_value)) > 0 else "0 dB"),
+                        className="modal-control-display",
+                    )
+                ], className="modal-control-top"),
                 dcc.Slider(
                     id=f'{player_id}-bass-slider',
                     min=0,
                     max=24,
                     step=1,
-                    value=0,
+                    value=bass_value,
                     marks={
-                        0: {'label': '0 dB', 'style': {'fontSize': '9px'}},
-                        6: {'label': '+6', 'style': {'fontSize': '9px'}},
+                        0: {'label': '0', 'style': {'fontSize': '9px'}},
                         12: {'label': '+12', 'style': {'fontSize': '9px'}},
-                        18: {'label': '+18', 'style': {'fontSize': '9px'}},
                         24: {'label': '+24 dB', 'style': {'fontSize': '9px'}}
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
-                    className='bass-boost-slider'
+                    className='bass-boost-slider modal-control-slider'
                 ),
-                html.Div(id=f'{player_id}-bass-display', children="0 dB", className="modal-control-display")
-            ])
-        ], className="modal-control-section"),
+            ], className="modal-control-section"),
+            html.Div([
+                html.Div([
+                    html.Label([
+                        html.I(className="fas fa-volume-high modal-control-icon"),
+                        html.Span("Amplification", className="modal-control-label")
+                    ], className="modal-control-header"),
+                    html.Div(
+                        id=f'{player_id}-gain-display',
+                        children=f"{gain_value:.1f}x",
+                        className="modal-control-display",
+                    )
+                ], className="modal-control-top"),
+                dcc.Slider(
+                    id=f'{player_id}-gain-slider',
+                    min=1.0,
+                    max=8.0,
+                    step=0.1,
+                    value=gain_value,
+                    marks={
+                        1.0: {'label': '1x', 'style': {'fontSize': '9px'}},
+                        4.0: {'label': '4x', 'style': {'fontSize': '9px'}},
+                        8.0: {'label': '8x', 'style': {'fontSize': '9px'}},
+                    },
+                    tooltip={"placement": "bottom", "always_visible": False},
+                    className='amp-gain-slider modal-control-slider'
+                ),
+            ], className="modal-control-section"),
+        ], className="modal-controls-grid"),
         
         # Hidden HTML5 audio element
         html.Audio(
@@ -326,7 +359,8 @@ def create_modal_audio_player(audio_file_path: Optional[str], spectrogram_filena
         # Hidden dummy elements for callbacks
         html.Div(id={'type': 'slider-dummy', 'id': player_id}, style={'display': 'none'}),
         html.Div(id=f'{player_id}-pitch-output', style={'display': 'none'}),
-        html.Div(id=f'{player_id}-bass-output', style={'display': 'none'})
+        html.Div(id=f'{player_id}-bass-output', style={'display': 'none'}),
+        html.Div(id=f'{player_id}-gain-output', style={'display': 'none'})
     ], className="modal-audio-container")
 
 def create_audio_player_with_controls(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:

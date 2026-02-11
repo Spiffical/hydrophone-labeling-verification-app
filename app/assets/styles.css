@@ -1797,19 +1797,24 @@ body.theme-dark .multi-folder-item .folder-path,
    MODAL AUDIO PLAYER
    ============================================ */
 .modal-audio-container {
-    padding: 15px;
+    padding: 14px;
     background: var(--surface-2);
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    margin: 10px 0;
     box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    height: 100%;
 }
 
 .modal-audio-header {
     display: flex;
     align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border-subtle);
     max-width: 100%;
     overflow: hidden;
@@ -1833,16 +1838,15 @@ body.theme-dark .multi-folder-item .folder-path,
 }
 
 .modal-play-btn {
-    background: linear-gradient(135deg, var(--accent) 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
     border: none !important;
     color: white !important;
-    width: 32px !important;
-    height: 32px !important;
+    width: 38px !important;
+    height: 38px !important;
     border-radius: 50% !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    margin-right: 10px !important;
     box-shadow: var(--shadow-sm) !important;
     padding: 0 !important;
 }
@@ -1851,74 +1855,129 @@ body.theme-dark .multi-folder-item .folder-path,
     filter: brightness(1.1);
 }
 
-.modal-time-display {
-    font-size: 11px;
-    color: var(--muted);
-    min-width: 35px;
-    font-weight: 500;
-    margin: 0 10px;
+.modal-transport-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
 }
 
-.modal-control-section {
-    padding: 12px;
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-subtle);
-    margin-bottom: 10px;
-}
-
-.modal-control-section:last-of-type {
-    margin-bottom: 0;
-}
-
-.modal-control-header {
-    margin-bottom: 8px;
+.modal-transport-play {
     display: flex;
     align-items: center;
 }
 
+.modal-transport-track {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.modal-time-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-time-display {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 32px;
+    font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.modal-time-slider {
+    margin: 0 2px 2px !important;
+}
+
+.modal-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    min-height: 0;
+}
+
+.modal-control-section {
+    padding: 10px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.modal-control-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+
+.modal-control-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
 .modal-control-icon {
-    margin-right: 6px;
     font-size: 12px;
     color: var(--accent);
 }
 
 .modal-control-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text);
+    line-height: 1.2;
+    white-space: nowrap;
 }
 
 .modal-control-display {
-    text-align: center;
-    font-size: 11px;
+    text-align: right;
+    font-size: 12px;
     font-weight: 700;
     color: var(--accent);
-    margin-top: 4px;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
 }
 
-/* Pitch shift and bass boost sliders */
+.modal-control-slider {
+    margin: 2px 0 0 !important;
+}
+
+/* Modal control sliders */
 .pitch-shift-slider,
-.bass-boost-slider {
+.bass-boost-slider,
+.amp-gain-slider {
     margin: 0 !important;
 }
 
 .pitch-shift-slider .rc-slider-rail,
-.bass-boost-slider .rc-slider-rail {
+.bass-boost-slider .rc-slider-rail,
+.amp-gain-slider .rc-slider-rail {
     background-color: var(--surface-3) !important;
     height: 6px;
     border-radius: 3px;
 }
 
 .pitch-shift-slider .rc-slider-track,
-.bass-boost-slider .rc-slider-track {
+.bass-boost-slider .rc-slider-track,
+.amp-gain-slider .rc-slider-track {
     background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
     height: 6px;
     border-radius: 3px;
 }
 
 .pitch-shift-slider .rc-slider-handle,
-.bass-boost-slider .rc-slider-handle {
+.bass-boost-slider .rc-slider-handle,
+.amp-gain-slider .rc-slider-handle {
     border: 2px solid var(--accent) !important;
     background: var(--surface) !important;
     width: 16px;
@@ -1930,12 +1989,15 @@ body.theme-dark .multi-folder-item .folder-path,
 .pitch-shift-slider .rc-slider-handle:hover,
 .pitch-shift-slider .rc-slider-handle:focus,
 .bass-boost-slider .rc-slider-handle:hover,
-.bass-boost-slider .rc-slider-handle:focus {
+.bass-boost-slider .rc-slider-handle:focus,
+.amp-gain-slider .rc-slider-handle:hover,
+.amp-gain-slider .rc-slider-handle:focus {
     box-shadow: 0 0 0 4px var(--accent-subtle);
 }
 
 .pitch-shift-slider .rc-slider-mark-text,
-.bass-boost-slider .rc-slider-mark-text {
+.bass-boost-slider .rc-slider-mark-text,
+.amp-gain-slider .rc-slider-mark-text {
     color: var(--text) !important;
     opacity: 1 !important;
     font-weight: 500;
@@ -1947,6 +2009,7 @@ body.theme-dark .multi-folder-item .folder-path,
     color: var(--text) !important;
     opacity: 1 !important;
     font-weight: 600 !important;
+    font-size: 10px !important;
 }
 
 /* Dark mode specific styles for modal audio */
@@ -1957,8 +2020,10 @@ body.theme-dark .modal-play-btn,
 
 body.theme-dark .pitch-shift-slider .rc-slider-track,
 body.theme-dark .bass-boost-slider .rc-slider-track,
+body.theme-dark .amp-gain-slider .rc-slider-track,
 .theme-dark .pitch-shift-slider .rc-slider-track,
-.theme-dark .bass-boost-slider .rc-slider-track {
+.theme-dark .bass-boost-slider .rc-slider-track,
+.theme-dark .amp-gain-slider .rc-slider-track {
     background: linear-gradient(135deg, #58a6ff 0%, #79b8ff 100%) !important;
 }
 
@@ -2002,31 +2067,39 @@ body.theme-dark .modal-control-display,
 
 body.theme-dark .pitch-shift-slider .rc-slider-rail,
 body.theme-dark .bass-boost-slider .rc-slider-rail,
+body.theme-dark .amp-gain-slider .rc-slider-rail,
 .theme-dark .pitch-shift-slider .rc-slider-rail,
-.theme-dark .bass-boost-slider .rc-slider-rail {
+.theme-dark .bass-boost-slider .rc-slider-rail,
+.theme-dark .amp-gain-slider .rc-slider-rail {
     background-color: #30363d !important;
 }
 
 body.theme-dark .pitch-shift-slider .rc-slider-handle,
 body.theme-dark .bass-boost-slider .rc-slider-handle,
+body.theme-dark .amp-gain-slider .rc-slider-handle,
 .theme-dark .pitch-shift-slider .rc-slider-handle,
-.theme-dark .bass-boost-slider .rc-slider-handle {
+.theme-dark .bass-boost-slider .rc-slider-handle,
+.theme-dark .amp-gain-slider .rc-slider-handle {
     background: #161b22 !important;
     border-color: #58a6ff !important;
 }
 
 body.theme-dark .pitch-shift-slider .rc-slider-mark-text,
 body.theme-dark .bass-boost-slider .rc-slider-mark-text,
+body.theme-dark .amp-gain-slider .rc-slider-mark-text,
 .theme-dark .pitch-shift-slider .rc-slider-mark-text,
-.theme-dark .bass-boost-slider .rc-slider-mark-text {
+.theme-dark .bass-boost-slider .rc-slider-mark-text,
+.theme-dark .amp-gain-slider .rc-slider-mark-text {
     color: #e6edf3 !important;
     opacity: 1 !important;
 }
 
 body.theme-dark .pitch-shift-slider .rc-slider-mark-text-active,
 body.theme-dark .bass-boost-slider .rc-slider-mark-text-active,
+body.theme-dark .amp-gain-slider .rc-slider-mark-text-active,
 .theme-dark .pitch-shift-slider .rc-slider-mark-text-active,
 .theme-dark .bass-boost-slider .rc-slider-mark-text-active,
+.theme-dark .amp-gain-slider .rc-slider-mark-text-active,
 body.theme-dark .modal-audio-container [class*="markText"],
 body.theme-dark .modal-audio-container [class*="mark-text"],
 .theme-dark .modal-audio-container [class*="markText"],
@@ -2061,6 +2134,18 @@ body.theme-dark .modal-audio-container .rc-tooltip-arrow-inner,
 .theme-dark .modal-audio-container .rc-tooltip-arrow-inner {
     border-top-color: #21262d !important;
     border-bottom-color: #21262d !important;
+}
+
+@media (max-width: 1200px) {
+    .modal-controls-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .modal-controls-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Ensure verify panel slider marks remain readable in dark mode too */
@@ -2168,6 +2253,102 @@ body.theme-dark .dash-range-slider-input,
     margin: 0;
 }
 
+.modal-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+}
+
+.modal-nav-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.modal-nav-btn {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 !important;
+    border-radius: 999px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border) !important;
+}
+
+.modal-nav-btn:disabled {
+    opacity: 0.45;
+}
+
+.modal-nav-arrow {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.modal-nav-position {
+    min-width: 70px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.modal-bottom-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(420px, 1.65fr);
+    gap: 14px;
+    align-items: stretch;
+}
+
+.modal-bottom-pane {
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+}
+
+.modal-item-actions,
+.modal-audio-section {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+}
+
+.modal-item-actions-card {
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.modal-label-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.modal-label-column--full {
+    grid-column: 1 / -1;
+}
+
+.modal-status-note {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.modal-action-buttons {
+    margin-top: auto;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 /* Spectrogram modal dark mode enhancements */
 /* Use body.theme-dark since modals are rendered outside .app-shell */
 body.theme-dark .spectrogram-zoom-modal .modal-content,
@@ -2187,6 +2368,18 @@ body.theme-dark .spectrogram-zoom-modal .modal-header h4,
     color: #e6edf3 !important;
 }
 
+body.theme-dark .modal-nav-btn,
+.theme-dark .modal-nav-btn {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .modal-nav-position,
+.theme-dark .modal-nav-position {
+    color: #c9d1d9 !important;
+}
+
 body.theme-dark .spectrogram-zoom-modal .modal-body,
 .theme-dark .spectrogram-zoom-modal .modal-body {
     background: #161b22 !important;
@@ -2202,6 +2395,17 @@ body.theme-dark .spectrogram-zoom-modal .modal-controls-card,
 .theme-dark .spectrogram-zoom-modal .modal-controls-card {
     background: #21262d !important;
     border-color: #30363d !important;
+}
+
+body.theme-dark .modal-item-actions-card,
+.theme-dark .modal-item-actions-card {
+    background: #21262d !important;
+    border-color: #30363d !important;
+}
+
+body.theme-dark .modal-status-note,
+.theme-dark .modal-status-note {
+    color: #c9d1d9 !important;
 }
 
 body.theme-dark .spectrogram-zoom-modal .custom-radio-group label,
@@ -2222,6 +2426,28 @@ body.theme-dark .spectrogram-zoom-modal .fw-semibold,
 body.theme-dark .spectrogram-zoom-modal .small,
 .theme-dark .spectrogram-zoom-modal .small {
     color: #7d8590 !important;
+}
+
+@media (max-width: 768px) {
+    .modal-header-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .modal-nav-controls {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .modal-label-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 992px) {
+    .modal-bottom-layout {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Modal controls card styling */
