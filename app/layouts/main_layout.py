@@ -57,7 +57,21 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="modal-image-clicks", data=0),
         dcc.Store(
             id="modal-audio-settings-store",
-            data={"pitch": 1.0, "bass": 0.0, "gain": 1.0},
+            data={
+                "pitch": 1.0,
+                "eq_20": 0.0,
+                "eq_40": 0.0,
+                "eq_80": 0.0,
+                "eq_160": 0.0,
+                "eq_315": 0.0,
+                "eq_630": 0.0,
+                "eq_1250": 0.0,
+                "eq_2500": 0.0,
+                "eq_5000": 0.0,
+                "eq_10000": 0.0,
+                "eq_16000": 0.0,
+                "gain": 1.0,
+            },
             storage_type="local",
         ),
 

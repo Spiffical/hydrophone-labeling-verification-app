@@ -8,7 +8,12 @@ from dash import html
 
 from app.components.spectrogram_card import create_spectrogram_card
 from app.components.hierarchical_selector import create_hierarchical_selector
-from app.components.audio_player import create_audio_player, create_modal_audio_player
+from app.components.audio_player import (
+    EQ_BAND_FREQUENCIES,
+    EQ_LOW_FOCUS_MAX_HZ,
+    create_audio_player,
+    create_modal_audio_player,
+)
 from app.utils.data_loading import load_dataset
 from app.utils.image_utils import get_item_image_src
 from app.utils.image_processing import load_spectrogram_cached, create_spectrogram_figure, set_cache_sizes
@@ -1568,7 +1573,20 @@ def register_callbacks(app, config):
 
         settings = audio_settings or {}
         pitch_value = settings.get("pitch", 1.0)
-        bass_value = settings.get("bass", 0.0)
+        legacy_bass = settings.get("bass", 0.0)
+        eq_values = {}
+        for frequency in EQ_BAND_FREQUENCIES:
+            eq_key = f"eq_{frequency}"
+            if eq_key in settings:
+                raw_eq_value = settings.get(eq_key)
+            elif frequency <= EQ_LOW_FOCUS_MAX_HZ:
+                raw_eq_value = legacy_bass
+            else:
+                raw_eq_value = 0.0
+            try:
+                eq_values[eq_key] = max(-24.0, min(24.0, float(raw_eq_value)))
+            except (TypeError, ValueError):
+                eq_values[eq_key] = 0.0
         gain_value = settings.get("gain", 1.0)
 
         audio_path = active_item.get("audio_path")
@@ -1577,7 +1595,7 @@ def register_callbacks(app, config):
             item_id,
             player_id="modal-player",
             pitch_value=pitch_value,
-            bass_value=bass_value,
+            eq_values=eq_values,
             gain_value=gain_value,
         ) if audio_path else html.P("No audio available for this segment.", className="text-muted italic")
 
@@ -1684,18 +1702,34 @@ def register_callbacks(app, config):
             return "1.00x"
 
     @app.callback(
-        Output("modal-player-bass-display", "children"),
-        Input("modal-player-bass-slider", "value"),
+        Output("modal-player-eq-display", "children"),
+        Input("modal-player-eq-20-slider", "value"),
+        Input("modal-player-eq-40-slider", "value"),
+        Input("modal-player-eq-80-slider", "value"),
+        Input("modal-player-eq-160-slider", "value"),
+        Input("modal-player-eq-315-slider", "value"),
+        Input("modal-player-eq-630-slider", "value"),
+        Input("modal-player-eq-1250-slider", "value"),
+        Input("modal-player-eq-2500-slider", "value"),
+        Input("modal-player-eq-5000-slider", "value"),
+        Input("modal-player-eq-10000-slider", "value"),
+        Input("modal-player-eq-16000-slider", "value"),
         prevent_initial_call=True,
     )
-    def update_modal_bass_display(value):
-        if value is None:
-            raise PreventUpdate
-        try:
-            rounded = int(round(float(value)))
-            return f"{rounded:+d} dB" if rounded != 0 else "0 dB"
-        except (TypeError, ValueError):
-            return "0 dB"
+    def update_modal_eq_display(
+        eq_20,
+        eq_40,
+        eq_80,
+        eq_160,
+        eq_315,
+        eq_630,
+        eq_1250,
+        eq_2500,
+        eq_5000,
+        eq_10000,
+        eq_16000,
+    ):
+        return "Full-range EQ: 20 Hz to 16 kHz"
 
     @app.callback(
         Output("modal-player-gain-display", "children"),
@@ -1713,13 +1747,52 @@ def register_callbacks(app, config):
     @app.callback(
         Output("modal-audio-settings-store", "data"),
         Input("modal-player-pitch-slider", "value"),
-        Input("modal-player-bass-slider", "value"),
+        Input("modal-player-eq-20-slider", "value"),
+        Input("modal-player-eq-40-slider", "value"),
+        Input("modal-player-eq-80-slider", "value"),
+        Input("modal-player-eq-160-slider", "value"),
+        Input("modal-player-eq-315-slider", "value"),
+        Input("modal-player-eq-630-slider", "value"),
+        Input("modal-player-eq-1250-slider", "value"),
+        Input("modal-player-eq-2500-slider", "value"),
+        Input("modal-player-eq-5000-slider", "value"),
+        Input("modal-player-eq-10000-slider", "value"),
+        Input("modal-player-eq-16000-slider", "value"),
         Input("modal-player-gain-slider", "value"),
         State("modal-audio-settings-store", "data"),
         prevent_initial_call=True,
     )
-    def persist_modal_audio_settings(pitch, bass, gain, current_settings):
-        current_settings = current_settings or {"pitch": 1.0, "bass": 0.0, "gain": 1.0}
+    def persist_modal_audio_settings(
+        pitch,
+        eq_20,
+        eq_40,
+        eq_80,
+        eq_160,
+        eq_315,
+        eq_630,
+        eq_1250,
+        eq_2500,
+        eq_5000,
+        eq_10000,
+        eq_16000,
+        gain,
+        current_settings,
+    ):
+        current_settings = current_settings or {
+            "pitch": 1.0,
+            "eq_20": 0.0,
+            "eq_40": 0.0,
+            "eq_80": 0.0,
+            "eq_160": 0.0,
+            "eq_315": 0.0,
+            "eq_630": 0.0,
+            "eq_1250": 0.0,
+            "eq_2500": 0.0,
+            "eq_5000": 0.0,
+            "eq_10000": 0.0,
+            "eq_16000": 0.0,
+            "gain": 1.0,
+        }
         updated = dict(current_settings)
         changed = False
 
@@ -1732,14 +1805,29 @@ def register_callbacks(app, config):
             except (TypeError, ValueError):
                 pass
 
-        if bass is not None:
+        eq_inputs = {
+            "eq_20": eq_20,
+            "eq_40": eq_40,
+            "eq_80": eq_80,
+            "eq_160": eq_160,
+            "eq_315": eq_315,
+            "eq_630": eq_630,
+            "eq_1250": eq_1250,
+            "eq_2500": eq_2500,
+            "eq_5000": eq_5000,
+            "eq_10000": eq_10000,
+            "eq_16000": eq_16000,
+        }
+        for eq_key, eq_input in eq_inputs.items():
+            if eq_input is None:
+                continue
             try:
-                bass_value = float(bass)
-                if updated.get("bass") != bass_value:
-                    updated["bass"] = bass_value
+                eq_value = max(-24.0, min(24.0, float(eq_input)))
+                if updated.get(eq_key) != eq_value:
+                    updated[eq_key] = eq_value
                     changed = True
             except (TypeError, ValueError):
-                pass
+                continue
 
         if gain is not None:
             try:

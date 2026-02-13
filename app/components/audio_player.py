@@ -4,6 +4,31 @@ import base64
 import os
 from typing import Optional
 
+
+EQ_BAND_FREQUENCIES = (20, 40, 80, 160, 315, 630, 1250, 2500, 5000, 10000, 16000)
+EQ_LOW_FOCUS_MAX_HZ = 200
+EQ_MIN_DB = -24.0
+EQ_MAX_DB = 24.0
+
+
+def _clamp_eq_value(value: float) -> float:
+    return max(EQ_MIN_DB, min(EQ_MAX_DB, float(value)))
+
+
+def _format_eq_mode_display(low_focus_only: bool) -> str:
+    if low_focus_only:
+        return "Low-focus: <=200 Hz (higher bands bypassed)"
+    return "Full-range EQ: 20 Hz to 16 kHz"
+
+
+def _format_frequency_label(frequency: int) -> str:
+    if frequency >= 1000:
+        if frequency % 1000 == 0:
+            return f"{frequency // 1000}k"
+        return f"{frequency / 1000:.1f}k"
+    return str(frequency)
+
+
 def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:
     """
     Create an enhanced audio player component with beautiful styling and time slider.
@@ -168,7 +193,7 @@ def create_modal_audio_player(
     spectrogram_filename: str,
     player_id: str = None,
     pitch_value: float = 1.0,
-    bass_value: float = 0.0,
+    eq_values: Optional[dict] = None,
     gain_value: float = 1.0,
 ) -> html.Div:
     """
@@ -216,15 +241,150 @@ def create_modal_audio_player(
         pitch_value = max(0.1, min(4.0, float(pitch_value)))
     except (TypeError, ValueError):
         pitch_value = 1.0
+    normalized_eq_values = {}
+    for frequency in EQ_BAND_FREQUENCIES:
+        key = f"eq_{frequency}"
+        raw_value = (eq_values or {}).get(key, 0.0)
+        try:
+            normalized_eq_values[key] = _clamp_eq_value(raw_value)
+        except (TypeError, ValueError):
+            normalized_eq_values[key] = 0.0
     try:
-        bass_value = max(0.0, min(24.0, float(bass_value)))
-    except (TypeError, ValueError):
-        bass_value = 0.0
-    try:
-        gain_value = max(1.0, min(20.0, float(gain_value)))
+        gain_value = max(1.0, min(50.0, float(gain_value)))
     except (TypeError, ValueError):
         gain_value = 1.0
-    
+
+    side_controls = html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Label(
+                                [
+                                    html.I(className="fas fa-gauge-high modal-control-icon"),
+                                    html.Span("Playback Speed", className="modal-control-label"),
+                                ],
+                                className="modal-control-header",
+                            ),
+                            html.Div(
+                                id=f"{player_id}-pitch-display",
+                                children=f"{pitch_value:.2f}x",
+                                className="modal-control-display",
+                            ),
+                        ],
+                        className="modal-control-top",
+                    ),
+                    dcc.Slider(
+                        id=f"{player_id}-pitch-slider",
+                        min=0.1,
+                        max=4.0,
+                        step=0.05,
+                        value=pitch_value,
+                        marks={
+                            0.1: {"label": "0.1x", "style": {"fontSize": "9px"}},
+                            0.5: {"label": "0.5x", "style": {"fontSize": "9px"}},
+                            1.0: {"label": "1x", "style": {"fontSize": "10px", "fontWeight": "bold"}},
+                            2.0: {"label": "2x", "style": {"fontSize": "9px"}},
+                            4.0: {"label": "4x", "style": {"fontSize": "9px"}},
+                        },
+                        tooltip={"placement": "bottom", "always_visible": False},
+                        className="pitch-shift-slider modal-control-slider",
+                    ),
+                ],
+                className="modal-control-section",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Label(
+                                [
+                                    html.I(className="fas fa-volume-high modal-control-icon"),
+                                    html.Span("Amplification", className="modal-control-label"),
+                                ],
+                                className="modal-control-header",
+                            ),
+                            html.Div(
+                                id=f"{player_id}-gain-display",
+                                children=f"{gain_value:.1f}x",
+                                className="modal-control-display",
+                            ),
+                        ],
+                        className="modal-control-top",
+                    ),
+                    dcc.Slider(
+                        id=f"{player_id}-gain-slider",
+                        min=1.0,
+                        max=50.0,
+                        step=0.1,
+                        value=gain_value,
+                        marks={
+                            1.0: {"label": "1x", "style": {"fontSize": "9px"}},
+                            20.0: {"label": "20x", "style": {"fontSize": "9px"}},
+                            50.0: {"label": "50x", "style": {"fontSize": "9px"}},
+                        },
+                        tooltip={"placement": "bottom", "always_visible": False},
+                        className="amp-gain-slider modal-control-slider",
+                    ),
+                ],
+                className="modal-control-section",
+            ),
+        ],
+        className="modal-side-controls",
+    )
+
+    eq_section = html.Div(
+        [
+            html.Div(
+                [
+                    html.Label(
+                        [
+                            html.I(className="fas fa-sliders modal-control-icon"),
+                            html.Span("Equalizer (Log Scale)", className="modal-control-label"),
+                        ],
+                        className="modal-control-header",
+                    ),
+                    html.Div(
+                        id=f"{player_id}-eq-display",
+                        children=_format_eq_mode_display(False),
+                        className="modal-control-display eq-mode-display",
+                    ),
+                ],
+                className="modal-control-top",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(_format_frequency_label(frequency), className="eq-band-label"),
+                            dcc.Slider(
+                                id=f"{player_id}-eq-{frequency}-slider",
+                                min=EQ_MIN_DB,
+                                max=EQ_MAX_DB,
+                                step=1,
+                                value=normalized_eq_values[f"eq_{frequency}"],
+                                marks={0: {"label": "0", "style": {"fontSize": "9px"}}},
+                                included=False,
+                                updatemode="drag",
+                                vertical=True,
+                                verticalHeight=96,
+                                tooltip={"placement": "left", "always_visible": False},
+                                className="eq-slider modal-control-slider",
+                            ),
+                        ],
+                        className="eq-band",
+                    )
+                    for frequency in EQ_BAND_FREQUENCIES
+                ],
+                className="eq-bands-grid",
+            ),
+        ],
+        className="modal-control-section modal-eq-section",
+    )
+
+    controls_row = html.Div([side_controls, eq_section], className="modal-controls-main-row")
+
     return html.Div([
         # Audio icon and filename
         html.Div([
@@ -265,88 +425,8 @@ def create_modal_audio_player(
             ], className="modal-transport-track")
         ], className="modal-transport-row"),
 
-        # Compact control grid
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Label([
-                        html.I(className="fas fa-gauge-high modal-control-icon"),
-                        html.Span("Playback Speed", className="modal-control-label")
-                    ], className="modal-control-header"),
-                    html.Div(id=f'{player_id}-pitch-display', children=f"{pitch_value:.2f}x", className="modal-control-display")
-                ], className="modal-control-top"),
-                dcc.Slider(
-                    id=f'{player_id}-pitch-slider',
-                    min=0.1,
-                    max=4.0,
-                    step=0.05,
-                    value=pitch_value,
-                    marks={
-                        0.1: {'label': '0.1x', 'style': {'fontSize': '9px'}},
-                        0.5: {'label': '0.5x', 'style': {'fontSize': '9px'}},
-                        1.0: {'label': '1x', 'style': {'fontSize': '10px', 'fontWeight': 'bold'}},
-                        2.0: {'label': '2x', 'style': {'fontSize': '9px'}},
-                        4.0: {'label': '4x', 'style': {'fontSize': '9px'}}
-                    },
-                    tooltip={"placement": "bottom", "always_visible": False},
-                    className='pitch-shift-slider modal-control-slider'
-                ),
-            ], className="modal-control-section"),
-            html.Div([
-                html.Div([
-                    html.Label([
-                        html.I(className="fas fa-volume-low modal-control-icon"),
-                        html.Span("Bass Boost", className="modal-control-label")
-                    ], className="modal-control-header"),
-                    html.Div(
-                        id=f'{player_id}-bass-display',
-                        children=(f"+{int(round(bass_value))} dB" if int(round(bass_value)) > 0 else "0 dB"),
-                        className="modal-control-display",
-                    )
-                ], className="modal-control-top"),
-                dcc.Slider(
-                    id=f'{player_id}-bass-slider',
-                    min=0,
-                    max=24,
-                    step=1,
-                    value=bass_value,
-                    marks={
-                        0: {'label': '0', 'style': {'fontSize': '9px'}},
-                        12: {'label': '+12', 'style': {'fontSize': '9px'}},
-                        24: {'label': '+24 dB', 'style': {'fontSize': '9px'}}
-                    },
-                    tooltip={"placement": "bottom", "always_visible": False},
-                    className='bass-boost-slider modal-control-slider'
-                ),
-            ], className="modal-control-section"),
-            html.Div([
-                html.Div([
-                    html.Label([
-                        html.I(className="fas fa-volume-high modal-control-icon"),
-                        html.Span("Amplification", className="modal-control-label")
-                    ], className="modal-control-header"),
-                    html.Div(
-                        id=f'{player_id}-gain-display',
-                        children=f"{gain_value:.1f}x",
-                        className="modal-control-display",
-                    )
-                ], className="modal-control-top"),
-                dcc.Slider(
-                    id=f'{player_id}-gain-slider',
-                    min=1.0,
-                    max=20.0,
-                    step=0.1,
-                    value=gain_value,
-                    marks={
-                        1.0: {'label': '1x', 'style': {'fontSize': '9px'}},
-                        10.0: {'label': '10x', 'style': {'fontSize': '9px'}},
-                        20.0: {'label': '20x', 'style': {'fontSize': '9px'}},
-                    },
-                    tooltip={"placement": "bottom", "always_visible": False},
-                    className='amp-gain-slider modal-control-slider'
-                ),
-            ], className="modal-control-section"),
-        ], className="modal-controls-grid"),
+        # Controls row: left stacked speed/gain, right wide EQ
+        controls_row,
         
         # Hidden HTML5 audio element
         html.Audio(
@@ -359,7 +439,7 @@ def create_modal_audio_player(
         # Hidden dummy elements for callbacks
         html.Div(id={'type': 'slider-dummy', 'id': player_id}, style={'display': 'none'}),
         html.Div(id=f'{player_id}-pitch-output', style={'display': 'none'}),
-        html.Div(id=f'{player_id}-bass-output', style={'display': 'none'}),
+        html.Div(id=f'{player_id}-eq-output', style={'display': 'none'}),
         html.Div(id=f'{player_id}-gain-output', style={'display': 'none'})
     ], className="modal-audio-container")
 

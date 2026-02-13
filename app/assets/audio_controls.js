@@ -15,40 +15,72 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 const durationEl = document.getElementById(playerId + '-duration');
                 const pitchSlider = document.getElementById(playerId + '-pitch-slider');
                 const pitchDisplay = document.getElementById(playerId + '-pitch-display');
-                const bassSlider = document.getElementById(playerId + '-bass-slider');
-                const bassDisplay = document.getElementById(playerId + '-bass-display');
+                const eqDisplay = document.getElementById(playerId + '-eq-display');
                 const gainSlider = document.getElementById(playerId + '-gain-slider');
                 const gainDisplay = document.getElementById(playerId + '-gain-display');
+                const lowEqBands = [
+                    { key: 'eq-20', frequency: 20, slider: document.getElementById(playerId + '-eq-20-slider') },
+                    { key: 'eq-40', frequency: 40, slider: document.getElementById(playerId + '-eq-40-slider') },
+                    { key: 'eq-80', frequency: 80, slider: document.getElementById(playerId + '-eq-80-slider') },
+                    { key: 'eq-160', frequency: 160, slider: document.getElementById(playerId + '-eq-160-slider') },
+                    { key: 'eq-315', frequency: 315, slider: document.getElementById(playerId + '-eq-315-slider') },
+                    { key: 'eq-630', frequency: 630, slider: document.getElementById(playerId + '-eq-630-slider') },
+                    { key: 'eq-1250', frequency: 1250, slider: document.getElementById(playerId + '-eq-1250-slider') },
+                    { key: 'eq-2500', frequency: 2500, slider: document.getElementById(playerId + '-eq-2500-slider') },
+                    { key: 'eq-5000', frequency: 5000, slider: document.getElementById(playerId + '-eq-5000-slider') },
+                    { key: 'eq-10000', frequency: 10000, slider: document.getElementById(playerId + '-eq-10000-slider') },
+                    { key: 'eq-16000', frequency: 16000, slider: document.getElementById(playerId + '-eq-16000-slider') },
+                ];
+                const hasLowEqSliders = lowEqBands.some(function (band) { return !!band.slider; });
 
                 if (!audio.hasEventListeners) {
                     audio.hasEventListeners = true;
 
+                    const formatClock = function (totalSeconds) {
+                        if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
+                        const minutes = Math.floor(totalSeconds / 60);
+                        const seconds = Math.floor(totalSeconds % 60);
+                        return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+                    };
+
+                    const updateDurationLabel = function () {
+                        if (!durationEl) return;
+                        if (!isFinite(audio.duration) || audio.duration <= 0) return;
+                        durationEl.textContent = formatClock(audio.duration);
+                    };
+
                     // Update duration when metadata is loaded
                     audio.addEventListener('loadedmetadata', function () {
-                        if (durationEl && audio.duration) {
-                            const minutes = Math.floor(audio.duration / 60);
-                            const seconds = Math.floor(audio.duration % 60);
-                            durationEl.textContent = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
-                        }
+                        updateDurationLabel();
+                    });
+
+                    // Some browsers update duration after metadata; keep label in sync.
+                    audio.addEventListener('durationchange', function () {
+                        updateDurationLabel();
                     });
 
                     // Update time and slider during playback
                     audio.addEventListener('timeupdate', function () {
-                        if (currentTimeEl && audio.duration) {
-                            const minutes = Math.floor(audio.currentTime / 60);
-                            const seconds = Math.floor(audio.currentTime % 60);
-                            currentTimeEl.textContent = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+                        if (currentTimeEl) {
+                            currentTimeEl.textContent = formatClock(audio.currentTime || 0);
+                        }
+                        updateDurationLabel();
 
-                            // Only update slider if user is not interacting with it
-                            if (timeSlider && !timeSlider.isUserInteracting && !audio.isSliderSeeking) {
-                                const progress = (audio.currentTime / audio.duration) * 100;
-                                updateSliderPositionSafely(timeSlider, progress);
-                            }
+                        // Only update slider if user is not interacting with it
+                        if (
+                            timeSlider &&
+                            !timeSlider.isUserInteracting &&
+                            !audio.isSliderSeeking &&
+                            isFinite(audio.duration) &&
+                            audio.duration > 0
+                        ) {
+                            const progress = (audio.currentTime / audio.duration) * 100;
+                            updateSliderPositionSafely(timeSlider, progress);
+                        }
 
-                            // Update playback position marker on spectrogram if in modal
-                            if (playerId.startsWith('modal-')) {
-                                updateSpectrogramPlaybackMarker(audio.currentTime, audio.duration);
-                            }
+                        // Update playback position marker on spectrogram if in modal
+                        if (playerId.startsWith('modal-') && isFinite(audio.duration) && audio.duration > 0) {
+                            updateSpectrogramPlaybackMarker(audio.currentTime, audio.duration);
                         }
                     });
 
@@ -80,28 +112,39 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     audio.addEventListener('seeked', function () {
                         audio.isSliderSeeking = false;
                     });
+
+                    // Metadata can already be available when listeners are attached.
+                    updateDurationLabel();
+                    setTimeout(updateDurationLabel, 120);
                 }
 
                 // Set up Web Audio API only for modal players that expose tone controls.
-                if (!audio.audioContext && (pitchSlider || bassSlider || gainSlider)) {
+                if (!audio.audioContext && (pitchSlider || hasLowEqSliders || gainSlider)) {
                     try {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
                         audio.audioContext = new AudioContext();
                         audio.sourceNode = audio.audioContext.createMediaElementSource(audio);
 
-                        // Create bass boost filter (low shelf filter)
-                        audio.bassFilter = audio.audioContext.createBiquadFilter();
-                        audio.bassFilter.type = 'lowshelf';
-                        audio.bassFilter.frequency.value = 200; // Boost frequencies below 200Hz
-                        audio.bassFilter.gain.value = 0; // Initial gain (0 dB)
+                        // Create full-range EQ filters with logarithmic band spacing.
+                        audio.lowEqFilters = {};
+                        let chainTail = audio.sourceNode;
+                        lowEqBands.forEach(function (band) {
+                            const filter = audio.audioContext.createBiquadFilter();
+                            filter.type = 'peaking';
+                            filter.frequency.value = band.frequency;
+                            filter.Q.value = 1.05;
+                            filter.gain.value = 0;
+                            chainTail.connect(filter);
+                            chainTail = filter;
+                            audio.lowEqFilters[band.key] = filter;
+                        });
 
                         // Create gain node for post-EQ amplification.
                         audio.gainNode = audio.audioContext.createGain();
                         audio.gainNode.gain.value = 1.0;
 
-                        // Connect: source -> bass filter -> gain -> destination
-                        audio.sourceNode.connect(audio.bassFilter);
-                        audio.bassFilter.connect(audio.gainNode);
+                        // Connect: source -> low EQ chain -> gain -> destination
+                        chainTail.connect(audio.gainNode);
                         audio.gainNode.connect(audio.audioContext.destination);
 
                         console.log('Web Audio API initialized for:', playerId);
@@ -119,21 +162,45 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     });
                 }
 
-                if (bassSlider) {
-                    bindSliderValueSync(bassSlider, 0, 24, function (gain) {
-                        const roundedGain = Math.round(gain);
-                        // Apply bass boost via Web Audio API
-                        if (audio.bassFilter) {
-                            audio.bassFilter.gain.value = roundedGain;
-                        }
-                        if (bassDisplay) {
-                            bassDisplay.textContent = (roundedGain > 0 ? '+' : '') + roundedGain + ' dB';
-                        }
+                const getSliderRoundedDb = function (slider) {
+                    if (!slider) return 0;
+                    const current = readSliderValue(slider, -24, 24);
+                    if (current === null) return 0;
+                    return Math.round(current);
+                };
+
+                const applyEqBandGain = function (band, dbGain) {
+                    if (!audio.lowEqFilters || !audio.lowEqFilters[band.key]) return;
+                    audio.lowEqFilters[band.key].gain.value = dbGain;
+                };
+
+                const refreshEqFilterGains = function () {
+                    lowEqBands.forEach(function (band) {
+                        if (!band.slider) return;
+                        const roundedGain = getSliderRoundedDb(band.slider);
+                        applyEqBandGain(band, roundedGain);
                     });
-                }
+                };
+
+                const updateLowEqDisplay = function () {
+                    if (!eqDisplay) return;
+                    eqDisplay.textContent = 'Full-range EQ: 20 Hz to 16 kHz';
+                };
+
+                lowEqBands.forEach(function (band) {
+                    if (!band.slider) return;
+                    bindSliderValueSync(band.slider, -24, 24, function (dbGain) {
+                        const roundedGain = Math.round(dbGain);
+                        applyEqBandGain(band, roundedGain);
+                        updateLowEqDisplay();
+                    });
+                });
+
+                refreshEqFilterGains();
+                updateLowEqDisplay();
 
                 if (gainSlider) {
-                    bindSliderValueSync(gainSlider, 1, 20, function (amplification) {
+                    bindSliderValueSync(gainSlider, 1, 50, function (amplification) {
                         const normalized = Math.round(amplification * 10) / 10;
                         if (audio.gainNode) {
                             audio.gainNode.gain.value = normalized;
@@ -158,9 +225,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                             if (audio.audioContext && audio.audioContext.state === 'suspended') {
                                 audio.audioContext.resume().catch(function () { });
                             }
-                            // If audio has ended, reset it to the beginning
-                            if (audio.ended) {
+                            // Always restart from the beginning if playback is at (or past) the end.
+                            const hasFiniteDuration = isFinite(audio.duration) && audio.duration > 0;
+                            const atEnd = hasFiniteDuration && audio.currentTime >= (audio.duration - 0.05);
+                            if (audio.ended || atEnd) {
                                 audio.currentTime = 0;
+                                if (timeSlider) {
+                                    updateSliderPositionSafely(timeSlider, 0);
+                                }
                             }
 
                             // Pause all other audio players first
