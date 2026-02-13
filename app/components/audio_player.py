@@ -221,7 +221,7 @@ def create_modal_audio_player(
     except (TypeError, ValueError):
         bass_value = 0.0
     try:
-        gain_value = max(1.0, min(8.0, float(gain_value)))
+        gain_value = max(1.0, min(20.0, float(gain_value)))
     except (TypeError, ValueError):
         gain_value = 1.0
     
@@ -334,13 +334,13 @@ def create_modal_audio_player(
                 dcc.Slider(
                     id=f'{player_id}-gain-slider',
                     min=1.0,
-                    max=8.0,
+                    max=20.0,
                     step=0.1,
                     value=gain_value,
                     marks={
                         1.0: {'label': '1x', 'style': {'fontSize': '9px'}},
-                        4.0: {'label': '4x', 'style': {'fontSize': '9px'}},
-                        8.0: {'label': '8x', 'style': {'fontSize': '9px'}},
+                        10.0: {'label': '10x', 'style': {'fontSize': '9px'}},
+                        20.0: {'label': '20x', 'style': {'fontSize': '9px'}},
                     },
                     tooltip={"placement": "bottom", "always_visible": False},
                     className='amp-gain-slider modal-control-slider'

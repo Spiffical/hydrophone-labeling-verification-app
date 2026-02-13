@@ -133,7 +133,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 }
 
                 if (gainSlider) {
-                    bindSliderValueSync(gainSlider, 1, 8, function (amplification) {
+                    bindSliderValueSync(gainSlider, 1, 20, function (amplification) {
                         const normalized = Math.round(amplification * 10) / 10;
                         if (audio.gainNode) {
                             audio.gainNode.gain.value = normalized;
