@@ -130,7 +130,7 @@ def save_labels(
             data = current_data
         else:
             data = {
-                "schema_version": "2.0",
+                "schema_version": "2.1",
                 "created_at": _now_iso(),
                 "task_type": "classification",
                 "items": [],
@@ -163,7 +163,7 @@ def save_labels(
                     })
                 data["items"] = items
 
-        data.setdefault("schema_version", "2.0")
+        data.setdefault("schema_version", "2.1")
         data.setdefault("created_at", _now_iso())
         data.setdefault("task_type", "classification")
         data["updated_at"] = _now_iso()

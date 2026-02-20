@@ -2068,3 +2068,19 @@ def register_callbacks(app, config):
         if date_str and device:
             return f"{date_str} / {device}", data_dir_display
         return "Not selected", data_dir_display
+
+    app.clientside_callback(
+        """
+        function(is_open) {
+            if (is_open === false || is_open === null) {
+                document.querySelectorAll('audio[id$="-audio"]').forEach(function(audio) {
+                    audio.pause();
+                });
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("dummy-output", "data", allow_duplicate=True),
+        Input("image-modal", "is_open"),
+        prevent_initial_call=True
+    )

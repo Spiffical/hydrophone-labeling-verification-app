@@ -1,5 +1,5 @@
 """
-Convert unified v2.0 predictions format to internal app format.
+Convert unified v2.x predictions format to internal app format.
 """
 from datetime import datetime, timezone
 from typing import Dict, List
@@ -47,13 +47,13 @@ def _build_data_source_index(predictions_json: dict) -> dict:
 
 
 def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None) -> dict:
-    """Convert unified v2.0 predictions format to internal app format.
+    """Convert unified v2.x predictions format to internal app format.
 
     Handles both the new schema (schema_version, data_sources, paths object,
     label_decisions) and older format for backwards compatibility.
 
     Args:
-        predictions_json: Unified v2.0 format dict
+        predictions_json: Unified v2.x format dict
         base_path: Optional base path to resolve relative paths
 
     Returns:
@@ -143,6 +143,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
             "spectrogram_path": resolve_path(spect_png),
             "mat_path": resolve_path(mat),
             "audio_path": resolve_path(audio),
+            "source_audio": item_data.get("source_audio"),
             "timestamps": {
                 "start": start_time,
                 "end": end_time,
@@ -154,14 +155,14 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 k: v for k, v in item_data.items()
                 if k not in ["item_id", "data_source_id", "spectrogram_path", "mat_path",
                             "spectrogram_png_path", "spectrogram_mat_path",
-                            "audio_path", "paths",
+                            "audio_path", "source_audio", "paths",
                             "audio_start_time", "audio_end_time",
                             "audio_timestamp", "model_outputs", "verifications"]
             },
             "verifications": verifications,
         })
 
-    version = predictions_json.get("schema_version") or predictions_json.get("version", "2.0")
+    version = predictions_json.get("schema_version") or predictions_json.get("version", "2.1")
 
     # Flatten data_sources for the source block (use first if multiple)
     first_ds = next(iter(ds_index.values()), {})
@@ -181,17 +182,17 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
 
 
 def is_unified_v2_format(predictions_json: dict) -> bool:
-    """Check if the predictions JSON is in unified v2.0 format.
+    """Check if the predictions JSON is in unified v2.x format.
 
     Accepts:
-    - Explicit schema_version or version "2.0" with items array
+    - Explicit schema_version or version "2.0"/"2.1" with items array
     - Items array with model_outputs (even without version)
 
     Args:
         predictions_json: Predictions dict
 
     Returns:
-        True if unified v2.0 format
+        True if unified v2.x format
     """
     if not predictions_json:
         return False
@@ -199,7 +200,7 @@ def is_unified_v2_format(predictions_json: dict) -> bool:
     version = predictions_json.get("schema_version") or predictions_json.get("version")
     has_items = "items" in predictions_json and isinstance(predictions_json["items"], list)
 
-    if version == "2.0" and has_items:
+    if version in {"2.0", "2.1"} and has_items:
         return True
 
     if has_items and predictions_json["items"]:
