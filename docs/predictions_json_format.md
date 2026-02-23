@@ -14,7 +14,7 @@ output structure. Human decisions always go into `items[].verifications[].label_
 2. **Use hierarchical labels** from the taxonomy
 3. **Support multiple verification rounds** with full audit trail
 4. **Avoid data duplication** - reference files, don't embed them
-5. **Flexible granularity** - support both full-clip and windowed predictions
+5. **Flexible localization** - support clip-level, time-only, frequency-only, or time-frequency extents
 6. **Single output format** - no conversion needed between label and verify modes
 
 ---
@@ -24,10 +24,10 @@ output structure. Human decisions always go into `items[].verifications[].label_
 ###  Root Level
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-16T23:00:00Z",
   "updated_at": "2026-01-16T23:30:00Z",
-  "task_type": "whale_detection" | "anomaly_detection" | "classification",
+  "task_type": "string (e.g., whale_detection, anomaly_detection, classification, custom_task)",
 
   "model": { ... },              // optional — present for model predictions
   "data_sources": [ ... ],       // optional — hydrophone deployments
@@ -37,6 +37,9 @@ output structure. Human decisions always go into `items[].verifications[].label_
   "items": [ ... ]
 }
 ```
+
+`task_type` is intentionally free-form to support new workflows; keep the
+current canonical values where they fit.
 
 ### Model Metadata
 ```json
@@ -152,13 +155,10 @@ The inference script automatically computes the hash for older checkpoints that 
 ### Spectrogram Config
 ```json
 "spectrogram_config": {
-  "window_duration_sec": 1.0,
   "overlap": 0.9,
   "frequency_limits": {"min": 5, "max": 100},
   "context_duration_sec": 40.0,
   "segment_overlap": 0.5,
-  "colormap": "viridis",
-  "color_limits": {"min": -60, "max": 0},
   "source": {
     "type": "computed" | "onc_download",
     "generator": "SpectrogramGenerator",
@@ -166,6 +166,9 @@ The inference script automatically computes the hash for older checkpoints that 
   }
 }
 ```
+
+Plot-only controls (e.g., colormap, color limits, y-axis display scaling) are
+not part of the canonical O3.0 ingestion schema.
 
 ---
 
@@ -183,6 +186,10 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 
   "model_outputs": [ ... ],  // Raw model predictions (empty [] for manual labels)
   "verifications": [ ... ],  // Human review rounds (label or verify)
+  "source_audio": {
+    "file_name": "ICLISTENHF1951_20250101T000000.996Z_20250101T000040.996Z.flac",
+    "format": "flac"
+  },
   "paths": {
     "spectrogram_mat_path": "spectrograms/seg000.mat",
     "spectrogram_png_path": "spectrograms/seg000.png",
@@ -190,6 +197,9 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
   }
 }
 ```
+
+`source_audio` is the canonical reference for ingestion/joining. `paths` are
+local workflow references and are not ingested by O3.0.
 
 **Deprecated (still accepted for backwards compatibility):**
 - `mat_path` → use `paths.spectrogram_mat_path`
@@ -207,10 +217,10 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
   {
     "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
     "score": 0.87,  // Raw model output (0-1), NOT thresholded
-    "metadata": {
-      "num_windows": 5,
-      "num_positive_windows": 3,  // At some default threshold
-      "window_scores": [0.92, 0.88, 0.12, 0.95, 0.05]
+    "annotation_extent": {
+      "type": "time_range",
+      "time_start_sec": 29.5,
+      "time_end_sec": 34.2
     }
   }
 ]
@@ -221,7 +231,12 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 "model_outputs": [
   {
     "class_hierarchy": "Anthropophony > Vessel",
-    "score": 0.45
+    "score": 0.45,
+    "annotation_extent": {
+      "type": "freq_range",
+      "freq_min_hz": 20.0,
+      "freq_max_hz": 80.0
+    }
   },
   {
     "class_hierarchy": "Instrumentation > Self-noise > Acoustic self-noise",
@@ -234,48 +249,20 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 ]
 ```
 
-### For Sliding Window Predictions
-When a 40s clip is analyzed with multiple sliding windows:
-
-```json
-"model_outputs": [
-  {
-    "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
-    "score": 0.92,  // Max/mean/aggregated score
-    "aggregation_method": "max",
-    "windows": [
-      {
-        "window_id": 0,
-        "time_start_sec": 0.0,
-        "time_end_sec": 9.6,
-        "score": 0.02,
-        "window_indices": [0, 96]  // Spectrogram column indices
-      },
-      {
-        "window_id": 1,
-        "time_start_sec": 7.4,
-        "time_end_sec": 17.0,
-        "score": 0.08,
-        "window_indices": [74, 170]
-      },
-      {
-        "window_id": 2,
-        "time_start_sec": 14.8,
-        "time_end_sec": 24.4,
-        "score": 0.92,
-        "window_indices": [148, 244]
-      }
-    ]
-  }
-]
-```
-
----
-
 ## Verifications
 
 Supports **multiple verification rounds** with full audit trail.
 Used for **both** model prediction verification **and** manual labeling.
+
+`annotation_extent` is shared between:
+- `items[].model_outputs[]`
+- `items[].verifications[].label_decisions[]`
+
+Supported extent types:
+- `clip` (no precise bounds)
+- `time_range` (time only)
+- `freq_range` (frequency only)
+- `time_freq_box` (time + frequency)
 
 ### Model prediction verification (Verify tab)
 
@@ -290,12 +277,24 @@ Used for **both** model prediction verification **and** manual labeling.
       {
         "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
         "decision": "accepted",
-        "threshold_used": 0.5
+        "threshold_used": 0.5,
+        "annotation_extent": {
+          "type": "time_freq_box",
+          "time_start_sec": 29.5,
+          "time_end_sec": 34.2,
+          "freq_min_hz": 18.0,
+          "freq_max_hz": 25.0
+        }
       },
       {
         "label": "Anthropophony > Vessel",
         "decision": "rejected",
-        "threshold_used": 0.5
+        "threshold_used": 0.5,
+        "annotation_extent": {
+          "type": "freq_range",
+          "freq_min_hz": 20.0,
+          "freq_max_hz": 80.0
+        }
       }
     ],
     "confidence": "high",
@@ -353,14 +352,17 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 
 **Latest verification is the current ground truth** (last item in array).
 
+When precise bounds are unavailable, use `annotation_extent.type: "clip"` and
+reference the underlying file via `items[].source_audio`.
+
 ---
 
 ## Complete Example
 
-### Example 1: Whale Detection with Sliding Windows
+### Example 1: Whale Detection with Localization
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-16T22:00:00Z",
   "updated_at": "2026-01-16T23:30:00Z",
   "task_type": "whale_detection",
@@ -379,7 +381,6 @@ Manual labels use the same structure. All labels have `decision: "added"` and
     }
   ],
   "spectrogram_config": {
-    "window_duration_sec": 1.0,
     "overlap": 0.9,
     "frequency_limits": {"min": 5, "max": 100},
     "context_duration_sec": 40.0
@@ -395,14 +396,13 @@ Manual labels use the same structure. All labels have `decision: "added"` and
         {
           "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
           "score": 0.375,
-          "aggregation_method": "max",
-          "windows": [
-            {"window_id": 0, "time_start_sec": 0.0, "score": 0.015, "window_indices": [0, 96]},
-            {"window_id": 1, "time_start_sec": 7.4, "score": 0.021, "window_indices": [74, 170]},
-            {"window_id": 2, "time_start_sec": 14.8, "score": 0.004, "window_indices": [148, 244]},
-            {"window_id": 3, "time_start_sec": 22.1, "score": 0.0002, "window_indices": [221, 317]},
-            {"window_id": 4, "time_start_sec": 29.5, "score": 0.375, "window_indices": [295, 391]}
-          ]
+          "annotation_extent": {
+            "type": "time_freq_box",
+            "time_start_sec": 29.5,
+            "time_end_sec": 34.2,
+            "freq_min_hz": 18.0,
+            "freq_max_hz": 25.0
+          }
         }
       ],
       "verifications": [
@@ -419,7 +419,7 @@ Manual labels use the same structure. All labels have `decision: "added"` and
             }
           ],
           "confidence": "high",
-          "notes": "Window 4 shows clear 20Hz pulse",
+          "notes": "Clear 20Hz pulse in localized band",
           "label_source": "expert"
         }
       ],
@@ -433,10 +433,10 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 }
 ```
 
-### Example 2: Anomaly Detection (Multi-Class, No Windows)
+### Example 2: Anomaly Detection (Multi-Class)
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-16T20:00:00Z",
   "task_type": "anomaly_detection",
   "model": {
@@ -476,7 +476,7 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 ### Example 3: Manual Labeling (No Model)
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-29T21:12:33Z",
   "updated_at": "2026-01-29T21:12:33Z",
   "task_type": "classification",
@@ -509,7 +509,7 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 2. **Multi-class support**: Handle any number of predicted classes
 3. **Hierarchical labels**: Always uses taxonomy
 4. **Audit trail**: Full history of all verifications
-5. **Flexible granularity**: Works for full-clip or windowed predictions
+5. **Flexible localization**: Works for clip-level, time-only, frequency-only, or time-frequency labels
 6. **No duplication**: References external files
 7. **Standardized**: Same format for whale detection, anomaly detection, and manual labeling
 8. **Single output format**: No conversion needed for O3.0 ingestion
@@ -521,7 +521,7 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 ### From Current Whale Format
 - Move `confidence` → `model_outputs[0].score`
 - Move `expert_label` → `verifications[0].label_decisions[]`
-- Group window predictions under `model_outputs[0].windows`
+- Store optional localization in `model_outputs[0].annotation_extent`
 - Remove `crop_metadata` (redundant with spectrogram_config)
 - Rename `mat_path` → `paths.spectrogram_mat_path`
 - Rename `spectrogram_path` → `paths.spectrogram_png_path`

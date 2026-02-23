@@ -40,6 +40,7 @@ tracker.add_data_source(
     date_to='2025-01-01T01:00:00Z',
 )
 
+# task_type is free-form; these canonical values are recommended where applicable
 tracker.set_task_type('whale_detection')
 
 # Optional: pipeline provenance
@@ -60,6 +61,10 @@ for segment in segments:
         spectrogram_mat_path=f'spectrograms/{segment.name}.mat',
         spectrogram_png_path=f'spectrograms/{segment.name}.png',
         audio_path=f'audio/{segment.name}.wav',
+        source_audio={
+            'file_name': f'{segment.name}.wav',
+            'format': 'wav',
+        },
         model_outputs=[{
             'class_hierarchy': 'Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale',
             'score': model.predict(segment)  # Raw 0-1 score
@@ -111,7 +116,7 @@ model_id = compute_model_hash(model.state_dict())
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2025-01-01T00:00:00Z",
   "task_type": "whale_detection",
   "model": {
@@ -134,10 +139,19 @@ model_id = compute_model_hash(model.state_dict())
       "model_outputs": [
         {
           "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
-          "score": 0.87
+          "score": 0.87,
+          "annotation_extent": {
+            "type": "time_range",
+            "time_start_sec": 29.5,
+            "time_end_sec": 34.2
+          }
         }
       ],
       "verifications": [],
+      "source_audio": {
+        "file_name": "seg_000.wav",
+        "format": "wav"
+      },
       "paths": {
         "spectrogram_mat_path": "spectrograms/seg_000.mat"
       }
@@ -145,6 +159,9 @@ model_id = compute_model_hash(model.state_dict())
   ]
 }
 ```
+
+`source_audio` is the canonical audio-file reference for O3.0 ingestion.
+`paths` are local workflow references and are not ingested by O3.0.
 
 ---
 
@@ -162,14 +179,37 @@ round with `label_decisions[]`:
     "verification_round": 1,
     "verification_status": "verified",
     "label_decisions": [
-      { "label": "Fin whale", "decision": "accepted", "threshold_used": 0.5 },
-      { "label": "Vessel", "decision": "rejected", "threshold_used": 0.5 }
+      {
+        "label": "Fin whale",
+        "decision": "accepted",
+        "threshold_used": 0.5,
+        "annotation_extent": {
+          "type": "time_freq_box",
+          "time_start_sec": 29.5,
+          "time_end_sec": 34.2,
+          "freq_min_hz": 18.0,
+          "freq_max_hz": 25.0
+        }
+      },
+      {
+        "label": "Vessel",
+        "decision": "rejected",
+        "threshold_used": 0.5,
+        "annotation_extent": {
+          "type": "freq_range",
+          "freq_min_hz": 20.0,
+          "freq_max_hz": 80.0
+        }
+      }
     ],
     "label_source": "expert",
     "notes": "Clear 20Hz pulse"
   }
 ]
 ```
+
+`annotation_extent` is shared between model outputs and label decisions, with
+types `clip`, `time_range`, `freq_range`, and `time_freq_box`.
 
 For manual labels (no model), all decisions use `"decision": "added"` and
 `"threshold_used": null`.

@@ -95,7 +95,7 @@ def _filter_predictions(predictions, thresholds):
     global_threshold = float(thresholds.get("__global__", 0.5))
     filtered = []
 
-    # Handle unified v2.0 model_outputs
+    # Handle unified v2.x model_outputs
     model_outputs = predictions.get("model_outputs")
     if model_outputs and isinstance(model_outputs, list):
         for out in model_outputs:
@@ -879,7 +879,7 @@ def register_callbacks(app, config):
         for item in items:
             predictions = item.get("predictions") or {}
             
-            # Unified v2.0
+            # Unified v2.x
             model_outputs = predictions.get("model_outputs")
             if model_outputs and isinstance(model_outputs, list):
                 for out in model_outputs:

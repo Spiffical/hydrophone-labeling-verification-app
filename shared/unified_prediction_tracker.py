@@ -4,7 +4,7 @@ Unified Predictions Tracker
 
 Standardized JSON format for model predictions across whale detection
 and anomaly detection projects. Matches the Oceans 3.0 Predictions
-JSON Schema v2.0 (see OCEANS3_JSON_SCHEMA.md).
+JSON Schema v2.1 (see OCEANS3_JSON_SCHEMA.md).
 
 Usage:
     tracker = UnifiedPredictionTracker(output_path='predictions.json')
@@ -39,16 +39,17 @@ from typing import Any, Dict, List, Optional, Union
 class UnifiedPredictionTracker:
     """Manages predictions in unified format for expert verification.
 
-    Follows the Oceans 3.0 Predictions JSON Schema v2.0 with:
+    Follows the Oceans 3.0 Predictions JSON Schema v2.1 with:
     - Model metadata (model_id hash, architecture, training info)
     - Multiple data sources (device, location, coordinates, calibration)
     - Raw model scores (not thresholded)
     - Hierarchical labels from taxonomy
     - Multi-round verification with per-label decisions
+    - Item-level source audio references
     - Pipeline provenance
     """
 
-    VERSION = "2.0"
+    VERSION = "2.1"
 
     def __init__(self, output_path: Union[str, Path]):
         """Initialize tracker.
@@ -212,7 +213,7 @@ class UnifiedPredictionTracker:
 
         Args:
             config: Dict with parameters (nfft, window_function, overlap,
-                    frequency_limits, color_limits, source, audio_source, etc.)
+                    frequency_limits, source, audio_source, etc.)
         """
         self.data["spectrogram_config"] = config
 
@@ -242,7 +243,8 @@ class UnifiedPredictionTracker:
         """Set task type.
 
         Args:
-            task_type: One of 'whale_detection', 'anomaly_detection', 'classification'
+            task_type: Free-form task identifier (e.g., 'whale_detection',
+                'anomaly_detection', 'classification', or custom values)
         """
         self.data["task_type"] = task_type
 
@@ -257,6 +259,7 @@ class UnifiedPredictionTracker:
         spectrogram_mat_path: Optional[str] = None,
         spectrogram_png_path: Optional[str] = None,
         audio_path: Optional[str] = None,
+        source_audio: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Add a prediction item.
 
@@ -265,11 +268,13 @@ class UnifiedPredictionTracker:
             data_source_id: FK to data_sources[].data_source_id
             audio_start_time: Absolute start time of this clip (ISO format)
             audio_end_time: Absolute end time of this clip (ISO format)
-            model_outputs: List of {class_hierarchy, score} dicts (optionally with class_id)
+            model_outputs: List of {class_hierarchy, score} dicts (optionally with
+                class_id and annotation_extent)
             segment_index: Zero-based index when a recording is split into segments
             spectrogram_mat_path: Relative path to MAT spectral data file
             spectrogram_png_path: Relative path to spectrogram PNG image
             audio_path: Relative path to audio clip
+            source_audio: Canonical source-audio reference (e.g., file_name, format, uri)
         """
         item: Dict[str, Any] = {
             "item_id": item_id,
@@ -281,6 +286,9 @@ class UnifiedPredictionTracker:
         }
         if segment_index is not None:
             item["segment_index"] = segment_index
+
+        if source_audio is not None:
+            item["source_audio"] = source_audio
 
         paths: Dict[str, str] = {}
         if spectrogram_mat_path is not None:

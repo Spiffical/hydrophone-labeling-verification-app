@@ -32,10 +32,10 @@ In both cases, human decisions are stored in `items[].verifications[]`.
 
 ```
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at":  "ISO-8601",
   "updated_at":  "ISO-8601",
-  "task_type":   "whale_detection | anomaly_detection | classification",
+  "task_type":   "string (e.g., whale_detection, anomaly_detection, classification, custom_task)",
 
   "model":              { ... },   // optional — who made the predictions
   "data_sources":       [ ... ],   // optional — where the audio came from
@@ -51,7 +51,8 @@ In both cases, human decisions are stored in `items[].verifications[]`.
       "segment_index":    0,
       "model_outputs":    [ ... ], // raw scores per class (empty [] if no model)
       "verifications":    [ ... ], // human review rounds (label or verify)
-      "paths":            { ... }  // relative file references
+      "source_audio":     { ... }, // canonical source-audio reference for ingestion
+      "paths":            { ... }  // optional local file references (not ingested by O3.0)
     }
   ]
 }
@@ -69,10 +70,13 @@ In both cases, human decisions are stored in `items[].verifications[]`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schema_version` | string | yes | Always `"2.0"`. |
+| `schema_version` | string | yes | Current version is `"2.1"` (`"2.0"` is legacy). |
 | `created_at` | date-time | yes | When this file was first written. |
 | `updated_at` | date-time | no | Last modification (e.g., after adding verifications). |
-| `task_type` | enum | yes | `whale_detection`, `anomaly_detection`, or `classification`. |
+| `task_type` | string | yes | Analysis task identifier (free-form). Recommended values: `whale_detection`, `anomaly_detection`, `classification`. Describes the analysis problem. |
+
+> **Manual vs model-assisted:** this is inferred from presence/absence of `model`
+> and `items[].model_outputs`.
 
 ### `model`
 
@@ -117,23 +121,24 @@ Optional. Each entry describes one hydrophone deployment. Items reference these 
 
 ### `spectrogram_config`
 
-Optional. Parameters needed to reproduce the spectrograms. Present even for ONC-downloaded spectrograms (to document what ONC generated).
+Optional. Parameters that affect the computed spectrogram data and model input.
+Present even for ONC-downloaded products (to document what ONC generated).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `nfft` | integer | no | FFT length in samples. |
-| `window_function` | string | no | e.g. `"hann"`, `"hamming"`. ONC uses Hanning with 50% overlap. |
+| `window_function` | string | no | e.g. `"hann"`, `"hamming"`. Record the actual value from generation metadata/API options. |
 | `window_duration_sec` | number | no | FFT window duration in seconds. |
-| `hop_length` | integer | no | Hop length in samples (alternative to `overlap`). |
-| `overlap` | number | no | Fractional overlap (0-1), e.g. `0.9`. |
+| `hop_length` | integer | no | Hop length in samples (common in ML tooling). |
+| `overlap` | number | no | Fractional overlap (0-1; common in acoustics). |
 | `frequency_limits` | `{min, max}` | no | Frequency range in Hz. |
-| `color_limits` | `{min, max}` | no | dB range for colour mapping. |
-| `colormap` | string | no | e.g. `"viridis"`. |
-| `y_axis_scale` | enum | no | `"linear"` or `"log"`. |
 | `context_duration_sec` | number | no | Total clip duration in seconds (e.g. 40). |
 | `segment_overlap` | number | no | Overlap between consecutive segments (0-1). |
 | `crop_size` | integer | no | Pixel dimension if cropped for model input. |
 | `source` | object | no | See below. |
+
+> **Note:** If both `hop_length` and `overlap` are provided, they should be
+> mathematically consistent for the chosen window length.
 
 #### `spectrogram_config.source`
 
@@ -173,13 +178,14 @@ Each item is one display unit (one spectrogram / audio clip).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `item_id` | string | yes | Unique within this file. Convention: `{device_code}_{ISO-timestamp}_seg{NNN}`. |
+| `item_id` | string | yes | Unique within this file. Convention: `{device_code}_{ISO-timestamp}`. |
 | `data_source_id` | string | no | FK to `data_sources[].data_source_id`. Required when multiple data sources exist. |
-| `audio_start_time` | date-time | no | Absolute start time of this clip. |
-| `audio_end_time` | date-time | no | Absolute end time of this clip. |
+| `audio_start_time` | date-time | no | Absolute start time of this item clip (not necessarily full source recording). |
+| `audio_end_time` | date-time | no | Absolute end time of this item clip (not necessarily full source recording). |
 | `segment_index` | integer | no | Zero-based index when a longer recording is split into segments. |
 | `model_outputs` | array | no | See below. Defaults to `[]`. |
 | `verifications` | array | no | See below. Defaults to `[]`. |
+| `source_audio` | object | no | Canonical source audio file reference for this item. See below. |
 | `paths` | object | no | See below. |
 
 > **Note:** `data_source_id` is required whenever multiple `data_sources` are present.
@@ -195,6 +201,7 @@ Raw model scores. One entry per class the model evaluated. Empty `[]` when no mo
 | `class_hierarchy` | string | yes | Taxonomy path, e.g. `"Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"`. |
 | `class_id` | string | no | Short stable identifier, e.g. `"anthro_vessel"`. |
 | `score` | number (0-1) | yes | Raw model confidence. Not thresholded. |
+| `annotation_extent` | object | no | Optional model localization for this class score. Uses the same shared `annotation_extent` object as verifications. |
 
 #### `items[].verifications[]`
 
@@ -223,10 +230,45 @@ This structure is used for **both** expert verification of model predictions
 | `label` | string | yes | Taxonomy path. |
 | `decision` | enum | yes | `"accepted"` (model-suggested, confirmed), `"rejected"` (model-suggested, removed), or `"added"` (not suggested by model, or manually labeled). |
 | `threshold_used` | number or null | yes | Score threshold the reviewer applied when making this decision. `null` when labeling without a model (manual labeling). |
+| `annotation_extent` | object | no | Optional reviewer localization for this decision. Uses the same shared `annotation_extent` object as model outputs. See below. |
+
+#### `items[].source_audio`
+
+Canonical source-audio reference used by O3.0 ingestion and downstream joins.
+Use this to store audio filenames even when local paths are unavailable.
+
+| Field | Type | Description |
+|---|---|---|
+| `file_name` | string | Source audio file name, e.g. `xxxxxxx.flac`. |
+| `format` | string | e.g. `"wav"`, `"flac"`. |
+| `uri` | string (uri) | Optional stable URI to the source audio object. |
+| `recording_start_time` | date-time | Optional absolute start time of the source recording. |
+| `recording_end_time` | date-time | Optional absolute end time of the source recording. |
+| `checksum_sha256` | string | Optional checksum of source audio for integrity/provenance. |
+
+#### Shared `annotation_extent` object
+
+Used by both:
+- `items[].model_outputs[].annotation_extent`
+- `items[].verifications[].label_decisions[].annotation_extent`
+
+Optional localization for a prediction or human decision.
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | enum | `"clip"` (no precise bounds), `"time_range"`, `"freq_range"`, or `"time_freq_box"`. |
+| `time_start_sec` | number | Start time in seconds, relative to `items[].audio_start_time`. |
+| `time_end_sec` | number | End time in seconds, relative to `items[].audio_start_time`. |
+| `freq_min_hz` | number | Minimum frequency in Hz (for frequency-only or time-frequency localization). |
+| `freq_max_hz` | number | Maximum frequency in Hz (for frequency-only or time-frequency localization). |
+
+> **When precise bounds are unknown:** use `annotation_extent.type: "clip"` and
+> rely on `items[].source_audio` to reference the source file.
 
 #### `items[].paths`
 
 Relative paths from the directory containing this JSON file.
+These are local workflow references and are **not ingested by O3.0**.
 
 | Field | Type | Description |
 |---|---|---|
@@ -272,7 +314,7 @@ Manual labels use the same `verifications[]` structure. All labels have
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-29T21:12:33Z",
   "updated_at": "2026-01-29T21:12:33Z",
   "task_type": "classification",
@@ -303,7 +345,7 @@ Manual labels use the same `verifications[]` structure. All labels have
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "created_at": "2026-01-27T18:20:00Z",
   "updated_at": "2026-01-27T20:10:00Z",
   "task_type": "anomaly_detection",
@@ -367,9 +409,6 @@ Manual labels use the same `verifications[]` structure. All labels have
     "window_duration_sec": 1.0,
     "overlap": 0.9,
     "frequency_limits": { "min": 5, "max": 100 },
-    "color_limits": { "min": -60, "max": 0 },
-    "colormap": "viridis",
-    "y_axis_scale": "linear",
     "context_duration_sec": 40.0,
     "segment_overlap": 0.5,
     "crop_size": 96,
@@ -399,9 +438,29 @@ Manual labels use the same `verifications[]` structure. All labels have
       "audio_end_time": "2019-06-30T00:05:38Z",
       "segment_index": 0,
       "model_outputs": [
-        { "class_hierarchy": "Anthropophony > Vessel", "class_id": "anthro_vessel", "score": 0.12 },
+        {
+          "class_hierarchy": "Anthropophony > Vessel",
+          "class_id": "anthro_vessel",
+          "score": 0.12,
+          "annotation_extent": {
+            "type": "freq_range",
+            "freq_min_hz": 20.0,
+            "freq_max_hz": 80.0
+          }
+        },
         { "class_hierarchy": "Instrumentation > Malfunction > Data gap", "class_id": "instr_data_gap", "score": 0.67 },
-        { "class_hierarchy": "Other > Unknown sound of interest", "class_id": "other_unknown", "score": 0.91 }
+        {
+          "class_hierarchy": "Other > Unknown sound of interest",
+          "class_id": "other_unknown",
+          "score": 0.91,
+          "annotation_extent": {
+            "type": "time_freq_box",
+            "time_start_sec": 11.2,
+            "time_end_sec": 16.1,
+            "freq_min_hz": 18.0,
+            "freq_max_hz": 42.0
+          }
+        }
       ],
       "verifications": [
         {
@@ -411,9 +470,32 @@ Manual labels use the same `verifications[]` structure. All labels have
           "verification_round": 1,
           "verification_status": "verified",
           "label_decisions": [
-            { "label": "Anthropophony > Vessel", "decision": "rejected", "threshold_used": 0.5 },
-            { "label": "Instrumentation > Malfunction > Data gap", "decision": "accepted", "threshold_used": 0.5 },
-            { "label": "Other > Unknown sound of interest", "decision": "accepted", "threshold_used": 0.5 }
+            {
+              "label": "Anthropophony > Vessel",
+              "decision": "rejected",
+              "threshold_used": 0.5,
+              "annotation_extent": { "type": "clip" }
+            },
+            {
+              "label": "Instrumentation > Malfunction > Data gap",
+              "decision": "accepted",
+              "threshold_used": 0.5,
+              "annotation_extent": {
+                "type": "time_range",
+                "time_start_sec": 3.0,
+                "time_end_sec": 7.5
+              }
+            },
+            {
+              "label": "Other > Unknown sound of interest",
+              "decision": "accepted",
+              "threshold_used": 0.5,
+              "annotation_extent": {
+                "type": "freq_range",
+                "freq_min_hz": 18.0,
+                "freq_max_hz": 42.0
+              }
+            }
           ],
           "confidence": "high",
           "notes": "Clear data gap and unusual tonal feature.",
@@ -421,6 +503,10 @@ Manual labels use the same `verifications[]` structure. All labels have
           "taxonomy_version": "o3-taxonomy-2026-01"
         }
       ],
+      "source_audio": {
+        "file_name": "ICLISTENHF1353_20190630T000458.000Z_20190630T000538.000Z.wav",
+        "format": "wav"
+      },
       "paths": {
         "spectrogram_mat_path": "2019-06-30/ICLISTENHF1353/spectrograms/seg000.mat",
         "spectrogram_png_path": "2019-06-30/ICLISTENHF1353/spectrograms/seg000.png",
@@ -439,6 +525,10 @@ Manual labels use the same `verifications[]` structure. All labels have
         { "class_hierarchy": "Other > Unknown sound of interest", "class_id": "other_unknown", "score": 0.11 }
       ],
       "verifications": [],
+      "source_audio": {
+        "file_name": "ICLISTENHF1951_20190630T010458.000Z_20190630T010538.000Z.wav",
+        "format": "wav"
+      },
       "paths": {
         "spectrogram_mat_path": "2019-06-30/ICLISTENHF1951/spectrograms/seg000.mat",
         "spectrogram_png_path": "2019-06-30/ICLISTENHF1951/spectrograms/seg000.png",
@@ -456,18 +546,22 @@ Manual labels use the same `verifications[]` structure. All labels have
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://oceannetworks.ca/schemas/o3_unified_v2.json",
-  "title": "O3 Unified Schema v2.0",
+  "$id": "https://oceannetworks.ca/schemas/o3_unified_v2_1.json",
+  "title": "O3 Unified Schema v2.1",
   "type": "object",
   "required": ["schema_version", "created_at", "task_type", "items"],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "2.0" },
+    "schema_version": {
+      "type": "string",
+      "enum": ["2.0", "2.1"]
+    },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "task_type": {
       "type": "string",
-      "enum": ["whale_detection", "anomaly_detection", "classification"]
+      "minLength": 1,
+      "description": "Free-form task identifier. Recommended values include whale_detection, anomaly_detection, classification."
     },
     "model": {
       "type": "object",
@@ -518,16 +612,6 @@ Manual labels use the same `verifications[]` structure. All labels have
           "required": ["min", "max"],
           "additionalProperties": false
         },
-        "color_limits": {
-          "type": "object",
-          "properties": {
-            "min": { "type": "number" },
-            "max": { "type": "number" }
-          },
-          "additionalProperties": false
-        },
-        "colormap": { "type": "string" },
-        "y_axis_scale": { "type": "string", "enum": ["linear", "log"] },
         "context_duration_sec": { "type": "number" },
         "segment_overlap": { "type": "number" },
         "crop_size": { "type": "integer" },
@@ -607,6 +691,7 @@ Manual labels use the same `verifications[]` structure. All labels have
           "type": "array",
           "items": { "$ref": "#/$defs/verification" }
         },
+        "source_audio": { "$ref": "#/$defs/source_audio" },
         "paths": {
           "type": "object",
           "additionalProperties": false,
@@ -625,7 +710,8 @@ Manual labels use the same `verifications[]` structure. All labels have
       "properties": {
         "class_hierarchy": { "type": "string" },
         "class_id": { "type": "string" },
-        "score": { "type": "number", "minimum": 0, "maximum": 1 }
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "annotation_extent": { "$ref": "#/$defs/annotation_extent" }
       }
     },
     "verification": {
@@ -667,8 +753,70 @@ Manual labels use the same `verifications[]` structure. All labels have
           "type": "string",
           "enum": ["accepted", "rejected", "added"]
         },
-        "threshold_used": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+        "threshold_used": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "annotation_extent": { "$ref": "#/$defs/annotation_extent" }
       }
+    },
+    "source_audio": {
+      "type": "object",
+      "required": ["file_name"],
+      "additionalProperties": false,
+      "properties": {
+        "file_name": { "type": "string" },
+        "format": { "type": "string" },
+        "uri": { "type": "string", "format": "uri" },
+        "recording_start_time": { "type": "string", "format": "date-time" },
+        "recording_end_time": { "type": "string", "format": "date-time" },
+        "checksum_sha256": { "type": "string" }
+      }
+    },
+    "annotation_extent": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["clip", "time_range", "freq_range", "time_freq_box"]
+        },
+        "time_start_sec": { "type": "number", "minimum": 0 },
+        "time_end_sec": { "type": "number", "minimum": 0 },
+        "freq_min_hz": { "type": "number", "minimum": 0 },
+        "freq_max_hz": { "type": "number", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "time_range" }
+            }
+          },
+          "then": { "required": ["time_start_sec", "time_end_sec"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "time_freq_box" }
+            }
+          },
+          "then": {
+            "required": [
+              "time_start_sec",
+              "time_end_sec",
+              "freq_min_hz",
+              "freq_max_hz"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "freq_range" }
+            }
+          },
+          "then": { "required": ["freq_min_hz", "freq_max_hz"] }
+        }
+      ]
     }
   }
 }

@@ -94,7 +94,7 @@ The app supports:
 
 ## 📊 Model Predictions Format
 
-This app consumes model predictions in a **standardized JSON format** (v2.0) that supports:
+This app consumes model predictions in a **standardized JSON format** (v2.1) that supports:
 - Raw model scores (not thresholded)
 - Hierarchical taxonomic labels
 - Multi-round expert verification
@@ -106,7 +106,7 @@ This app consumes model predictions in a **standardized JSON format** (v2.0) tha
 
 ```json
 {
-  "version": "2.0",
+  "schema_version": "2.1",
   "model": {
     "model_id": "sha256-abc123",
     "architecture": "resnet18",
