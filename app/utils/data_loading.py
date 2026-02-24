@@ -134,6 +134,101 @@ def _normalize_item_key(key: Optional[str]) -> Optional[str]:
     return key
 
 
+def _build_audio_index(audio_dir: Optional[str]) -> Dict[str, str]:
+    index: Dict[str, str] = {}
+    if not audio_dir or not os.path.exists(audio_dir):
+        return index
+    for entry in os.listdir(audio_dir):
+        full_path = os.path.join(audio_dir, entry)
+        if not os.path.isfile(full_path):
+            continue
+        ext = os.path.splitext(entry)[1].lower()
+        if ext not in {".flac", ".wav", ".mp3", ".ogg"}:
+            continue
+        base_name = os.path.splitext(entry)[0]
+        if base_name and base_name not in index:
+            index[base_name] = full_path
+    return index
+
+
+def _resolve_audio_path_for_item(
+    raw_path: Optional[str],
+    *,
+    base_path: Optional[str],
+    audio_dir: Optional[str],
+    predictions_path: Optional[str],
+) -> Optional[str]:
+    if not raw_path:
+        return None
+    if os.path.exists(raw_path):
+        return raw_path
+
+    candidates = []
+    if not os.path.isabs(raw_path):
+        if base_path:
+            candidates.append(os.path.join(base_path, raw_path))
+        if predictions_path:
+            candidates.append(os.path.join(os.path.dirname(predictions_path), raw_path))
+        if audio_dir:
+            candidates.append(os.path.join(audio_dir, raw_path))
+            candidates.append(os.path.join(audio_dir, os.path.basename(raw_path)))
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_path: Optional[str] = None) -> None:
+    if not items or not audio_dir or not os.path.exists(audio_dir):
+        return
+
+    audio_index = _build_audio_index(audio_dir)
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        metadata = item.get("metadata") or {}
+        predictions_path = metadata.get("predictions_path") if isinstance(metadata, dict) else None
+        current_audio = item.get("audio_path")
+        resolved = _resolve_audio_path_for_item(
+            current_audio,
+            base_path=base_path,
+            audio_dir=audio_dir,
+            predictions_path=predictions_path,
+        )
+        if resolved:
+            item["audio_path"] = resolved
+            continue
+
+        item_id = item.get("item_id")
+        candidate_keys = [item_id, _normalize_item_key(item_id)]
+        matched = None
+        for key in candidate_keys:
+            if key and key in audio_index:
+                matched = audio_index[key]
+                break
+
+        if not matched:
+            probe_name = None
+            mat_path = item.get("mat_path")
+            spec_path = item.get("spectrogram_path")
+            if isinstance(mat_path, str) and mat_path:
+                probe_name = os.path.basename(mat_path)
+            elif isinstance(spec_path, str) and spec_path:
+                probe_name = os.path.basename(spec_path)
+            elif isinstance(item_id, str) and item_id:
+                probe_name = item_id
+
+            if probe_name:
+                matches = find_matching_audio_files(probe_name, audio_dir)
+                matched = get_representative_audio_file(matches)
+
+        if matched:
+            item["audio_path"] = matched
+
+
 def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
     labels_map: Dict[str, dict] = {}
     if not isinstance(labels_json, dict):
@@ -731,6 +826,8 @@ def load_verify_mode(
                     })
             
             data["summary"]["total_items"] = len(data["items"])
+
+        _enrich_items_with_audio_paths(data.get("items", []), audio_dir, base_path=mat_dir)
     
     elif dashboard_root and structure_type == "device_only":
         # Device-only structure (DATE folder selected as root)
@@ -880,6 +977,7 @@ def load_verify_mode(
                 mat_dirs_loaded.append(local_mat_dir)
 
             if local_audio_dir and os.path.exists(local_audio_dir):
+                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path)
                 audio_roots.append(local_audio_dir)
                 audio_folders_loaded.append(local_audio_dir)
 
@@ -1152,6 +1250,8 @@ def load_verify_mode(
                         })
                         existing_ids.add(item_id)
                         existing_ids.add(filename)
+
+                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path)
                 
                 if local_audio_dir and os.path.exists(local_audio_dir):
                     audio_roots.append(local_audio_dir)

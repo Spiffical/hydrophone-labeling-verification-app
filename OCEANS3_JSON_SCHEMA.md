@@ -223,14 +223,20 @@ This structure is used for **both** expert verification of model predictions
 | `label_source` | enum | no | `"expert"`, `"auto"`, or `"consensus"`. |
 | `taxonomy_version` | string | no | Version of the taxonomy used during review. |
 
+Use `label_decisions` as canonical. Do not duplicate derived verification-level fields
+like `labels`, `added_labels`, `rejected_labels`, or top-level `threshold_used`.
+
+`label_decisions` is event-like, not a set. The same `label` may appear multiple times
+within one verification round (for example, one entry per localized instance).
+
 #### `items[].verifications[].label_decisions[]`
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `label` | string | yes | Taxonomy path. |
+| `label` | string | yes | Taxonomy path. **Not unique within a round** (can repeat for multiple localized instances). |
 | `decision` | enum | yes | `"accepted"` (model-suggested, confirmed), `"rejected"` (model-suggested, removed), or `"added"` (not suggested by model, or manually labeled). |
 | `threshold_used` | number or null | yes | Score threshold the reviewer applied when making this decision. `null` when labeling without a model (manual labeling). |
-| `annotation_extent` | object | no | Optional reviewer localization for this decision. Uses the same shared `annotation_extent` object as model outputs. See below. |
+| `annotation_extent` | object | no | Optional reviewer localization for this decision. Omit when no localization is provided; use `{ "type": "clip" }` for clip-level (no precise bounds). Uses the same shared `annotation_extent` object as model outputs. See below. |
 
 #### `items[].source_audio`
 
@@ -264,6 +270,58 @@ Optional localization for a prediction or human decision.
 
 > **When precise bounds are unknown:** use `annotation_extent.type: "clip"` and
 > rely on `items[].source_audio` to reference the source file.
+
+#### Localization patterns in `label_decisions`
+
+Use these patterns to keep localization expressive with minimal redundancy:
+
+1. **No localization provided** (classification only): omit `annotation_extent`.
+2. **Single localization**: include one `annotation_extent` for that decision.
+3. **Multiple localizations for one label**: repeat the same `label` in multiple
+   `label_decisions` entries, one extent per instance.
+
+Example (single verification round):
+
+```json
+{
+  "verified_at": "2026-02-24T18:12:00Z",
+  "verified_by": "expert@onc.ca",
+  "verification_round": 3,
+  "verification_status": "verified",
+  "label_decisions": [
+    {
+      "label": "Geophony > Rain",
+      "decision": "accepted",
+      "threshold_used": 0.5
+    },
+    {
+      "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+      "decision": "accepted",
+      "threshold_used": 0.5,
+      "annotation_extent": {
+        "type": "time_freq_box",
+        "time_start_sec": 5.2,
+        "time_end_sec": 7.1,
+        "freq_min_hz": 17.5,
+        "freq_max_hz": 31.0
+      }
+    },
+    {
+      "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+      "decision": "accepted",
+      "threshold_used": 0.5,
+      "annotation_extent": {
+        "type": "time_freq_box",
+        "time_start_sec": 19.3,
+        "time_end_sec": 21.0,
+        "freq_min_hz": 18.2,
+        "freq_max_hz": 29.4
+      }
+    }
+  ],
+  "notes": "Two distinct fin whale calls; rain accepted without localization."
+}
+```
 
 #### `items[].paths`
 
@@ -305,12 +363,16 @@ Example: `"sha256-a3f2b9c8d1e7"` (12 hex chars, ~281 trillion combinations).
 - **verifications.csv** = explode `items[].verifications[].label_decisions[]`,
   join with root-level metadata and the matching `data_sources[]` entry.
 
+If one label has multiple boxes, each box becomes a separate `verifications.csv` row
+(same label, different `annotation_extent`).
+
 ---
 
 ## Manual labeling example (labels.json)
 
 Manual labels use the same `verifications[]` structure. All labels have
 `decision: "added"` and `threshold_used: null` since there is no model.
+Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
 
 ```json
 {
@@ -729,6 +791,7 @@ Manual labels use the same `verifications[]` structure. All labels have
         },
         "label_decisions": {
           "type": "array",
+          "description": "Event-style decisions. The same label may appear multiple times in one round (e.g., multiple localized instances).",
           "items": { "$ref": "#/$defs/label_decision" }
         },
         "confidence": {

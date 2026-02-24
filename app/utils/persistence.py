@@ -4,6 +4,55 @@ from typing import Dict, List, Optional
 from app.utils.file_io import read_json, write_json
 
 
+def _sanitize_label_decisions(label_decisions: Optional[List[Dict]]) -> List[Dict]:
+    cleaned: List[Dict] = []
+    if not isinstance(label_decisions, list):
+        return cleaned
+
+    for entry in label_decisions:
+        if not isinstance(entry, dict):
+            continue
+        label = entry.get("label")
+        decision = entry.get("decision")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        if decision not in {"accepted", "rejected", "added"}:
+            continue
+
+        sanitized = {
+            "label": label.strip(),
+            "decision": decision,
+            "threshold_used": entry.get("threshold_used"),
+        }
+        extent = entry.get("annotation_extent")
+        if isinstance(extent, dict):
+            sanitized["annotation_extent"] = extent
+        cleaned.append(sanitized)
+    return cleaned
+
+
+def _sanitize_verification_payload(verification: Dict) -> Dict:
+    if not isinstance(verification, dict):
+        return {}
+
+    out: Dict = {}
+    for key in (
+        "verified_at",
+        "verified_by",
+        "verification_status",
+        "confidence",
+        "notes",
+        "label_source",
+        "reviewer_affiliation",
+        "taxonomy_version",
+    ):
+        if key in verification:
+            out[key] = verification[key]
+
+    out["label_decisions"] = _sanitize_label_decisions(verification.get("label_decisions"))
+    return out
+
+
 def save_label_mode(
     output_file: Optional[str],
     item_id: str,
@@ -50,7 +99,7 @@ def save_verify_predictions(predictions_path: Optional[str], item_id: str, verif
         if not isinstance(verifications, list):
             verifications = []
 
-        stored_verification = dict(verification)
+        stored_verification = _sanitize_verification_payload(verification)
         stored_verification["verification_round"] = len(verifications) + 1
         verifications.append(stored_verification)
         item["verifications"] = verifications

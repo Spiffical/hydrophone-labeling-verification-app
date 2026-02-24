@@ -3,6 +3,7 @@ import re
 import time
 import json
 import logging
+import hashlib
 from copy import deepcopy
 from datetime import datetime
 from dash import Input, Output, State, callback, ctx, no_update, ALL, dcc
@@ -57,6 +58,35 @@ def _bbox_debug_box_summary(boxes):
             }
         )
     return summary
+
+
+def _modal_box_edit_revision(boxes, bump=None):
+    normalized = []
+    for box in boxes or []:
+        if not isinstance(box, dict):
+            continue
+        normalized.append(
+            {
+                "label": (box.get("label") or "").strip(),
+                "source": box.get("source"),
+                "decision": box.get("decision"),
+                "annotation_extent": _clean_annotation_extent(box.get("annotation_extent")) or {},
+            }
+        )
+    payload = {"boxes": normalized, "bump": str(bump) if bump is not None else ""}
+    token_src = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    token = hashlib.sha1(token_src.encode("utf-8")).hexdigest()[:16]
+    return f"bbox-{token}"
+
+
+def _parse_active_box_target(active_box_label):
+    if isinstance(active_box_label, dict):
+        label = (active_box_label.get("label") or "").strip()
+        allow_existing = bool(active_box_label.get("allow_existing"))
+        return label, allow_existing
+    if isinstance(active_box_label, str):
+        return active_box_label.strip(), False
+    return "", False
 
 
 def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverification=False, label_extents=None):
@@ -276,6 +306,17 @@ def _extent_to_shape(extent, axis_meta):
         shape["x0"], shape["x1"] = shape["x1"], shape["x0"]
     if shape["y0"] > shape["y1"]:
         shape["y0"], shape["y1"] = shape["y1"], shape["y0"]
+
+    # Clamp to spectrogram bounds so persisted extents cannot render outside axes.
+    shape["x0"] = max(x_min, min(x_max, shape["x0"]))
+    shape["x1"] = max(x_min, min(x_max, shape["x1"]))
+    shape["y0"] = max(y_min, min(y_max, shape["y0"]))
+    shape["y1"] = max(y_min, min(y_max, shape["y1"]))
+
+    if shape["x0"] > shape["x1"]:
+        shape["x0"], shape["x1"] = shape["x1"], shape["x0"]
+    if shape["y0"] > shape["y1"]:
+        shape["y0"], shape["y1"] = shape["y1"], shape["y0"]
     return shape
 
 
@@ -302,6 +343,24 @@ def _shape_to_extent(shape, axis_meta):
     y_max = axis_meta.get("y_max", 1.0)
     x_span = max(1e-9, x_max - x_min)
     y_span = max(1e-9, y_max - y_min)
+
+    # Clamp incoming drawn/edited coordinates to spectrogram bounds.
+    x0 = max(x_min, min(x_max, x0))
+    x1 = max(x_min, min(x_max, x1))
+    y0 = max(y_min, min(y_max, y0))
+    y1 = max(y_min, min(y_max, y1))
+
+    if x0 > x1:
+        x0, x1 = x1, x0
+    if y0 > y1:
+        y0, y1 = y1, y0
+
+    # Ignore degenerate shapes (e.g. dragged fully outside and collapsed by clamping).
+    min_x_span = max(1e-9, x_span * 1e-4)
+    min_y_span = max(1e-9, y_span * 1e-4)
+    if (x1 - x0) < min_x_span or (y1 - y0) < min_y_span:
+        return None
+
     full_axis_tolerance = 0.005
     full_x = abs((x1 - x0) - x_span) <= full_axis_tolerance * x_span
     full_y = abs((y1 - y0) - y_span) <= full_axis_tolerance * y_span
@@ -423,7 +482,7 @@ def _build_modal_boxes_from_item(item):
     return []
 
 
-def _apply_modal_boxes_to_figure(fig, boxes):
+def _apply_modal_boxes_to_figure(fig, boxes, revision_bump=None):
     if hasattr(fig, "to_dict"):
         fig = fig.to_dict()
     if not isinstance(fig, dict):
@@ -465,6 +524,8 @@ def _apply_modal_boxes_to_figure(fig, boxes):
     delete_x = []
     delete_y = []
     delete_indices = []
+
+    prepared_boxes = []
     for box_idx, box in enumerate(boxes or []):
         if not isinstance(box, dict):
             continue
@@ -472,46 +533,138 @@ def _apply_modal_boxes_to_figure(fig, boxes):
         if not shape_base:
             continue
         style = _box_style(box.get("source"), box.get("decision"))
+        rect = {
+            "x0": min(shape_base["x0"], shape_base["x1"]),
+            "x1": max(shape_base["x0"], shape_base["x1"]),
+            "y0": min(shape_base["y0"], shape_base["y1"]),
+            "y1": max(shape_base["y0"], shape_base["y1"]),
+        }
+        prepared_boxes.append(
+            {
+                "box_idx": box_idx,
+                "box": box,
+                "style": style,
+                "rect": rect,
+            }
+        )
+
+    all_rects = [entry["rect"] for entry in prepared_boxes]
+    placed_handles = []
+    x_min = axis_meta.get("x_min", 0.0)
+    x_max = axis_meta.get("x_max", 1.0)
+    y_min = axis_meta.get("y_min", 0.0)
+    y_max = axis_meta.get("y_max", 1.0)
+    # Keep all overlay elements strictly inside the spectrogram axes.
+    edge_pad_x = max(1e-6, 0.012 * x_span)
+    edge_pad_y = max(1e-6, 0.014 * y_span)
+    x_bound_min = x_min + edge_pad_x
+    x_bound_max = x_max - edge_pad_x
+    y_bound_min = y_min + edge_pad_y
+    y_bound_max = y_max - edge_pad_y
+    if x_bound_max <= x_bound_min:
+        x_bound_min, x_bound_max = x_min, x_max
+    if y_bound_max <= y_bound_min:
+        y_bound_min, y_bound_max = y_min, y_max
+
+    def _point_in_rect(x_val, y_val, rect, pad_x=0.0, pad_y=0.0):
+        return (
+            (rect["x0"] - pad_x) <= x_val <= (rect["x1"] + pad_x)
+            and (rect["y0"] - pad_y) <= y_val <= (rect["y1"] + pad_y)
+        )
+
+    def _choose_delete_handle(rect, box_index):
+        candidates = [
+            (rect["x1"] + 0.012 * x_span, rect["y1"] + 0.012 * y_span),  # top-right outside
+            (rect["x0"] - 0.012 * x_span, rect["y1"] + 0.012 * y_span),  # top-left outside
+            (rect["x1"] + 0.012 * x_span, rect["y0"] - 0.012 * y_span),  # bottom-right outside
+            (rect["x0"] - 0.012 * x_span, rect["y0"] - 0.012 * y_span),  # bottom-left outside
+            (rect["x1"] - 0.008 * x_span, rect["y1"] + 0.010 * y_span),  # near top-right
+            (rect["x0"] + 0.008 * x_span, rect["y1"] + 0.010 * y_span),  # near top-left
+        ]
+        pad_x = 0.002 * x_span
+        pad_y = 0.002 * y_span
+        min_dx = 0.020 * x_span
+        min_dy = 0.030 * y_span
+
+        for raw_x, raw_y in candidates:
+            x_val = max(x_bound_min, min(x_bound_max, raw_x))
+            y_val = max(y_bound_min, min(y_bound_max, raw_y))
+            if any(_point_in_rect(x_val, y_val, r, pad_x=pad_x, pad_y=pad_y) for r in all_rects):
+                continue
+            if any(abs(x_val - hx) <= min_dx and abs(y_val - hy) <= min_dy for hx, hy in placed_handles):
+                continue
+            return x_val, y_val
+
+        # Fallback search: sample a small deterministic grid inside plot bounds.
+        x_candidates = [x_bound_max - i * 0.06 * x_span for i in range(0, 12)]
+        y_candidates = [y_bound_max - j * 0.08 * y_span for j in range(0, 10)]
+        row_offset = box_index % 3
+        for y_val in y_candidates[row_offset:] + y_candidates[:row_offset]:
+            y_val = max(y_bound_min, min(y_bound_max, y_val))
+            for x_val in x_candidates:
+                x_val = max(x_bound_min, min(x_bound_max, x_val))
+                if any(_point_in_rect(x_val, y_val, r, pad_x=pad_x, pad_y=pad_y) for r in all_rects):
+                    continue
+                if any(abs(x_val - hx) <= min_dx and abs(y_val - hy) <= min_dy for hx, hy in placed_handles):
+                    continue
+                return x_val, y_val
+
+        # Fallback: keep near top-right with deterministic vertical staggering.
+        base_x = max(x_bound_min, min(x_bound_max, rect["x1"] - 0.006 * x_span))
+        base_y = max(y_bound_min, min(y_bound_max, rect["y1"] - 0.006 * y_span))
+        stagger = (box_index % 6) * 0.022 * y_span
+        return base_x, max(y_bound_min, min(y_bound_max, base_y - stagger))
+
+    for entry in prepared_boxes:
+        box_idx = entry["box_idx"]
+        box = entry["box"]
+        style = entry["style"]
+        rect = entry["rect"]
+
         shape_list.append(
             {
                 "type": "rect",
-                "x0": shape_base["x0"],
-                "x1": shape_base["x1"],
-                "y0": shape_base["y0"],
-                "y1": shape_base["y1"],
+                "x0": rect["x0"],
+                "x1": rect["x1"],
+                "y0": rect["y0"],
+                "y1": rect["y1"],
                 "line": {"color": style["line_color"], "width": 2, "dash": style["line_dash"]},
                 "fillcolor": style["fillcolor"],
                 "editable": True,
                 "layer": "above",
             }
         )
+
+        x_label = rect["x0"] + (0.004 * x_span)
+        y_label = rect["y1"] - (0.004 * y_span)
+        x_label = max(x_min, min(x_max, x_label))
+        y_label = max(y_min, min(y_max, y_label))
         annotations.append(
             {
-                "x": min(shape_base["x0"], shape_base["x1"]),
-                "y": max(shape_base["y0"], shape_base["y1"]),
+                "x": x_label,
+                "y": y_label,
                 "xref": "x",
                 "yref": "y",
                 "xanchor": "left",
-                "yanchor": "bottom",
+                "yanchor": "top",
                 "showarrow": False,
-                "text": str(box.get("label") or "Unlabeled"),
+                "editable": False,
+                "text": _leaf_label_text(box.get("label")),
                 "font": {"size": 10, "color": style["line_color"]},
                 "bgcolor": "rgba(255,255,255,0.55)",
                 "borderpad": 2,
             }
         )
 
-        # Inline delete handle in top-right corner of each box.
-        x_corner = max(shape_base["x0"], shape_base["x1"])
-        y_corner = max(shape_base["y0"], shape_base["y1"])
-        x_handle = max(axis_meta.get("x_min", 0.0), min(axis_meta.get("x_max", 1.0), x_corner - 0.012 * x_span))
-        y_handle = max(axis_meta.get("y_min", 0.0), min(axis_meta.get("y_max", 1.0), y_corner - 0.015 * y_span))
+        x_handle, y_handle = _choose_delete_handle(rect, box_idx)
+        placed_handles.append((x_handle, y_handle))
         delete_x.append(x_handle)
         delete_y.append(y_handle)
         delete_indices.append(box_idx)
 
     layout["shapes"] = shape_list
     layout["annotations"] = annotations
+    layout["editrevision"] = _modal_box_edit_revision(boxes, bump=revision_bump)
     fig_data = fig.get("data") or []
     if not isinstance(fig_data, list):
         fig_data = []
@@ -532,15 +685,34 @@ def _apply_modal_boxes_to_figure(fig, boxes):
                 "customdata": delete_indices,
                 "text": ["×"] * len(delete_indices),
                 "textposition": "middle center",
-                "textfont": {"size": 11, "color": "#ffffff"},
+                "textfont": {"size": 12, "color": "#ffffff"},
                 "marker": {
-                    "size": 15,
-                    "color": "rgba(220, 53, 69, 0.95)",
+                    "size": 18,
+                    "opacity": 1.0,
+                    "color": "rgba(220, 53, 69, 0.98)",
                     "line": {"color": "#ffffff", "width": 1},
                     "symbol": "square",
                 },
+                "opacity": 1.0,
+                "selectedpoints": [],
+                "selected": {
+                    "marker": {
+                        "opacity": 1.0,
+                        "color": "rgba(220, 53, 69, 0.98)",
+                        "line": {"color": "#ffffff", "width": 1},
+                    },
+                    "textfont": {"color": "#ffffff"},
+                },
+                "unselected": {
+                    "marker": {
+                        "opacity": 1.0,
+                        "color": "rgba(220, 53, 69, 0.98)",
+                        "line": {"color": "#ffffff", "width": 1},
+                    },
+                    "textfont": {"color": "#ffffff"},
+                },
                 "hovertemplate": "Delete box<extra></extra>",
-                "cliponaxis": False,
+                "cliponaxis": True,
             }
         )
     fig["data"] = fig_data
@@ -550,6 +722,14 @@ def _apply_modal_boxes_to_figure(fig, boxes):
 
 def _extract_label_extent_map_from_boxes(boxes):
     extent_map = {}
+    for label, extents in _extract_label_extent_list_map_from_boxes(boxes).items():
+        if extents:
+            extent_map[label] = extents[0]
+    return extent_map
+
+
+def _extract_label_extent_list_map_from_boxes(boxes):
+    extent_map = {}
     for box in boxes or []:
         if not isinstance(box, dict):
             continue
@@ -557,8 +737,10 @@ def _extract_label_extent_map_from_boxes(boxes):
         if not isinstance(label, str) or not label.strip():
             continue
         cleaned_extent = _clean_annotation_extent(box.get("annotation_extent"))
-        if cleaned_extent:
-            extent_map[label.strip()] = cleaned_extent
+        if not cleaned_extent:
+            continue
+        normalized = label.strip()
+        extent_map.setdefault(normalized, []).append(cleaned_extent)
     return extent_map
 
 
@@ -605,6 +787,16 @@ def _label_has_box(label, boxes):
     return False
 
 
+def _leaf_label_text(label):
+    if not isinstance(label, str):
+        return "Unlabeled"
+    parts = [part.strip() for part in label.split(">") if part.strip()]
+    if parts:
+        return parts[-1]
+    cleaned = label.strip()
+    return cleaned if cleaned else "Unlabeled"
+
+
 def _build_grid(items, mode, colormap, y_axis_scale, items_per_page):
     if not items:
         return [html.Div("No items loaded.", className="text-muted text-center p-4")]
@@ -639,17 +831,16 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
     needs_reverify = bool(annotations.get("needs_reverify"))
 
     rows = []
+    active_label, _ = _parse_active_box_target(active_box_label)
     for label in active_labels:
-        has_box = _label_has_box(label, boxes)
-        add_btn_color = "primary" if (active_box_label or "").strip() == label and not has_box else "outline-primary"
-        add_icon_class = "fas fa-check" if has_box else "fas fa-vector-square"
+        add_btn_color = "primary" if active_label == label else "outline-primary"
         delete_button = dbc.Button(
-            html.I(className="fas fa-trash"),
+            html.Span("×", className="modal-label-inline-delete-glyph"),
             id={"type": "modal-label-delete-btn", "label": label},
-            color="outline-danger",
+            color="link",
             size="sm",
             disabled=mode == "explore",
-            className="modal-label-icon-btn modal-label-delete-btn",
+            className="modal-label-inline-delete",
             title=f"Delete label: {label}",
             n_clicks=0,
         )
@@ -665,22 +856,27 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
         rows.append(
             html.Div(
                 [
-                    html.Span(label, className="modal-label-name"),
+                    html.Div(
+                        [
+                            html.Span(label, className="modal-label-text"),
+                            delete_action,
+                        ],
+                        className="modal-label-pill",
+                    ),
                     html.Div(
                         [
                             dbc.Button(
-                                html.I(className=add_icon_class),
+                                html.I(className="fas fa-plus"),
                                 id={"type": "modal-label-add-box", "label": label},
                                 color=add_btn_color,
                                 size="sm",
-                                disabled=(mode == "explore" or has_box),
+                                disabled=(mode == "explore"),
                                 className="modal-label-icon-btn modal-label-add-box-btn",
-                                title=f"Add box for: {label}",
+                                title=f"Add bounding box for: {label}",
                                 n_clicks=0,
                             ),
-                            delete_action,
                         ],
-                        className="modal-label-row-actions",
+                        className="modal-label-bbox-col",
                     ),
                 ],
                 className="modal-label-row",
@@ -747,7 +943,21 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
     return html.Div(
         [
             html.Div("Labels", className="small fw-semibold text-muted mb-2"),
-            html.Div(rows, className="modal-label-list") if rows else html.Div("No labels", className="text-muted small"),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Span("Label", className="modal-label-col-title"),
+                            html.Span("BBox", className="modal-bbox-col-title"),
+                        ],
+                        className="modal-label-table-header",
+                    ),
+                    html.Div(rows, className="modal-label-list"),
+                ],
+                className="modal-label-table",
+            )
+            if rows
+            else html.Div("No labels", className="text-muted small"),
             html.Div(status_note, className="modal-status-note") if status_note else None,
             html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
         ],
@@ -1775,13 +1985,16 @@ def register_callbacks(app, config):
                 break
 
         box_extent_map = {}
+        box_extent_lists = {}
         if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
-            box_extent_map = _extract_label_extent_map_from_boxes(modal_bbox_store.get("boxes") or [])
+            modal_boxes = modal_bbox_store.get("boxes") or []
+            box_extent_map = _extract_label_extent_map_from_boxes(modal_boxes)
+            box_extent_lists = _extract_label_extent_list_map_from_boxes(modal_boxes)
 
-        if box_extent_map:
+        if box_extent_lists:
             ordered = list(labels_to_confirm or [])
             seen = set(ordered)
-            for label in box_extent_map.keys():
+            for label in box_extent_lists.keys():
                 if label not in seen:
                     ordered.append(label)
                     seen.add(label)
@@ -1841,30 +2054,42 @@ def register_callbacks(app, config):
             if score is not None and score >= float(removed_threshold):
                 rejected_labels.add(label)
 
-        added_labels = {label for label in labels_set if label not in predicted_set}
-
         label_decisions = []
         for label in labels_to_confirm:
             if label in predicted_set:
                 decision = "accepted"
             else:
                 decision = "added"
+            threshold_for_label = float(last_add_threshold.get(label, threshold_used))
             entry = {
                 "label": label,
                 "decision": decision,
-                "threshold_used": float(last_add_threshold.get(label, threshold_used)),
+                "threshold_used": threshold_for_label,
             }
-            extent = box_extent_map.get(label) or model_extent_map.get(label)
+            label_extents = box_extent_lists.get(label) or []
+            extent = (label_extents[0] if label_extents else None) or model_extent_map.get(label)
             if extent:
                 entry["annotation_extent"] = extent
             label_decisions.append(entry)
+            for extra_extent in label_extents[1:]:
+                if not isinstance(extra_extent, dict):
+                    continue
+                label_decisions.append(
+                    {
+                        "label": label,
+                        "decision": decision,
+                        "threshold_used": threshold_for_label,
+                        "annotation_extent": extra_extent,
+                    }
+                )
         for label in sorted(rejected_labels - labels_set):
             entry = {
                 "label": label,
                 "decision": "rejected",
                 "threshold_used": float(last_remove_threshold.get(label, threshold_used)),
             }
-            extent = model_extent_map.get(label) or box_extent_map.get(label)
+            label_extents = box_extent_lists.get(label) or []
+            extent = model_extent_map.get(label) or (label_extents[0] if label_extents else box_extent_map.get(label))
             if extent:
                 entry["annotation_extent"] = extent
             label_decisions.append(entry)
@@ -1874,10 +2099,6 @@ def register_callbacks(app, config):
         verification = {
             "verified_at": datetime.now().isoformat(),
             "verified_by": profile_name or "anonymous",
-            "labels": labels_to_confirm,
-            "threshold_used": threshold_used,
-            "rejected_labels": sorted(rejected_labels),
-            "added_labels": sorted(added_labels),
             "label_decisions": label_decisions,
             "verification_status": "verified",
             "notes": note_text,
@@ -2302,17 +2523,21 @@ def register_callbacks(app, config):
         prevent_initial_call=True,
     )
     def set_modal_active_box_label(add_box_clicks, figure):
-        if not add_box_clicks or all((clicks or 0) <= 0 for clicks in add_box_clicks):
+        if not ctx.triggered or (ctx.triggered[0].get("value") or 0) <= 0:
             raise PreventUpdate
         triggered = ctx.triggered_id
         if not isinstance(triggered, dict):
             raise PreventUpdate
+        if triggered.get("type") != "modal-label-add-box":
+            raise PreventUpdate
         label = (triggered.get("label") or "").strip()
         if not label:
             raise PreventUpdate
+        # BBox '+' always allows drawing another box for the same label.
+        target = {"label": label, "allow_existing": True}
 
         if not isinstance(figure, dict):
-            return label, no_update
+            return target, no_update
 
         updated_figure = deepcopy(figure)
         layout = updated_figure.get("layout")
@@ -2320,7 +2545,7 @@ def register_callbacks(app, config):
             layout = {}
         layout["dragmode"] = "drawrect"
         updated_figure["layout"] = layout
-        return label, updated_figure
+        return target, updated_figure
 
     @app.callback(
         Output("label-data-store", "data", allow_duplicate=True),
@@ -2460,7 +2685,7 @@ def register_callbacks(app, config):
         boxes = deepcopy(store.get("boxes") or [])
         axis_meta = _axis_meta_from_figure(figure if isinstance(figure, dict) else {})
 
-        chosen_label = (active_box_label or "").strip()
+        chosen_label, allow_existing_label = _parse_active_box_target(active_box_label)
         _bbox_debug(
             "start",
             item_id=current_item_id,
@@ -2485,9 +2710,12 @@ def register_callbacks(app, config):
             for existing in boxes
             if isinstance(existing, dict)
         )
+        if allow_existing_label and chosen_label:
+            is_add_mode = True
         _bbox_debug(
             "mode_decision",
             is_add_mode=is_add_mode,
+            allow_existing_label=allow_existing_label,
             chosen_label=chosen_label,
             existing_labels=[(b.get("label") if isinstance(b, dict) else None) for b in boxes],
         )
@@ -2501,6 +2729,18 @@ def register_callbacks(app, config):
             y1 = _safe_float(raw_shape.get("y1"), None)
             if None in (x0, x1, y0, y1):
                 return None
+            if x0 > x1:
+                x0, x1 = x1, x0
+            if y0 > y1:
+                y0, y1 = y1, y0
+            x_min = axis_meta.get("x_min", 0.0)
+            x_max = axis_meta.get("x_max", 1.0)
+            y_min = axis_meta.get("y_min", 0.0)
+            y_max = axis_meta.get("y_max", 1.0)
+            x0 = max(x_min, min(x_max, x0))
+            x1 = max(x_min, min(x_max, x1))
+            y0 = max(y_min, min(y_max, y0))
+            y1 = max(y_min, min(y_max, y1))
             if x0 > x1:
                 x0, x1 = x1, x0
             if y0 > y1:
@@ -2575,7 +2815,10 @@ def register_callbacks(app, config):
 
                 if (
                     new_shape is not None
-                    and not any((existing.get("label") or "").strip() == chosen_label for existing in boxes)
+                    and (
+                        allow_existing_label
+                        or not any((existing.get("label") or "").strip() == chosen_label for existing in boxes)
+                    )
                 ):
                     extent = _shape_to_extent(new_shape, axis_meta)
                     if extent and extent.get("type") != "clip":
@@ -2649,7 +2892,10 @@ def register_callbacks(app, config):
                     if (
                         extent
                         and extent.get("type") != "clip"
-                        and not any((existing.get("label") or "").strip() == chosen_label for existing in boxes)
+                        and (
+                            allow_existing_label
+                            or not any((existing.get("label") or "").strip() == chosen_label for existing in boxes)
+                        )
                     ):
                         boxes.append(
                             {
@@ -2695,7 +2941,17 @@ def register_callbacks(app, config):
             raise PreventUpdate
         store["item_id"] = current_item_id
         store["boxes"] = boxes
-        updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, boxes)
+        updated_fig = _apply_modal_boxes_to_figure(
+            deepcopy(figure) if isinstance(figure, dict) else {},
+            boxes,
+            revision_bump=(time.time_ns() if force_resync else None),
+        )
+        if clear_active_label and isinstance(updated_fig, dict):
+            layout = updated_fig.get("layout")
+            if not isinstance(layout, dict):
+                layout = {}
+            layout["dragmode"] = "pan"
+            updated_fig["layout"] = layout
         if force_resync and not updated:
             _bbox_debug("return_resync_only", boxes_after=_bbox_debug_box_summary(boxes))
         _bbox_debug(
@@ -2719,9 +2975,27 @@ def register_callbacks(app, config):
         if not current_item_id:
             raise PreventUpdate
 
+        def _coerce_int(value):
+            if isinstance(value, bool) or value is None:
+                return None
+            if isinstance(value, (int, float)):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                try:
+                    return int(float(text))
+                except (TypeError, ValueError):
+                    return None
+            return None
+
         points = click_data.get("points") if isinstance(click_data, dict) else None
         point = points[0] if isinstance(points, list) and points and isinstance(points[0], dict) else None
-        curve_number = point.get("curveNumber") if isinstance(point, dict) else None
+        curve_number = _coerce_int(point.get("curveNumber")) if isinstance(point, dict) else None
         custom_data = point.get("customdata") if isinstance(point, dict) else None
         _bbox_debug(
             "inline_delete_start",
@@ -2731,7 +3005,7 @@ def register_callbacks(app, config):
             curve_number=curve_number,
             custom_data=custom_data,
         )
-        if not isinstance(curve_number, int):
+        if curve_number is None:
             raise PreventUpdate
 
         fig_data = figure.get("data") if isinstance(figure, dict) else None
@@ -2742,12 +3016,11 @@ def register_callbacks(app, config):
             raise PreventUpdate
 
         box_index = None
-        if isinstance(custom_data, (int, float)):
-            box_index = int(custom_data)
+        if isinstance(custom_data, (int, float, str)):
+            box_index = _coerce_int(custom_data)
         elif isinstance(custom_data, list) and custom_data:
             first_val = custom_data[0]
-            if isinstance(first_val, (int, float)):
-                box_index = int(first_val)
+            box_index = _coerce_int(first_val)
         if box_index is None:
             _bbox_debug("inline_delete_missing_index", custom_data=custom_data)
             raise PreventUpdate
@@ -2766,7 +3039,11 @@ def register_callbacks(app, config):
                 box_index=box_index,
                 total_boxes=len(boxes),
             )
-            updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, boxes)
+            updated_fig = _apply_modal_boxes_to_figure(
+                deepcopy(figure) if isinstance(figure, dict) else {},
+                boxes,
+                revision_bump=time.time_ns(),
+            )
             return store, updated_fig, no_update
 
         _bbox_debug("inline_delete_remove_index", box_index=box_index, box=boxes[box_index])
@@ -2775,6 +3052,12 @@ def register_callbacks(app, config):
         store["item_id"] = current_item_id
         store["boxes"] = boxes
         updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, boxes)
+        if isinstance(updated_fig, dict):
+            layout = updated_fig.get("layout")
+            if not isinstance(layout, dict):
+                layout = {}
+            layout["dragmode"] = "pan"
+            updated_fig["layout"] = layout
         _bbox_debug("inline_delete_return", boxes_after=_bbox_debug_box_summary(boxes))
         return store, updated_fig, no_update
 

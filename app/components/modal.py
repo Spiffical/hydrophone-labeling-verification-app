@@ -97,15 +97,21 @@ def create_spectrogram_modal():
                                 'displaylogo': False,
                                 'modeBarButtonsToAdd': ['drawrect', 'eraseshape'],
                                 'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-                                'editable': True,
-                                'edits': {'shapePosition': True},
+                                # Keep shape editing enabled, but disable text/title editing.
+                                'editable': False,
+                                'edits': {
+                                    'shapePosition': True,
+                                    'annotationText': False,
+                                    'annotationPosition': False,
+                                    'titleText': False,
+                                },
                             }
                         )
                     ], className="p-0")
                 ], className="spectrogram-zoom-card mb-4"),
 
                 html.Div(
-                    "Click Add Box beside a label, then draw a rectangle. Drag edges/corners to edit. Click the red × on a box corner to delete it.",
+                    "Use the BBox + button to draw a box for a label. Click + again to add another box for the same label. Delete boxes from the red × on each box.",
                     className="modal-bbox-hint mb-2",
                 ),
 

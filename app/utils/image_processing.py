@@ -285,10 +285,13 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     )
     
     fig.update_layout(
+        title=dict(text=""),
         xaxis=dict(title=x_label, showgrid=True, tickformat=".2f"),
         yaxis=dict(title=y_axis_title, showgrid=True, type=y_axis_type),
         margin=dict(l=40, r=20, t=20, b=40),
         height=500,
+        dragmode="pan",
+        clickmode="event+select",
         template="plotly_white",
         # Needed to convert drawn/edited plot coordinates back to schema units.
         meta={

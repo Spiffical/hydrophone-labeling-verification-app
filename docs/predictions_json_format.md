@@ -352,6 +352,10 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 
 **Latest verification is the current ground truth** (last item in array).
 
+`label_decisions` is canonical. Avoid redundant verification-level summaries
+(`labels`, `added_labels`, `rejected_labels`, or top-level `threshold_used`);
+derive those when needed.
+
 When precise bounds are unavailable, use `annotation_extent.type: "clip"` and
 reference the underlying file via `items[].source_audio`.
 

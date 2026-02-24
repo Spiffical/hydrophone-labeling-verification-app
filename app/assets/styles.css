@@ -2468,6 +2468,11 @@ body.theme-dark .dash-range-slider-input,
     font-size: 12px;
 }
 
+#modal-image-graph .scatterlayer .trace:last-child .points path,
+#modal-image-graph .scatterlayer .trace:last-child text {
+    cursor: pointer !important;
+}
+
 .modal-bbox-list {
     max-height: 160px;
     overflow-y: auto;
@@ -2502,6 +2507,33 @@ body.theme-dark .dash-range-slider-input,
     color: var(--text);
 }
 
+.modal-label-table {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal-label-table-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+    align-items: center;
+    padding: 0 4px;
+}
+
+.modal-label-col-title,
+.modal-bbox-col-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.modal-bbox-col-title {
+    text-align: center;
+}
+
 .modal-label-list {
     display: flex;
     flex-direction: column;
@@ -2513,32 +2545,35 @@ body.theme-dark .dash-range-slider-input,
 
 .modal-label-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 42px;
     gap: 8px;
-    align-items: start;
+    align-items: center;
 }
 
-.modal-label-name {
-    display: inline-block;
+.modal-label-pill {
+    position: relative;
+    display: block;
     font-size: 12px;
     font-weight: 600;
     color: var(--accent);
     background: var(--accent-subtle);
     border: 1px solid rgba(13, 110, 253, 0.35);
     border-radius: 6px;
-    padding: 4px 10px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    padding: 4px 22px 4px 10px;
     line-height: 1.25;
     max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-.modal-label-row-actions {
+.modal-label-text {
+    display: block;
+}
+
+.modal-label-bbox-col {
     display: inline-flex;
-    gap: 6px;
     align-items: center;
-    padding-top: 1px;
+    justify-content: center;
 }
 
 .modal-label-icon-btn {
@@ -2553,6 +2588,41 @@ body.theme-dark .dash-range-slider-input,
 
 .modal-label-icon-btn i {
     font-size: 12px;
+    line-height: 1;
+}
+
+.modal-label-inline-delete {
+    position: absolute !important;
+    top: 1px;
+    right: 1px;
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 3px !important;
+    background: transparent !important;
+    color: var(--accent) !important;
+    line-height: 1 !important;
+    text-decoration: none !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.9;
+}
+
+.modal-label-inline-delete:hover,
+.modal-label-inline-delete:focus {
+    color: #dc3545 !important;
+    background: rgba(220, 53, 69, 0.08) !important;
+    opacity: 1;
+}
+
+.modal-label-inline-delete-glyph {
+    font-size: 12px;
+    font-weight: 700;
+    transform: translateY(-1px);
     line-height: 1;
 }
 
@@ -2630,16 +2700,36 @@ body.theme-dark .modal-bbox-list,
 
 body.theme-dark .modal-bbox-label,
 .theme-dark .modal-bbox-label,
-body.theme-dark .modal-label-name,
-.theme-dark .modal-label-name {
+body.theme-dark .modal-label-pill,
+.theme-dark .modal-label-pill {
     color: #e6edf3 !important;
 }
 
-body.theme-dark .modal-label-name,
-.theme-dark .modal-label-name {
+body.theme-dark .modal-label-pill,
+.theme-dark .modal-label-pill {
     background: rgba(56, 139, 253, 0.2) !important;
     border-color: rgba(56, 139, 253, 0.45) !important;
     color: #8fc2ff !important;
+}
+
+body.theme-dark .modal-label-col-title,
+.theme-dark .modal-label-col-title,
+body.theme-dark .modal-bbox-col-title,
+.theme-dark .modal-bbox-col-title {
+    color: #9da7b3 !important;
+}
+
+body.theme-dark .modal-label-inline-delete,
+.theme-dark .modal-label-inline-delete {
+    color: #8fc2ff !important;
+}
+
+body.theme-dark .modal-label-inline-delete:hover,
+.theme-dark .modal-label-inline-delete:hover,
+body.theme-dark .modal-label-inline-delete:focus,
+.theme-dark .modal-label-inline-delete:focus {
+    color: #ff7b72 !important;
+    background: rgba(248, 81, 73, 0.16) !important;
 }
 
 body.theme-dark .modal-bbox-hint,
@@ -2684,13 +2774,8 @@ body.theme-dark .spectrogram-zoom-modal .small,
     }
 
     .modal-label-row {
-        grid-template-columns: 1fr;
-        gap: 6px;
-    }
-
-    .modal-label-row-actions {
-        width: 100%;
-        justify-content: flex-start;
+        grid-template-columns: minmax(0, 1fr) 42px;
+        gap: 8px;
     }
 }
 
