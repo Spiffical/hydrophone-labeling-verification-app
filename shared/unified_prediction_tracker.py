@@ -17,7 +17,7 @@ Usage:
 
     # For single-class detector (e.g., whale)
     tracker.add_item(
-        item_id='seg_000',
+        item_id='ICLISTENHF1353_20190630T000458.000Z_20190630T000538.000Z',
         data_source_id='ICLISTENHF1353_CLAYO_2019',
         audio_start_time='2019-06-30T00:04:58Z',
         audio_end_time='2019-06-30T00:05:38Z',
@@ -255,7 +255,6 @@ class UnifiedPredictionTracker:
         audio_start_time: str,
         audio_end_time: str,
         model_outputs: List[Dict[str, Any]],
-        segment_index: Optional[int] = None,
         spectrogram_mat_path: Optional[str] = None,
         spectrogram_png_path: Optional[str] = None,
         audio_path: Optional[str] = None,
@@ -264,13 +263,12 @@ class UnifiedPredictionTracker:
         """Add a prediction item.
 
         Args:
-            item_id: Unique identifier (convention: {device_code}_{ISO-timestamp}_seg{NNN})
+            item_id: Unique item identifier
             data_source_id: FK to data_sources[].data_source_id
             audio_start_time: Absolute start time of this clip (ISO format)
             audio_end_time: Absolute end time of this clip (ISO format)
             model_outputs: List of {class_hierarchy, score} dicts (optionally with
                 class_id and annotation_extent)
-            segment_index: Zero-based index when a recording is split into segments
             spectrogram_mat_path: Relative path to MAT spectral data file
             spectrogram_png_path: Relative path to spectrogram PNG image
             audio_path: Relative path to audio clip
@@ -284,8 +282,6 @@ class UnifiedPredictionTracker:
             "model_outputs": model_outputs,
             "verifications": [],
         }
-        if segment_index is not None:
-            item["segment_index"] = segment_index
 
         if source_audio is not None:
             item["source_audio"] = source_audio

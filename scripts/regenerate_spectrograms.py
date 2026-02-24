@@ -54,7 +54,7 @@ spec_gen = SpectrogramGenerator(
 flac_files = sorted(FLAC_DIR.glob('*.flac'))
 print(f"Found {len(flac_files)} FLAC files to process\n")
 
-total_segments = 0
+total_clips = 0
 
 for flac_idx, flac_path in enumerate(flac_files):
     print(f"[{flac_idx+1}/{len(flac_files)}] Processing {flac_path.name}...")
@@ -63,30 +63,30 @@ for flac_idx, flac_path in enumerate(flac_files):
     audio_data, sample_rate = sf.read(str(flac_path))
     audio_duration = len(audio_data) / sample_rate
     
-    # Calculate number of segments
-    n_segments = int(np.ceil(audio_duration / CONTEXT_DURATION))
+    # Calculate number of clips
+    n_clips = int(np.ceil(audio_duration / CONTEXT_DURATION))
     
-    print(f"  Duration: {audio_duration:.1f}s @ {sample_rate}Hz → {n_segments} segments")
+    print(f"  Duration: {audio_duration:.1f}s @ {sample_rate}Hz → {n_clips} clips")
     
-    for seg_idx in range(n_segments):
-        start_sec = seg_idx * CONTEXT_DURATION
+    for clip_idx in range(n_clips):
+        start_sec = clip_idx * CONTEXT_DURATION
         end_sec = min(start_sec + CONTEXT_DURATION, audio_duration)
         
         # Add temporal padding
         padded_start_sec = max(0, start_sec - TEMPORAL_PADDING)
         padded_end_sec = min(audio_duration, end_sec + TEMPORAL_PADDING)
         
-        # Extract padded segment
+        # Extract padded clip
         padded_start_sample = int(padded_start_sec * sample_rate)
         padded_end_sample = int(padded_end_sec * sample_rate)
-        padded_segment = audio_data[padded_start_sample:padded_end_sample]
+        padded_clip = audio_data[padded_start_sample:padded_end_sample]
         
         # Track actual padding
         actual_padding_before = start_sec - padded_start_sec
         actual_padding_after = padded_end_sec - end_sec
         
         # Generate spectrogram on padded audio
-        freqs, times, Sxx, power_db = spec_gen.compute_spectrogram(padded_segment, sample_rate)
+        freqs, times, Sxx, power_db = spec_gen.compute_spectrogram(padded_clip, sample_rate)
         
         # Trim spectrogram to target range
         target_start_time = actual_padding_before
@@ -96,7 +96,7 @@ for flac_idx, flac_path in enumerate(flac_files):
         time_indices = np.where(target_mask)[0]
         
         if len(time_indices) == 0:
-            print(f"    Warning: No valid time indices for segment {seg_idx}")
+            print(f"    Warning: No valid time indices for clip {clip_idx}")
             continue
         
         # Trim to target
@@ -118,7 +118,7 @@ for flac_idx, flac_path in enumerate(flac_files):
             power_db_cropped = power_db_trimmed
         
         # Create file ID
-        file_id = f"{flac_path.stem}_seg{seg_idx:03d}"
+        file_id = f"{flac_path.stem}_clip{clip_idx:03d}"
         
         # Save MAT file
         mat_path = MAT_DIR / f"{file_id}.mat"
@@ -138,26 +138,26 @@ for flac_idx, flac_path in enumerate(flac_files):
         png_path = PNG_DIR / f"{file_id}.png"
         spec_gen.plot_spectrogram(
             freqs_cropped, times_trimmed, power_db_cropped,
-            title=f"Segment {seg_idx} (with padding)",
+            title=f"Clip {clip_idx} (with padding)",
             save_path=png_path
         )
         
-        # Save audio segment
+        # Save audio clip
         target_start_sample = int(start_sec * sample_rate)
         target_end_sample = int(end_sec * sample_rate)
-        target_segment = audio_data[target_start_sample:target_end_sample]
+        target_clip = audio_data[target_start_sample:target_end_sample]
         
         # Ensure exact length
         expected_samples = int(CONTEXT_DURATION * sample_rate)
-        if len(target_segment) < expected_samples:
-            target_segment = np.pad(target_segment, (0, expected_samples - len(target_segment)))
-        elif len(target_segment) > expected_samples:
-            target_segment = target_segment[:expected_samples]
+        if len(target_clip) < expected_samples:
+            target_clip = np.pad(target_clip, (0, expected_samples - len(target_clip)))
+        elif len(target_clip) > expected_samples:
+            target_clip = target_clip[:expected_samples]
         
         audio_path = AUDIO_DIR / f"{file_id}.wav"
-        sf.write(str(audio_path), target_segment, sample_rate)
+        sf.write(str(audio_path), target_clip, sample_rate)
         
-        total_segments += 1
+        total_clips += 1
     
     # Clean up matplotlib figures
     import matplotlib.pyplot as plt
@@ -165,7 +165,7 @@ for flac_idx, flac_path in enumerate(flac_files):
 
 print()
 print("=" * 70)
-print(f"✅ COMPLETE: Generated {total_segments} segments from {len(flac_files)} files")
+print(f"✅ COMPLETE: Generated {total_clips} clips from {len(flac_files)} files")
 print(f"   MAT files: {MAT_DIR}")
 print(f"   PNG files: {PNG_DIR}")
 print(f"   Audio files: {AUDIO_DIR}")

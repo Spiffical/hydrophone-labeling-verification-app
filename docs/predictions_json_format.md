@@ -158,7 +158,6 @@ The inference script automatically computes the hash for older checkpoints that 
   "overlap": 0.9,
   "frequency_limits": {"min": 5, "max": 100},
   "context_duration_sec": 40.0,
-  "segment_overlap": 0.5,
   "source": {
     "type": "computed" | "onc_download",
     "generator": "SpectrogramGenerator",
@@ -178,11 +177,10 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
 
 ```json
 {
-  "item_id": "ICLISTENHF1951_20250101T000000.996Z_seg000",
+  "item_id": "ICLISTENHF1951_20250101T000000.996Z",
   "data_source_id": "ICLISTENHF1951_BARK_2025",
   "audio_start_time": "2025-01-01T00:00:00.996Z",
   "audio_end_time": "2025-01-01T00:00:40.996Z",
-  "segment_index": 0,
 
   "model_outputs": [ ... ],  // Raw model predictions (empty [] for manual labels)
   "verifications": [ ... ],  // Human review rounds (label or verify)
@@ -191,9 +189,9 @@ Each item represents a **display unit** (e.g., a 40-second clip shown in the app
     "format": "flac"
   },
   "paths": {
-    "spectrogram_mat_path": "spectrograms/seg000.mat",
-    "spectrogram_png_path": "spectrograms/seg000.png",
-    "audio_path": "audio/seg000.wav"
+    "spectrogram_mat_path": "spectrograms/ICLISTENHF1951_20250101T000000.996Z.mat",
+    "spectrogram_png_path": "spectrograms/ICLISTENHF1951_20250101T000000.996Z.png",
+    "audio_path": "audio/ICLISTENHF1951_20250101T000000.996Z.wav"
   }
 }
 ```
@@ -391,11 +389,10 @@ reference the underlying file via `items[].source_audio`.
   },
   "items": [
     {
-      "item_id": "ICLISTENHF1353_20190701T000000.117Z_seg000",
+      "item_id": "ICLISTENHF1353_20190701T000000.117Z",
       "data_source_id": "ICLISTENHF1353_CLAYO_2019",
       "audio_start_time": "2019-07-01T00:00:00.117Z",
       "audio_end_time": "2019-07-01T00:00:40.117Z",
-      "segment_index": 0,
       "model_outputs": [
         {
           "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
@@ -428,9 +425,9 @@ reference the underlying file via `items[].source_audio`.
         }
       ],
       "paths": {
-        "spectrogram_mat_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.mat",
-        "spectrogram_png_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z_seg000.png",
-        "audio_path": "audio/ICLISTENHF1353_20190701T000000.117Z_seg000.wav"
+        "spectrogram_mat_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z.mat",
+        "spectrogram_png_path": "spectrograms/ICLISTENHF1353_20190701T000000.117Z.png",
+        "audio_path": "audio/ICLISTENHF1353_20190701T000000.117Z.wav"
       }
     }
   ]
@@ -486,7 +483,7 @@ reference the underlying file via `items[].source_audio`.
   "task_type": "classification",
   "items": [
     {
-      "item_id": "ICLISTENHF1951_20241231T235516.996Z_seg001",
+      "item_id": "ICLISTENHF1951_20241231T235516.996Z",
       "verifications": [
         {
           "verified_at": "2026-01-29T21:10:00Z",

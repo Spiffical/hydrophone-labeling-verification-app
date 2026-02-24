@@ -36,23 +36,23 @@ except ImportError:
     sys.exit(1)
 
 
-def compute_segment_windows(
+def compute_clip_windows(
     audio_duration: float,
     context_duration: float,
     min_overlap: float = 0.5
 ) -> List[Tuple[float, float]]:
-    """Compute segment windows that cleanly fit in audio file."""
+    """Compute clip windows that cleanly fit in an audio file."""
     windows = []
     
     if context_duration >= audio_duration:
         return [(0.0, min(context_duration, audio_duration))]
     
-    n_segments = int(np.ceil(audio_duration / context_duration))
+    n_clips = int(np.ceil(audio_duration / context_duration))
     
-    if n_segments > 1:
-        total_segment_time = n_segments * context_duration
-        total_overlap_needed = total_segment_time - audio_duration
-        overlap_per_gap = total_overlap_needed / (n_segments - 1)
+    if n_clips > 1:
+        total_clip_time = n_clips * context_duration
+        total_overlap_needed = total_clip_time - audio_duration
+        overlap_per_gap = total_overlap_needed / (n_clips - 1)
         overlap = max(overlap_per_gap, min_overlap)
         step = context_duration - overlap
         
@@ -95,11 +95,11 @@ def main():
     parser.add_argument('--start-date', type=str, default=None,
                         help='Start date (ISO format). Default: 2025-01-01T00:00:00Z')
     parser.add_argument('--context-duration', type=float, default=40.0,
-                        help='Segment duration in seconds (default: 40)')
+                        help='Clip duration in seconds (default: 40)')
     parser.add_argument('--save-png', action='store_true',
                         help='Also save PNG spectrogram images')
     parser.add_argument('--save-audio', action='store_true',
-                        help='Also save audio segment files')
+                        help='Also save audio clip files')
     
     args = parser.parse_args()
     
@@ -238,30 +238,30 @@ def main():
             if file_timestamp is None:
                 file_timestamp = datetime.now(timezone.utc)
             
-            # Compute segment windows
-            windows = compute_segment_windows(audio_duration, context_duration)
+            # Compute clip windows
+            windows = compute_clip_windows(audio_duration, context_duration)
             
-            print(f"  Audio: {audio_duration:.1f}s @ {sample_rate}Hz, {len(windows)} segments")
+            print(f"  Audio: {audio_duration:.1f}s @ {sample_rate}Hz, {len(windows)} clips")
             
-            for seg_idx, (start_sec, end_sec) in enumerate(windows):
-                # Extract segment
+            for clip_idx, (start_sec, end_sec) in enumerate(windows):
+                # Extract clip
                 start_sample = int(start_sec * sample_rate)
                 end_sample = int(end_sec * sample_rate)
-                segment = audio_data[start_sample:end_sample]
+                clip_audio = audio_data[start_sample:end_sample]
                 
                 # Ensure exact length
                 expected_samples = int(context_duration * sample_rate)
-                if len(segment) < expected_samples:
-                    segment = np.pad(segment, (0, expected_samples - len(segment)))
-                elif len(segment) > expected_samples:
-                    segment = segment[:expected_samples]
+                if len(clip_audio) < expected_samples:
+                    clip_audio = np.pad(clip_audio, (0, expected_samples - len(clip_audio)))
+                elif len(clip_audio) > expected_samples:
+                    clip_audio = clip_audio[:expected_samples]
                 
                 # Create file ID
-                file_id = f"{audio_path.stem}_seg{seg_idx:03d}"
-                seg_timestamp = file_timestamp + timedelta(seconds=start_sec)
+                file_id = f"{audio_path.stem}_clip{clip_idx:03d}"
+                clip_timestamp = file_timestamp + timedelta(seconds=start_sec)
                 
                 # Generate spectrogram
-                freqs, times, Sxx, power_db = spec_gen.compute_spectrogram(segment, sample_rate)
+                freqs, times, Sxx, power_db = spec_gen.compute_spectrogram(clip_audio, sample_rate)
                 
                 # Crop to frequency range
                 freq_mask = (freqs >= freq_min) & (freqs <= freq_max)
@@ -296,27 +296,24 @@ def main():
                     png_path = png_dir / f"{file_id}.png"
                     spec_gen.plot_spectrogram(
                         freqs_cropped, times, power_db_cropped,
-                        title=f"{args.device_code}: {seg_timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+                        title=f"{args.device_code}: {clip_timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
                         save_path=png_path
                     )
                     import matplotlib.pyplot as plt
                     plt.close('all')
                 
-                # Save audio segment if requested
-                seg_audio_path = None
+                # Save audio clip if requested
+                clip_audio_path = None
                 if args.save_audio and audio_dir:
-                    seg_audio_path = audio_dir / f"{file_id}.wav"
-                    sf.write(str(seg_audio_path), segment, sample_rate)
+                    clip_audio_path = audio_dir / f"{file_id}.wav"
+                    sf.write(str(clip_audio_path), clip_audio, sample_rate)
                 
                 processed_files.append({
                     "item_id": file_id,
                     "spectrogram_path": str(mat_path),
-                    "audio_file": str(seg_audio_path) if seg_audio_path else None,
+                    "audio_file": str(clip_audio_path) if clip_audio_path else None,
                     "source_audio": audio_path.name,
-                    "segment_index": seg_idx,
-                    "segment_start_sec": start_sec,
-                    "segment_end_sec": end_sec,
-                    "timestamp": seg_timestamp.isoformat(),
+                    "timestamp": clip_timestamp.isoformat(),
                 })
                 
         except Exception as e:
@@ -344,7 +341,6 @@ def main():
             "audio_file": item.get("audio_file"),
             "metadata": {
                 "source_audio": item["source_audio"],
-                "segment_index": item["segment_index"],
                 "timestamp": item["timestamp"],
             },
             "annotations": {
@@ -362,7 +358,7 @@ def main():
     print("=" * 60)
     print("DOWNLOAD COMPLETE")
     print("=" * 60)
-    print(f"Processed: {len(processed_files)} segments from {len(audio_files)} audio files")
+    print(f"Processed: {len(processed_files)} clips from {len(audio_files)} audio files")
     print(f"Failed: {len(failed_files)} files")
     print()
     print(f"Data saved to: {output_dir}")

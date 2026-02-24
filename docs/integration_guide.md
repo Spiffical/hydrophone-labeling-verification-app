@@ -51,23 +51,22 @@ tracker.set_pipeline_info(
 )
 
 # Add predictions (raw scores, NOT thresholded)
-for segment in segments:
+for clip in clips:
     tracker.add_item(
-        item_id=segment.name,
+        item_id=clip.name,
         data_source_id='ICLISTENHF1951_BARK_2025',
-        audio_start_time=segment.start_time.isoformat(),
-        audio_end_time=segment.end_time.isoformat(),
-        segment_index=segment.index,
-        spectrogram_mat_path=f'spectrograms/{segment.name}.mat',
-        spectrogram_png_path=f'spectrograms/{segment.name}.png',
-        audio_path=f'audio/{segment.name}.wav',
+        audio_start_time=clip.start_time.isoformat(),
+        audio_end_time=clip.end_time.isoformat(),
+        spectrogram_mat_path=f'spectrograms/{clip.name}.mat',
+        spectrogram_png_path=f'spectrograms/{clip.name}.png',
+        audio_path=f'audio/{clip.name}.wav',
         source_audio={
-            'file_name': f'{segment.name}.wav',
+            'file_name': f'{clip.name}.wav',
             'format': 'wav',
         },
         model_outputs=[{
             'class_hierarchy': 'Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale',
-            'score': model.predict(segment)  # Raw 0-1 score
+            'score': model.predict(clip)  # Raw 0-1 score
         }]
     )
 
@@ -132,7 +131,7 @@ model_id = compute_model_hash(model.state_dict())
   ],
   "items": [
     {
-      "item_id": "seg_000",
+      "item_id": "ICLISTENHF1951_20250101T000000.000Z",
       "data_source_id": "ICLISTENHF1951_BARK_2025",
       "audio_start_time": "2025-01-01T00:00:00Z",
       "audio_end_time": "2025-01-01T00:00:40Z",
@@ -149,11 +148,11 @@ model_id = compute_model_hash(model.state_dict())
       ],
       "verifications": [],
       "source_audio": {
-        "file_name": "seg_000.wav",
+        "file_name": "ICLISTENHF1951_20250101T000000.000Z.wav",
         "format": "wav"
       },
       "paths": {
-        "spectrogram_mat_path": "spectrograms/seg_000.mat"
+        "spectrogram_mat_path": "spectrograms/ICLISTENHF1951_20250101T000000.000Z.mat"
       }
     }
   ]

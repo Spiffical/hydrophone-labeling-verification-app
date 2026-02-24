@@ -2409,7 +2409,7 @@ def register_callbacks(app, config):
             pitch_value=pitch_value,
             eq_values=eq_values,
             gain_value=gain_value,
-        ) if audio_path else html.P("No audio available for this segment.", className="text-muted italic")
+        ) if audio_path else html.P("No audio available for this item.", className="text-muted italic")
 
         modal_actions = _build_modal_item_actions(
             active_item,

@@ -48,7 +48,6 @@ In both cases, human decisions are stored in `items[].verifications[]`.
       "data_source_id":   "...",   // FK → data_sources[].data_source_id
       "audio_start_time": "ISO-8601",
       "audio_end_time":   "ISO-8601",
-      "segment_index":    0,
       "model_outputs":    [ ... ], // raw scores per class (empty [] if no model)
       "verifications":    [ ... ], // human review rounds (label or verify)
       "source_audio":     { ... }, // canonical source-audio reference for ingestion
@@ -70,7 +69,7 @@ In both cases, human decisions are stored in `items[].verifications[]`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schema_version` | string | yes | Current version is `"2.1"` (`"2.0"` is legacy). |
+| `schema_version` | string | yes | Current version is `"2.1"`. |
 | `created_at` | date-time | yes | When this file was first written. |
 | `updated_at` | date-time | no | Last modification (e.g., after adding verifications). |
 | `task_type` | string | yes | Analysis task identifier (free-form). Recommended values: `whale_detection`, `anomaly_detection`, `classification`. Describes the analysis problem. |
@@ -133,7 +132,6 @@ Present even for ONC-downloaded products (to document what ONC generated).
 | `overlap` | number | no | Fractional overlap (0-1; common in acoustics). |
 | `frequency_limits` | `{min, max}` | no | Frequency range in Hz. |
 | `context_duration_sec` | number | no | Total clip duration in seconds (e.g. 40). |
-| `segment_overlap` | number | no | Overlap between consecutive segments (0-1). |
 | `crop_size` | integer | no | Pixel dimension if cropped for model input. |
 | `source` | object | no | See below. |
 
@@ -182,7 +180,6 @@ Each item is one display unit (one spectrogram / audio clip).
 | `data_source_id` | string | no | FK to `data_sources[].data_source_id`. Required when multiple data sources exist. |
 | `audio_start_time` | date-time | no | Absolute start time of this item clip (not necessarily full source recording). |
 | `audio_end_time` | date-time | no | Absolute end time of this item clip (not necessarily full source recording). |
-| `segment_index` | integer | no | Zero-based index when a longer recording is split into segments. |
 | `model_outputs` | array | no | See below. Defaults to `[]`. |
 | `verifications` | array | no | See below. Defaults to `[]`. |
 | `source_audio` | object | no | Canonical source audio file reference for this item. See below. |
@@ -332,7 +329,7 @@ These are local workflow references and are **not ingested by O3.0**.
 |---|---|---|
 | `spectrogram_mat_path` | string | MAT file with spectral data. |
 | `spectrogram_png_path` | string | Pre-rendered spectrogram image. |
-| `audio_path` | string | Segmented audio clip for this item. |
+| `audio_path` | string | Audio clip for this item. |
 
 ---
 
@@ -382,7 +379,7 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
   "task_type": "classification",
   "items": [
     {
-      "item_id": "ICLISTENHF1951_20241231T235516.996Z_seg001",
+      "item_id": "ICLISTENHF1951_20241231T235516.996Z",
       "verifications": [
         {
           "verified_at": "2026-01-29T21:10:00Z",
@@ -472,7 +469,6 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
     "overlap": 0.9,
     "frequency_limits": { "min": 5, "max": 100 },
     "context_duration_sec": 40.0,
-    "segment_overlap": 0.5,
     "crop_size": 96,
     "source": {
       "type": "computed",
@@ -494,11 +490,10 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
 
   "items": [
     {
-      "item_id": "ICLISTENHF1353_20190630T000458.000Z_seg000",
+      "item_id": "ICLISTENHF1353_20190630T000458.000Z",
       "data_source_id": "ICLISTENHF1353_CLAYO_2019",
       "audio_start_time": "2019-06-30T00:04:58Z",
       "audio_end_time": "2019-06-30T00:05:38Z",
-      "segment_index": 0,
       "model_outputs": [
         {
           "class_hierarchy": "Anthropophony > Vessel",
@@ -570,17 +565,16 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
         "format": "wav"
       },
       "paths": {
-        "spectrogram_mat_path": "2019-06-30/ICLISTENHF1353/spectrograms/seg000.mat",
-        "spectrogram_png_path": "2019-06-30/ICLISTENHF1353/spectrograms/seg000.png",
-        "audio_path": "2019-06-30/ICLISTENHF1353/audio/seg000.wav"
+        "spectrogram_mat_path": "2019-06-30/ICLISTENHF1353/spectrograms/ICLISTENHF1353_20190630T000458.000Z.mat",
+        "spectrogram_png_path": "2019-06-30/ICLISTENHF1353/spectrograms/ICLISTENHF1353_20190630T000458.000Z.png",
+        "audio_path": "2019-06-30/ICLISTENHF1353/audio/ICLISTENHF1353_20190630T000458.000Z.wav"
       }
     },
     {
-      "item_id": "ICLISTENHF1951_20190630T010458.000Z_seg000",
+      "item_id": "ICLISTENHF1951_20190630T010458.000Z",
       "data_source_id": "ICLISTENHF1951_BARK_2019",
       "audio_start_time": "2019-06-30T01:04:58Z",
       "audio_end_time": "2019-06-30T01:05:38Z",
-      "segment_index": 0,
       "model_outputs": [
         { "class_hierarchy": "Anthropophony > Vessel", "class_id": "anthro_vessel", "score": 0.44 },
         { "class_hierarchy": "Instrumentation > Malfunction > Data gap", "class_id": "instr_data_gap", "score": 0.02 },
@@ -592,9 +586,9 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
         "format": "wav"
       },
       "paths": {
-        "spectrogram_mat_path": "2019-06-30/ICLISTENHF1951/spectrograms/seg000.mat",
-        "spectrogram_png_path": "2019-06-30/ICLISTENHF1951/spectrograms/seg000.png",
-        "audio_path": "2019-06-30/ICLISTENHF1951/audio/seg000.wav"
+        "spectrogram_mat_path": "2019-06-30/ICLISTENHF1951/spectrograms/ICLISTENHF1951_20190630T010458.000Z.mat",
+        "spectrogram_png_path": "2019-06-30/ICLISTENHF1951/spectrograms/ICLISTENHF1951_20190630T010458.000Z.png",
+        "audio_path": "2019-06-30/ICLISTENHF1951/audio/ICLISTENHF1951_20190630T010458.000Z.wav"
       }
     }
   ]
@@ -675,7 +669,6 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
           "additionalProperties": false
         },
         "context_duration_sec": { "type": "number" },
-        "segment_overlap": { "type": "number" },
         "crop_size": { "type": "integer" },
         "source": {
           "type": "object",
@@ -744,7 +737,6 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
         "data_source_id": { "type": "string" },
         "audio_start_time": { "type": "string", "format": "date-time" },
         "audio_end_time": { "type": "string", "format": "date-time" },
-        "segment_index": { "type": "integer", "minimum": 0 },
         "model_outputs": {
           "type": "array",
           "items": { "$ref": "#/$defs/model_output" }

@@ -144,45 +144,40 @@ def convert_whale_predictions_to_unified(predictions_json: dict) -> dict:
     model = predictions_json.get("model", {})
     data_source = predictions_json.get("data_source", {})
 
-    segments = predictions_json.get("segments")
-    if segments:
-        for seg in segments:
-            items.append({
-                "item_id": seg.get("segment_id"),
-                "spectrogram_path": seg.get("spectrogram_png_path") or seg.get("spectrogram_path"),
-                "mat_path": seg.get("spectrogram_mat_path") or seg.get("mat_path"),
-                "audio_path": seg.get("audio_path"),
-                "timestamps": {"start": seg.get("audio_timestamp"), "end": None},
-                "device_code": data_source.get("device_code"),
-                "predictions": {
-                    "labels": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"]
-                    if seg.get("max_confidence", 0) > 0.5 else [],
-                    "confidence": {"Fin whale": seg.get("max_confidence", 0)},
-                    "model_id": model.get("model_id"),
-                },
-                "annotations": None,
-                "metadata": {
-                    "windows": seg.get("windows", []),
-                    "num_positive": seg.get("num_positive", {}),
-                },
-            })
-    else:
-        for pred in predictions_json.get("predictions", []):
-            items.append({
-                "item_id": pred.get("file_id"),
-                "spectrogram_path": pred.get("spectrogram_png_path") or pred.get("spectrogram_path"),
-                "mat_path": pred.get("spectrogram_mat_path") or pred.get("mat_path"),
-                "audio_path": pred.get("audio_path"),
-                "timestamps": {"start": pred.get("audio_timestamp"), "end": None},
-                "device_code": data_source.get("device_code"),
-                "predictions": {
-                    "labels": [],
-                    "confidence": {"confidence": pred.get("confidence", 0)},
-                    "model_id": model.get("model_id"),
-                },
-                "annotations": None,
-                "metadata": {},
-            })
+    entries = predictions_json.get("items")
+    if not entries:
+        entries = predictions_json.get("predictions")
+
+    for entry in entries or []:
+        max_confidence = entry.get("max_confidence")
+        confidence_value = max_confidence if max_confidence is not None else entry.get("confidence", 0)
+        item_id = entry.get("item_id") or entry.get("file_id")
+        if not item_id:
+            continue
+
+        metadata = {}
+        if "windows" in entry:
+            metadata["windows"] = entry.get("windows", [])
+        if "num_positive" in entry:
+            metadata["num_positive"] = entry.get("num_positive", {})
+
+        items.append({
+            "item_id": item_id,
+            "spectrogram_path": entry.get("spectrogram_png_path") or entry.get("spectrogram_path"),
+            "mat_path": entry.get("spectrogram_mat_path") or entry.get("mat_path"),
+            "audio_path": entry.get("audio_path"),
+            "timestamps": {"start": entry.get("audio_timestamp"), "end": None},
+            "device_code": data_source.get("device_code"),
+            "predictions": {
+                "labels": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"]
+                if max_confidence is not None and confidence_value > 0.5 else [],
+                "confidence": {"Fin whale": confidence_value}
+                if max_confidence is not None else {"confidence": confidence_value},
+                "model_id": model.get("model_id"),
+            },
+            "annotations": None,
+            "metadata": metadata,
+        })
 
     return {
         "version": "2.0",

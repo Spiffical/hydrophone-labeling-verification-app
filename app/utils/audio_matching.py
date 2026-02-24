@@ -77,8 +77,8 @@ def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tole
     audio_files.extend(glob.glob(os.path.join(audio_folder, '*.wav')))
     audio_files.extend(glob.glob(os.path.join(audio_folder, '*.mp3')))
     
-    # First, try exact filename match (same base name, different extension)
-    # This handles segmented files like *_seg000.mat matching *_seg000.wav
+    # First, try exact filename match (same base name, different extension).
+    # This covers paired MAT/WAV files that share the same item identifier.
     spec_base = os.path.splitext(spectrogram_filename)[0]
     for audio_file in audio_files:
         audio_base = os.path.splitext(os.path.basename(audio_file))[0]
