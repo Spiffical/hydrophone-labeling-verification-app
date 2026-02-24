@@ -354,81 +354,92 @@ function setupSliderInteraction(slider, audio) {
     let isActivelyDragging = false;
     let dragStarted = false;
     let mouseDownTime = 0;
+    let resumeAfterSeek = false;
+
+    const beginInteraction = function (e) {
+        mouseDownTime = Date.now();
+        dragStarted = false;
+        isActivelyDragging = true;
+        slider.isUserInteracting = true;
+
+        // Pause while scrubbing, then optionally resume on release.
+        resumeAfterSeek = !audio.paused && !audio.ended;
+        if (resumeAfterSeek) {
+            audio.pause();
+        }
+
+        handleSliderSeek(e, sliderContainer, slider, audio);
+
+        if (e && e.cancelable) {
+            e.preventDefault();
+        }
+        if (e) {
+            e.stopPropagation();
+        }
+    };
+
+    const continueInteraction = function (e) {
+        if (!isActivelyDragging) return;
+        dragStarted = true;
+        handleSliderSeek(e, sliderContainer, slider, audio);
+        if (e && e.cancelable) {
+            e.preventDefault();
+        }
+    };
+
+    const endInteraction = function (e, clickThresholdMs) {
+        if (!isActivelyDragging) return;
+
+        const clickDuration = Date.now() - mouseDownTime;
+        const shouldApplyFinalSeek = dragStarted || clickDuration < clickThresholdMs;
+        if (shouldApplyFinalSeek) {
+            handleSliderSeek(e, sliderContainer, slider, audio);
+        }
+
+        isActivelyDragging = false;
+        dragStarted = false;
+        slider.isUserInteracting = false;
+
+        if (resumeAfterSeek && audio.paused) {
+            audio.play().catch(function (error) {
+                console.error('Error resuming audio after seek:', error);
+            });
+        }
+        resumeAfterSeek = false;
+
+        if (e && e.cancelable) {
+            e.preventDefault();
+        }
+        if (e) {
+            e.stopPropagation();
+        }
+    };
 
     // Handle mouse down (potential start of drag)
     sliderContainer.addEventListener('mousedown', function (e) {
-        mouseDownTime = Date.now();
-        dragStarted = false;
-        isActivelyDragging = true;
-        slider.isUserInteracting = true;
-
-        // Prevent default to avoid conflicts with Dash
-        e.preventDefault();
-        e.stopPropagation();
+        beginInteraction(e);
     });
 
     sliderContainer.addEventListener('touchstart', function (e) {
-        mouseDownTime = Date.now();
-        dragStarted = false;
-        isActivelyDragging = true;
-        slider.isUserInteracting = true;
-        e.preventDefault();
-        e.stopPropagation();
+        beginInteraction(e);
     }, { passive: false });
 
     // Handle mouse move while potentially dragging
     document.addEventListener('mousemove', function (e) {
-        if (isActivelyDragging) {
-            if (!dragStarted) {
-                // This is the start of an actual drag
-                dragStarted = true;
-            }
-            handleSliderSeek(e, sliderContainer, slider, audio);
-        }
+        continueInteraction(e);
     });
 
     document.addEventListener('touchmove', function (e) {
-        if (isActivelyDragging) {
-            if (!dragStarted) {
-                dragStarted = true;
-            }
-            handleSliderSeek(e, sliderContainer, slider, audio);
-        }
+        continueInteraction(e);
     }, { passive: false });
 
     // Handle mouse up (end of interaction)
     document.addEventListener('mouseup', function (e) {
-        if (isActivelyDragging) {
-            const clickDuration = Date.now() - mouseDownTime;
-
-            // If it was a quick click (not a drag), handle it as a seek
-            if (!dragStarted && clickDuration < 200) {
-                handleSliderSeek(e, sliderContainer, slider, audio);
-            }
-
-            isActivelyDragging = false;
-            dragStarted = false;
-
-            // Give a small delay before allowing updates again
-            setTimeout(() => {
-                slider.isUserInteracting = false;
-            }, 100);
-        }
+        endInteraction(e, 200);
     });
 
     document.addEventListener('touchend', function (e) {
-        if (isActivelyDragging) {
-            const clickDuration = Date.now() - mouseDownTime;
-            if (!dragStarted && clickDuration < 250) {
-                handleSliderSeek(e, sliderContainer, slider, audio);
-            }
-
-            isActivelyDragging = false;
-            dragStarted = false;
-            setTimeout(() => {
-                slider.isUserInteracting = false;
-            }, 100);
-        }
+        endInteraction(e, 250);
     }, { passive: false });
 
     // Disable Dash's default click handling on the slider
@@ -440,7 +451,7 @@ function setupSliderInteraction(slider, audio) {
 
 // Improved slider seeking function
 function handleSliderSeek(e, sliderContainer, slider, audio) {
-    if (!audio.duration) return;
+    if (!isFinite(audio.duration) || audio.duration <= 0) return;
 
     const rect = sliderContainer.getBoundingClientRect();
     const clientX = getClientXFromEvent(e);
@@ -451,30 +462,16 @@ function handleSliderSeek(e, sliderContainer, slider, audio) {
 
     // Ensure we stay within bounds
     const clampedX = Math.max(0, Math.min(width, x));
+    if (width <= 0) return;
     const progress = (clampedX / width) * 100;
 
-    const newTime = (progress / 100) * audio.duration;
-
-    // If audio has ended and we're seeking to a position before the end, reset it
-    if (audio.ended && newTime < audio.duration - 0.1) {
-        console.log('Resetting ended audio for seeking');
-        // Reset the audio element to allow playback from earlier positions
-        audio.load();
-
-        // Wait for it to be ready, then set the time
-        audio.addEventListener('canplay', function onCanPlay() {
-            audio.removeEventListener('canplay', onCanPlay);
-            audio.currentTime = newTime;
-        });
-    } else {
-        // Normal seeking
-        audio.currentTime = newTime;
-    }
+    const targetTime = (progress / 100) * audio.duration;
+    const safeMax = Math.max(0, audio.duration - 0.01);
+    const newTime = clamp(targetTime, 0, safeMax);
+    audio.currentTime = newTime;
 
     // Update the visual position immediately during manual interaction
     updateSliderPositionImmediately(slider, progress);
-
-    console.log('Seeking to:', newTime, 'seconds (', progress, '%)');
 }
 
 // Function to update slider position immediately (used during manual seeking)

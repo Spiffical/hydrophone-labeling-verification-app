@@ -120,11 +120,20 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 rejected = [ld["label"] for ld in label_decisions if ld.get("decision") == "rejected"]
                 added = [ld["label"] for ld in label_decisions if ld.get("decision") == "added"]
                 threshold = label_decisions[0].get("threshold_used") if label_decisions else None
+                label_extents = {}
+                for ld in label_decisions:
+                    if ld.get("decision") not in ("accepted", "added"):
+                        continue
+                    label = ld.get("label")
+                    extent = ld.get("annotation_extent")
+                    if isinstance(label, str) and isinstance(extent, dict):
+                        label_extents[label] = extent
             else:
                 accepted = latest_verification.get("labels", [])
                 rejected = latest_verification.get("rejected_labels", [])
                 added = latest_verification.get("added_labels", [])
                 threshold = latest_verification.get("threshold_used")
+                label_extents = {}
 
             annotations = {
                 "labels": accepted + added,
@@ -136,6 +145,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 "threshold_used": threshold,
                 "rejected_labels": rejected,
                 "added_labels": added,
+                "label_extents": label_extents,
             }
 
         items.append({

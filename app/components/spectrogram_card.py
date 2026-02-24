@@ -98,7 +98,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
             ]
     elif mode == "label":
         actions = [
-            dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="primary"),
+            dbc.Button("Add Label(s)", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="primary"),
         ]
     else:
         actions = []

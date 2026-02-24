@@ -108,6 +108,7 @@ def save_labels(
     notes: Optional[str] = None,
     verified: Optional[bool] = None,
     metadata: Optional[dict] = None,
+    label_extents: Optional[Dict[str, dict]] = None,
 ) -> bool:
     """
     Save or update labels for a specific file using unified verifications format.
@@ -221,17 +222,23 @@ def save_labels(
             note_text = ""
 
         label_list = labels if isinstance(labels, list) else []
+        extent_map = label_extents if isinstance(label_extents, dict) else {}
 
         if label_list or note_text:
+            label_decisions = []
+            for lbl in label_list:
+                entry = {"label": lbl, "decision": "added", "threshold_used": None}
+                extent = extent_map.get(lbl)
+                if isinstance(extent, dict):
+                    entry["annotation_extent"] = extent
+                label_decisions.append(entry)
+
             new_verification = {
                 "verified_at": now,
                 "verified_by": by,
                 "verification_round": len(verifications) + 1,
                 "verification_status": "verified",
-                "label_decisions": [
-                    {"label": lbl, "decision": "added", "threshold_used": None}
-                    for lbl in label_list
-                ],
+                "label_decisions": label_decisions,
                 "label_source": "expert",
                 "notes": note_text,
             }

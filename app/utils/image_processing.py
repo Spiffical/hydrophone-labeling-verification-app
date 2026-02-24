@@ -193,16 +193,18 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     freq = spectrogram_data["freq"]
     time = spectrogram_data["time"]
 
-    # Normalize time to start from 0 for better visualization
-    # This shows the spectrogram window duration rather than position in source file
+    # Normalize time to start from 0 for better visualization.
+    # This shows clip-relative duration on x-axis, which aligns with annotation_extent seconds.
     if len(time) > 0 and time[0] > 1000:
         # Julian days - convert to minutes relative to start
         time_plot = (time - time[0]) * 24 * 60
         x_label = "Time (minutes)"
+        x_to_seconds = 60.0
     else:
         # Seconds - normalize to start from 0
         time_plot = time - time[0] if len(time) > 0 else time
         x_label = "Time (seconds)"
+        x_to_seconds = 1.0
 
     # Intelligent frequency unit detection and scaling
     if len(freq) > 0:
@@ -211,6 +213,7 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
             # Data is in Hz and has a high range -> convert to kHz for better readability
             freq_plot = freq / 1000
             y_unit = "kHz"
+            y_to_hz = 1000.0
         elif max_f > 2:
             # Data is likely already in the correct range (e.g., 0-100 Hz or 0-100 kHz)
             # For low-frequency baleen whale data (5-100), we show it as Hz
@@ -219,13 +222,16 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
             # assuming baleen whale context or that the values represent the actual Hz.
             freq_plot = freq
             y_unit = "Hz" if max_f < 1000 else "kHz"
+            y_to_hz = 1.0 if y_unit == "Hz" else 1000.0
         else:
             # Very small values -> likely already in kHz
             freq_plot = freq
             y_unit = "kHz"
+            y_to_hz = 1000.0
     else:
         freq_plot = freq
         y_unit = "Hz"
+        y_to_hz = 1.0
 
     # Determine appropriate color limits
     psd_valid = psd[np.isfinite(psd)]
@@ -269,12 +275,13 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         x0=0, x1=0,
         y0=0, y1=1,
         yref="paper",
+        editable=False,
+        name="playback-marker",
         line=dict(
             color="rgba(255, 0, 0, 0)",
             width=2,
             dash="solid"
-        ),
-        name="playback-marker"
+        )
     )
     
     fig.update_layout(
@@ -283,6 +290,17 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         margin=dict(l=40, r=20, t=20, b=40),
         height=500,
         template="plotly_white",
+        # Needed to convert drawn/edited plot coordinates back to schema units.
+        meta={
+            "x_to_seconds": x_to_seconds,
+            "y_to_hz": y_to_hz,
+            "x_min": float(np.min(time_plot)) if len(time_plot) else 0.0,
+            "x_max": float(np.max(time_plot)) if len(time_plot) else 1.0,
+            "y_min": float(np.min(freq_plot)) if len(freq_plot) else 0.0,
+            "y_max": float(np.max(freq_plot)) if len(freq_plot) else 1.0,
+            "x_unit": "minutes" if x_to_seconds == 60.0 else "seconds",
+            "y_unit": y_unit,
+        },
         uirevision='constant'
     )
 

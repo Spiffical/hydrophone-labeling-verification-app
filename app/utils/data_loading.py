@@ -154,12 +154,21 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     ld["label"] for ld in label_decisions
                     if ld.get("decision") in ("accepted", "added")
                 ]
+                label_extents = {}
+                for ld in label_decisions:
+                    if ld.get("decision") not in ("accepted", "added"):
+                        continue
+                    label = ld.get("label")
+                    extent = ld.get("annotation_extent")
+                    if isinstance(label, str) and isinstance(extent, dict):
+                        label_extents[label] = extent
                 entry = {
                     "labels": labels,
                     "notes": latest.get("notes", "") or "",
                     "annotated_by": latest.get("verified_by"),
                     "annotated_at": latest.get("verified_at"),
                     "verified": True,
+                    "label_extents": label_extents,
                 }
             else:
                 # Fallback to legacy annotations
@@ -170,6 +179,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "annotated_by": annotations.get("annotated_by"),
                     "annotated_at": annotations.get("annotated_at"),
                     "verified": bool(annotations.get("verified")),
+                    "label_extents": annotations.get("label_extents", {}) or {},
                 }
             for key in {item_id, _normalize_item_key(item_id)}:
                 if key:
@@ -204,6 +214,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
             "annotated_by": annotated_by,
             "annotated_at": annotated_at,
             "verified": verified,
+            "label_extents": entry.get("label_extents", {}) if isinstance(entry, dict) else {},
         }
         for key in {raw_key, _normalize_item_key(raw_key)}:
             if key:
@@ -452,6 +463,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
     elif structure_type == "device_only" and data_dir:
@@ -549,6 +561,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
         if not labels_file:
@@ -1269,6 +1282,7 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
             summary = data.get("summary", {})

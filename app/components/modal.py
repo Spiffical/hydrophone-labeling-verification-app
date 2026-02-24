@@ -95,11 +95,19 @@ def create_spectrogram_modal():
                             config={
                                 'displayModeBar': True, 
                                 'displaylogo': False,
-                                'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+                                'modeBarButtonsToAdd': ['drawrect', 'eraseshape'],
+                                'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+                                'editable': True,
+                                'edits': {'shapePosition': True},
                             }
                         )
                     ], className="p-0")
                 ], className="spectrogram-zoom-card mb-4"),
+
+                html.Div(
+                    "Click Add Box beside a label, then draw a rectangle. Drag edges/corners to edit. Click the red × on a box corner to delete it.",
+                    className="modal-bbox-hint mb-2",
+                ),
 
                 # Bottom split layout: labels/actions + audio controls
                 html.Div(
@@ -117,7 +125,9 @@ def create_spectrogram_modal():
                 ),
                 
                 # Current filename store
-                dcc.Store(id='current-filename', data=None)
+                dcc.Store(id='current-filename', data=None),
+                dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
+                dcc.Store(id='modal-active-box-label', data=None),
             ], className="p-4"),
             
             dbc.ModalFooter([

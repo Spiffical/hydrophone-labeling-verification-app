@@ -10,6 +10,7 @@ def save_label_mode(
     labels: List[str],
     annotated_by: Optional[str] = None,
     notes: Optional[str] = None,
+    label_extents: Optional[Dict[str, dict]] = None,
 ) -> None:
     """Save labels for an item to a labels.json file."""
     if not output_file:
@@ -17,7 +18,14 @@ def save_label_mode(
     
     # Use label_operations for proper file locking
     from app.utils.label_operations import save_labels
-    save_labels(output_file, item_id, labels, annotated_by=annotated_by, notes=notes)
+    save_labels(
+        output_file,
+        item_id,
+        labels,
+        annotated_by=annotated_by,
+        notes=notes,
+        label_extents=label_extents,
+    )
 
 
 def save_verify_predictions(predictions_path: Optional[str], item_id: str, verification: Dict) -> Optional[Dict]:

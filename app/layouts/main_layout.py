@@ -195,7 +195,7 @@ def create_main_layout(config: dict) -> html.Div:
             create_predictions_warning(),
 
             dbc.Modal([
-                dbc.ModalHeader(dbc.ModalTitle("Edit Labels")),
+                dbc.ModalHeader(dbc.ModalTitle("Add/Edit Label(s)")),
                 dbc.ModalBody(html.Div(id="label-editor-body")),
                 dbc.ModalFooter([
                     dbc.Button("Cancel", id="label-editor-cancel", color="secondary"),
