@@ -146,7 +146,11 @@ def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: st
                         step=0.001,
                         value=0,
                         marks=None,
-                        tooltip={"placement": "bottom", "always_visible": False},
+                        tooltip={
+                            "placement": "bottom",
+                            "always_visible": False,
+                            "style": {"display": "none"},
+                        },
                         className='custom-time-slider',
                         updatemode='drag'  # Allow dragging
                     ),
@@ -418,7 +422,11 @@ def create_modal_audio_player(
                     step=0.001,
                     value=0,
                     marks=None,
-                    tooltip={"placement": "bottom", "always_visible": False},
+                    tooltip={
+                        "placement": "bottom",
+                        "always_visible": False,
+                        "style": {"display": "none"},
+                    },
                     className='custom-time-slider modal-time-slider',
                     updatemode='drag'
                 ),

@@ -287,7 +287,12 @@ function updateSliderPositionSafely(slider, progress) {
 
 function getSliderRoot(slider) {
     if (!slider) return null;
-    return slider.querySelector('.dash-slider-root') || slider.querySelector('.rc-slider');
+    return (
+        slider.querySelector('.dash-slider-root') ||
+        slider.querySelector('.dash-slider') ||
+        slider.querySelector('.dash-slider-container') ||
+        slider.querySelector('.rc-slider')
+    );
 }
 
 function getSliderHandle(slider) {
@@ -355,12 +360,72 @@ function setupSliderInteraction(slider, audio) {
     let dragStarted = false;
     let mouseDownTime = 0;
     let resumeAfterSeek = false;
+    let fallbackSeekActive = false;
+    let fallbackResumeAfterSeek = false;
+    let fallbackInteractionTimer = null;
+
+    const clearFallbackTimer = function () {
+        if (fallbackInteractionTimer) {
+            clearTimeout(fallbackInteractionTimer);
+            fallbackInteractionTimer = null;
+        }
+    };
+
+    const beginFallbackSeek = function () {
+        if (fallbackSeekActive) return;
+        fallbackSeekActive = true;
+        slider.isUserInteracting = true;
+        fallbackResumeAfterSeek = !audio.paused && !audio.ended;
+        if (fallbackResumeAfterSeek) {
+            audio.pause();
+        }
+    };
+
+    const endFallbackSeek = function () {
+        clearFallbackTimer();
+        if (!fallbackSeekActive) return;
+        fallbackSeekActive = false;
+        if (!isActivelyDragging) {
+            slider.isUserInteracting = false;
+        }
+        if (fallbackResumeAfterSeek && audio.paused) {
+            audio.play().catch(function (error) {
+                console.error('Error resuming audio after fallback seek:', error);
+            });
+        }
+        fallbackResumeAfterSeek = false;
+    };
+
+    const scheduleFallbackRelease = function () {
+        clearFallbackTimer();
+        fallbackInteractionTimer = setTimeout(function () {
+            endFallbackSeek();
+        }, 220);
+    };
+
+    const syncAudioTimeFromSliderValue = function () {
+        if (!isFinite(audio.duration) || audio.duration <= 0) return;
+        const progress = readSliderValue(slider, 0, 100);
+        if (progress === null) return;
+        const targetTime = (progress / 100) * audio.duration;
+        const safeMax = Math.max(0, audio.duration - 0.01);
+        const newTime = clamp(targetTime, 0, safeMax);
+        if (!isFinite(newTime)) return;
+        // Avoid excessive tiny writes that can trigger seek churn on some browsers.
+        if (Math.abs((audio.currentTime || 0) - newTime) > 0.01) {
+            audio.currentTime = newTime;
+        }
+        updateSliderPositionImmediately(slider, progress);
+    };
 
     const beginInteraction = function (e) {
+        if (isActivelyDragging) return;
+        if (e && typeof e.button === 'number' && e.button !== 0) return;
         mouseDownTime = Date.now();
         dragStarted = false;
         isActivelyDragging = true;
         slider.isUserInteracting = true;
+        endFallbackSeek();
 
         // Pause while scrubbing, then optionally resume on release.
         resumeAfterSeek = !audio.paused && !audio.ended;
@@ -415,14 +480,13 @@ function setupSliderInteraction(slider, audio) {
         }
     };
 
-    // Handle mouse down (potential start of drag)
-    sliderContainer.addEventListener('mousedown', function (e) {
-        beginInteraction(e);
+    const startInteraction = function (e) { beginInteraction(e); };
+    const interactionTargets = [sliderContainer, slider].filter(Boolean);
+    interactionTargets.forEach(function (target) {
+        target.addEventListener('mousedown', startInteraction);
+        target.addEventListener('touchstart', startInteraction, { passive: false });
+        target.addEventListener('pointerdown', startInteraction);
     });
-
-    sliderContainer.addEventListener('touchstart', function (e) {
-        beginInteraction(e);
-    }, { passive: false });
 
     // Handle mouse move while potentially dragging
     document.addEventListener('mousemove', function (e) {
@@ -433,20 +497,86 @@ function setupSliderInteraction(slider, audio) {
         continueInteraction(e);
     }, { passive: false });
 
+    document.addEventListener('pointermove', function (e) {
+        continueInteraction(e);
+    });
+
     // Handle mouse up (end of interaction)
     document.addEventListener('mouseup', function (e) {
         endInteraction(e, 200);
+        endFallbackSeek();
     });
 
     document.addEventListener('touchend', function (e) {
         endInteraction(e, 250);
+        endFallbackSeek();
     }, { passive: false });
+
+    document.addEventListener('pointerup', function (e) {
+        endInteraction(e, 200);
+        endFallbackSeek();
+    });
+
+    document.addEventListener('pointercancel', function () {
+        endFallbackSeek();
+    });
 
     // Disable Dash's default click handling on the slider
     sliderContainer.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
     });
+
+    // Fallback synchronization path for Dash slider variants where direct pointer
+    // interception can miss: keep audio currentTime in sync with slider value.
+    if (!slider.hasFallbackSeekListeners) {
+        slider.hasFallbackSeekListeners = true;
+        const onInputLike = function () {
+            beginFallbackSeek();
+            syncAudioTimeFromSliderValue();
+            scheduleFallbackRelease();
+        };
+        slider.addEventListener('input', onInputLike, { passive: true });
+        slider.addEventListener('change', function () {
+            beginFallbackSeek();
+            syncAudioTimeFromSliderValue();
+            endFallbackSeek();
+        }, { passive: true });
+        slider.addEventListener('keydown', function (e) {
+            const key = e && e.key;
+            if (!key) return;
+            if (
+                key === 'ArrowLeft' ||
+                key === 'ArrowRight' ||
+                key === 'Home' ||
+                key === 'End' ||
+                key === 'PageUp' ||
+                key === 'PageDown'
+            ) {
+                beginFallbackSeek();
+                requestAnimationFrame(syncAudioTimeFromSliderValue);
+                scheduleFallbackRelease();
+            }
+        });
+        slider.addEventListener('keyup', function (e) {
+            const key = e && e.key;
+            if (!key) return;
+            if (
+                key === 'ArrowLeft' ||
+                key === 'ArrowRight' ||
+                key === 'Home' ||
+                key === 'End' ||
+                key === 'PageUp' ||
+                key === 'PageDown'
+            ) {
+                requestAnimationFrame(syncAudioTimeFromSliderValue);
+                endFallbackSeek();
+            }
+        });
+        slider.addEventListener('blur', function () {
+            endFallbackSeek();
+        });
+    }
 }
 
 // Improved slider seeking function

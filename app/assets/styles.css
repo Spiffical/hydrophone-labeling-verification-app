@@ -1484,10 +1484,15 @@ body.theme-dark .modal-audio-container .rc-slider-mark-text,
 /* Disable all tooltips and hover effects that could cause jumping */
 .custom-time-slider .rc-slider-tooltip,
 .custom-time-slider .rc-tooltip,
-.custom-time-slider [role="tooltip"] {
+.custom-time-slider [role="tooltip"],
+.custom-time-slider .dash-slider-tooltip,
+.custom-time-slider [class*="slider-tooltip"],
+.custom-time-slider [class*="tooltip-inner"],
+.custom-time-slider [class*="tooltip-content"] {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 /* Prevent any layout shifts on hover */
