@@ -4,6 +4,7 @@ import time
 import json
 import logging
 import hashlib
+import colorsys
 from copy import deepcopy
 from datetime import datetime
 from dash import Input, Output, State, callback, ctx, no_update, ALL, dcc
@@ -27,6 +28,11 @@ from app.utils.persistence import save_label_mode, save_verify_predictions
 logger = logging.getLogger(__name__)
 _BBOX_DEBUG_ENABLED = os.getenv("O3_BBOX_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 _BBOX_DELETE_TRACE_NAME = "__bbox_delete_handle__"
+_VERIFY_BADGE_DEBUG_ENABLED = os.getenv("O3_VERIFY_BADGE_DEBUG", "1").strip().lower() in {"1", "true", "yes", "on"}
+_TAB_ISO_DEBUG_ENABLED = os.getenv("O3_TAB_ISO_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+_RESET_PROFILE_ON_START = os.getenv("O3_RESET_PROFILE_ON_START", "0").strip().lower() in {"1", "true", "yes", "on"}
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PROFILE_REQUIRED_MESSAGE = "Name and a valid email are required before labeling or verification."
 
 
 def _bbox_debug(event, **payload):
@@ -37,6 +43,43 @@ def _bbox_debug(event, **payload):
     except Exception:
         serialized = str(payload)
     logger.warning("[BBOX_DEBUG] %s | %s", event, serialized)
+
+
+def _verify_badge_debug(event, **payload):
+    if not _VERIFY_BADGE_DEBUG_ENABLED:
+        return
+    try:
+        serialized = json.dumps(payload, default=str, ensure_ascii=True)
+    except Exception:
+        serialized = str(payload)
+    logger.warning("[VERIFY_BADGE_DEBUG] %s | %s", event, serialized)
+
+
+def _tab_iso_debug(event, **payload):
+    if not _TAB_ISO_DEBUG_ENABLED:
+        return
+    try:
+        serialized = json.dumps(payload, default=str, ensure_ascii=True)
+    except Exception:
+        serialized = str(payload)
+    logger.warning("[TAB_ISO_DEBUG] %s | %s", event, serialized)
+
+
+def _tab_data_snapshot(data):
+    if not isinstance(data, dict):
+        return {"loaded": False}
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    items = data.get("items") if isinstance(data.get("items"), list) else []
+    return {
+        "loaded": True,
+        "source_data_dir": data.get("source_data_dir"),
+        "summary_data_root": summary.get("data_root"),
+        "summary_active_date": summary.get("active_date"),
+        "summary_active_hydrophone": summary.get("active_hydrophone"),
+        "summary_predictions_file": summary.get("predictions_file"),
+        "summary_labels_file": summary.get("labels_file"),
+        "items_count": len(items),
+    }
 
 
 def _bbox_debug_box_summary(boxes):
@@ -89,6 +132,109 @@ def _parse_active_box_target(active_box_label):
     return "", False
 
 
+def _item_action_key(item):
+    if not isinstance(item, dict):
+        return ""
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    parts = [
+        item.get("item_id"),
+        item.get("mat_path"),
+        item.get("spectrogram_path"),
+        item.get("audio_path"),
+        metadata.get("predictions_path"),
+        metadata.get("date"),
+        metadata.get("hydrophone"),
+        item.get("device_code"),
+    ]
+    raw = "|".join("" if value is None else str(value) for value in parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _config_default_data_dir(cfg):
+    if not isinstance(cfg, dict):
+        return None
+    data_cfg = cfg.get("data") if isinstance(cfg.get("data"), dict) else {}
+    verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
+    return data_cfg.get("data_dir") or verify_cfg.get("dashboard_root")
+
+
+def _resolve_tab_data_dir(cfg, current_tab_data=None, trigger_cfg=None, trigger_source=None):
+    current_source = None
+    if isinstance(current_tab_data, dict):
+        current_source = current_tab_data.get("source_data_dir")
+
+    trigger_data_dir = _config_default_data_dir(trigger_cfg)
+    configured_data_dir = _config_default_data_dir(cfg)
+
+    # A data-config load is an explicit root switch for the active tab.
+    if trigger_source == "data-config-load":
+        return trigger_data_dir or current_source or configured_data_dir
+
+    # Otherwise keep each tab pinned to its own previously loaded source.
+    return current_source or trigger_data_dir or configured_data_dir
+
+
+def _parse_verify_target(target):
+    item_key = ""
+    item_id = ""
+    label = ""
+    if not isinstance(target, str):
+        return item_key, item_id, label
+    text = target.strip()
+    if not text:
+        return item_key, item_id, label
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            item_key = (payload.get("item_key") or "").strip()
+            item_id = (payload.get("item_id") or "").strip()
+            label = (payload.get("label") or "").strip()
+            if item_key or item_id or label:
+                return item_key, item_id, label
+    if "||" in text:
+        item_id, _, label = text.partition("||")
+        return "", (item_id or "").strip(), (label or "").strip()
+    return "", "", text
+
+
+def _profile_name_email(profile):
+    if not isinstance(profile, dict):
+        return "", ""
+    name = str(profile.get("name") or "").strip()
+    email = str(profile.get("email") or "").strip()
+    return name, email
+
+
+def _is_valid_email(email):
+    return bool(email and _EMAIL_RE.match(email))
+
+
+def _is_profile_complete(profile):
+    name, email = _profile_name_email(profile)
+    return bool(name) and _is_valid_email(email)
+
+
+def _profile_actor(profile):
+    name, email = _profile_name_email(profile)
+    if not name or not email:
+        return None
+    return f"{name} <{email}>"
+
+
+def _require_complete_profile(profile, action_name):
+    if _is_profile_complete(profile):
+        return
+    logger.warning(
+        "[PROFILE_REQUIRED] blocked_action=%s profile=%s",
+        action_name,
+        {"name": _profile_name_email(profile)[0], "email": _profile_name_email(profile)[1]},
+    )
+    raise PreventUpdate
+
+
 def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverification=False, label_extents=None):
     if not data or not item_id:
         return data
@@ -108,6 +254,8 @@ def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverifi
             if isinstance(label_extents, dict):
                 annotations["label_extents"] = label_extents
             annotations["annotated_at"] = datetime.now().isoformat()
+            # Preserve explicit reviewer intent, including "no labels selected".
+            annotations["has_manual_review"] = True
             
             if mode == "verify":
                 if is_reverification:
@@ -115,10 +263,15 @@ def _update_item_labels(data, item_id, labels, mode, user_name=None, is_reverifi
                     annotations["verified"] = True
                     annotations["verified_at"] = datetime.now().isoformat()
                     annotations["needs_reverify"] = False
+                    annotations["pending_save"] = False
                 else:
                     # User edited labels - if already verified, needs re-verification
                     if annotations.get("verified"):
                         annotations["needs_reverify"] = True
+                    annotations["pending_save"] = True
+            elif mode == "label":
+                # Label mode now uses explicit Save action.
+                annotations["pending_save"] = not bool(is_reverification)
             
             if user_name:
                 annotations["annotated_by"] = user_name
@@ -391,29 +544,67 @@ def _shape_to_extent(shape, axis_meta):
     }
 
 
-def _box_style(source, decision):
+def _label_color_rgb(label):
+    normalized = (label or "").strip().lower() or "unlabeled"
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+    hue = (int(digest[:8], 16) % 360) / 360.0
+    saturation = 0.64 + ((int(digest[8:10], 16) % 20) / 100.0)  # 0.64-0.83
+    value = 0.70 + ((int(digest[10:12], 16) % 18) / 100.0)      # 0.70-0.87
+    red, green, blue = colorsys.hsv_to_rgb(hue, saturation, value)
+    return int(red * 255), int(green * 255), int(blue * 255)
+
+
+def _rgba(rgb, alpha):
+    r_val, g_val, b_val = rgb
+    return f"rgba({r_val}, {g_val}, {b_val}, {alpha})"
+
+
+def _box_style(source, decision, label=None):
+    base_rgb = _label_color_rgb(label)
     if decision == "rejected":
         return {
-            "line_color": "rgba(220, 53, 69, 0.95)",
+            "line_color": _rgba(base_rgb, 0.98),
             "line_dash": "dot",
-            "fillcolor": "rgba(220, 53, 69, 0.18)",
+            "fillcolor": _rgba(base_rgb, 0.20),
         }
     if source == "model":
         return {
-            "line_color": "rgba(13, 110, 253, 0.95)",
+            "line_color": _rgba(base_rgb, 0.95),
             "line_dash": "dash",
-            "fillcolor": "rgba(13, 110, 253, 0.14)",
+            "fillcolor": _rgba(base_rgb, 0.14),
         }
     return {
-        "line_color": "rgba(25, 135, 84, 0.95)",
+        "line_color": _rgba(base_rgb, 0.95),
         "line_dash": "solid",
-        "fillcolor": "rgba(25, 135, 84, 0.18)",
+        "fillcolor": _rgba(base_rgb, 0.18),
     }
 
 
 def _build_modal_boxes_from_item(item):
     if not isinstance(item, dict):
         return []
+
+    annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
+    label_extents = annotations.get("label_extents") if isinstance(annotations, dict) else None
+    annotation_boxes = []
+    if isinstance(label_extents, dict):
+        for label, extent in label_extents.items():
+            cleaned = _clean_annotation_extent(extent)
+            if not label or not cleaned or cleaned.get("type") == "clip":
+                continue
+            annotation_boxes.append(
+                {
+                    "label": label,
+                    "annotation_extent": cleaned,
+                    "source": "label",
+                    "decision": "added",
+                }
+            )
+
+    # While verify edits are unsaved, annotation extents are the source of truth.
+    # This prevents stale boxes from the previous saved verification round.
+    if annotations.get("pending_save") or annotations.get("needs_reverify"):
+        return annotation_boxes
 
     verification_boxes = []
     verifications = item.get("verifications")
@@ -462,23 +653,8 @@ def _build_modal_boxes_from_item(item):
         return model_boxes
 
     # Fallback for label mode files saved from this app.
-    annotations = item.get("annotations") or {}
-    label_extents = annotations.get("label_extents") if isinstance(annotations, dict) else None
-    if isinstance(label_extents, dict):
-        fallback_boxes = []
-        for label, extent in label_extents.items():
-            cleaned = _clean_annotation_extent(extent)
-            if not label or not cleaned or cleaned.get("type") == "clip":
-                continue
-            fallback_boxes.append(
-                {
-                    "label": label,
-                    "annotation_extent": cleaned,
-                    "source": "label",
-                    "decision": "added",
-                }
-            )
-        return fallback_boxes
+    if annotation_boxes:
+        return annotation_boxes
     return []
 
 
@@ -532,7 +708,7 @@ def _apply_modal_boxes_to_figure(fig, boxes, revision_bump=None):
         shape_base = _extent_to_shape(box.get("annotation_extent"), axis_meta)
         if not shape_base:
             continue
-        style = _box_style(box.get("source"), box.get("decision"))
+        style = _box_style(box.get("source"), box.get("decision"), box.get("label"))
         rect = {
             "x0": min(shape_base["x0"], shape_base["x1"]),
             "x1": max(shape_base["x0"], shape_base["x1"]),
@@ -758,18 +934,232 @@ def _ordered_unique_labels(labels):
     return ordered
 
 
+def _split_hierarchy_label(label):
+    if not isinstance(label, str):
+        return []
+    return [part.strip() for part in label.split(">") if part and part.strip()]
+
+
+def _extract_verify_leaf_classes(items):
+    classes = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        predictions = item.get("predictions") or {}
+
+        model_outputs = predictions.get("model_outputs")
+        if isinstance(model_outputs, list):
+            for output in model_outputs:
+                if not isinstance(output, dict):
+                    continue
+                label = output.get("class_hierarchy")
+                if isinstance(label, str) and label.strip():
+                    classes.add(label.strip())
+
+        probs = predictions.get("confidence") or {}
+        if isinstance(probs, dict):
+            for label in probs.keys():
+                if isinstance(label, str) and label.strip():
+                    classes.add(label.strip())
+
+        labels = predictions.get("labels") or []
+        if isinstance(labels, list):
+            for label in labels:
+                if isinstance(label, str) and label.strip():
+                    classes.add(label.strip())
+    return sorted(classes, key=lambda text: text.lower())
+
+
+def _build_verify_filter_paths(classes):
+    tree = {}
+    for label in classes or []:
+        parts = _split_hierarchy_label(label)
+        if not parts:
+            continue
+        cursor = tree
+        for part in parts:
+            cursor = cursor.setdefault(part, {})
+
+    ordered_paths = []
+
+    def _walk(node, prefix):
+        for part in sorted(node.keys(), key=lambda text: text.lower()):
+            path_parts = prefix + [part]
+            ordered_paths.append(path_parts)
+            _walk(node[part], path_parts)
+
+    _walk(tree, [])
+
+    paths = []
+    for path_parts in ordered_paths:
+        paths.append(" > ".join(path_parts))
+    return paths
+
+
+def _build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
+    selected_set = set(_ordered_unique_labels(selected_paths or []))
+    expanded_set = set(_ordered_unique_labels(expanded_paths or []))
+
+    tree = {}
+    for path in paths or []:
+        parts = _split_hierarchy_label(path)
+        if not parts:
+            continue
+        cursor = tree
+        for part in parts:
+            cursor = cursor.setdefault(part, {})
+
+    def _walk(node, prefix, level):
+        rows = []
+        for name in sorted(node.keys(), key=lambda text: text.lower()):
+            path_parts = prefix + [name]
+            path = " > ".join(path_parts)
+            children = node[name]
+            has_children = bool(children)
+            is_expanded = path in expanded_set
+            is_selected = path in selected_set
+
+            rows.append(
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                (
+                                    html.Button(
+                                        "▾" if is_expanded else "▸",
+                                        id={"type": "verify-filter-expand", "path": path},
+                                        n_clicks=0,
+                                        className="verify-filter-expand-btn",
+                                        title=("Collapse" if is_expanded else "Expand"),
+                                        type="button",
+                                    )
+                                    if has_children
+                                    else html.Span("", className="verify-filter-expand-spacer")
+                                ),
+                                dbc.Checkbox(
+                                    id={"type": "verify-filter-checkbox", "path": path},
+                                    value=is_selected,
+                                    className="verify-filter-node-check",
+                                ),
+                                html.Span(
+                                    name,
+                                    className="verify-filter-node-label",
+                                    title=path,
+                                ),
+                            ],
+                            className="verify-filter-node-row",
+                            style={"paddingLeft": f"{level * 16}px"},
+                        ),
+                        html.Div(
+                            _walk(children, path_parts, level + 1),
+                            className="verify-filter-children",
+                            style={"display": "block" if (has_children and is_expanded) else "none"},
+                        ),
+                    ],
+                    className="verify-filter-node-group",
+                )
+            )
+        return rows
+
+    return _walk(tree, [], 0)
+
+
+def _normalize_verify_class_filter(class_filter):
+    if class_filter is None:
+        return None
+    if isinstance(class_filter, str):
+        normalized = class_filter.strip()
+        if not normalized or normalized.lower() == "all":
+            return None
+        return [normalized]
+    if isinstance(class_filter, (list, tuple, set)):
+        return _ordered_unique_labels(class_filter)
+    return None
+
+
+def _predicted_labels_match_filter(predicted_labels, selected_filter_paths):
+    if selected_filter_paths is None:
+        return True
+    if not selected_filter_paths:
+        return False
+    selected = [path for path in selected_filter_paths if isinstance(path, str) and path.strip()]
+    if not selected:
+        return False
+    for label in predicted_labels or []:
+        if not isinstance(label, str):
+            continue
+        normalized_label = label.strip()
+        if not normalized_label:
+            continue
+        for selected_path in selected:
+            if normalized_label == selected_path or normalized_label.startswith(f"{selected_path} > "):
+                return True
+    return False
+
+
+def _has_explicit_review(annotations):
+    if not isinstance(annotations, dict):
+        return False
+    return bool(
+        annotations.get("has_manual_review")
+        or annotations.get("verified")
+        or annotations.get("needs_reverify")
+        or annotations.get("annotated_at")
+        or annotations.get("annotated_by")
+    )
+
+
+def _has_pending_label_edits(annotations):
+    if not isinstance(annotations, dict):
+        return False
+    return bool(annotations.get("pending_save") or annotations.get("needs_reverify"))
+
+
 def _get_modal_label_sets(item, mode, thresholds):
     predictions = item.get("predictions") or {}
     annotations = item.get("annotations") or {}
     predicted_labels = _ordered_unique_labels(_filter_predictions(predictions, thresholds or {"__global__": 0.5}))
     verified_labels = _ordered_unique_labels(annotations.get("labels") or [])
+    has_explicit_review = _has_explicit_review(annotations)
 
     if mode == "verify":
-        active_labels = verified_labels or predicted_labels
+        # If a reviewer has interacted with this item, keep their chosen label-set
+        # (including empty) instead of falling back to model predictions.
+        active_labels = verified_labels if has_explicit_review else predicted_labels
     else:
-        active_labels = _ordered_unique_labels(verified_labels or predictions.get("labels") or [])
+        # Apply the same explicit-review behavior in label mode so deleting all
+        # labels does not fall back to default/predicted labels.
+        active_labels = (
+            verified_labels
+            if has_explicit_review
+            else _ordered_unique_labels(predictions.get("labels") or [])
+        )
 
     return predicted_labels, verified_labels, active_labels
+
+
+def _get_item_rejected_labels(item):
+    if not isinstance(item, dict):
+        return []
+    annotations = item.get("annotations") or {}
+    annotation_rejected = _ordered_unique_labels(annotations.get("rejected_labels") or [])
+    if annotation_rejected:
+        return annotation_rejected
+
+    verifications = item.get("verifications")
+    if isinstance(verifications, list) and verifications:
+        latest = verifications[-1] if isinstance(verifications[-1], dict) else {}
+        rejected = []
+        for decision in latest.get("label_decisions", []) or []:
+            if not isinstance(decision, dict):
+                continue
+            if decision.get("decision") != "rejected":
+                continue
+            label = decision.get("label")
+            if isinstance(label, str):
+                rejected.append(label)
+        return _ordered_unique_labels(rejected)
+    return []
 
 
 def _label_has_box(label, boxes):
@@ -827,39 +1217,42 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
 
     annotations = item.get("annotations") or {}
     predicted_labels, verified_labels, active_labels = _get_modal_label_sets(item, mode, thresholds)
+    active_labels = _ordered_unique_labels(active_labels)
+    rejected_labels = _get_item_rejected_labels(item) if mode == "verify" else []
+    has_explicit_review = _has_explicit_review(annotations)
+    accepted_set = set(active_labels)
+    rejected_labels = [label for label in _ordered_unique_labels(rejected_labels) if label not in accepted_set]
+    rejected_set = set(rejected_labels)
     is_verified = bool(annotations.get("verified"))
-    needs_reverify = bool(annotations.get("needs_reverify"))
+    has_pending_edits = _has_pending_label_edits(annotations)
 
-    rows = []
+    accepted_rows = []
     active_label, _ = _parse_active_box_target(active_box_label)
     for label in active_labels:
         add_btn_color = "primary" if active_label == label else "outline-primary"
-        delete_button = dbc.Button(
-            html.Span("×", className="modal-label-inline-delete-glyph"),
-            id={"type": "modal-label-delete-btn", "label": label},
-            color="link",
-            size="sm",
-            disabled=mode == "explore",
-            className="modal-label-inline-delete",
-            title=f"Delete label: {label}",
-            n_clicks=0,
-        )
-        delete_action = (
-            dcc.ConfirmDialogProvider(
+        delete_action = None
+        if mode != "explore":
+            delete_button = dbc.Button(
+                html.Span("×", className="modal-label-inline-delete-glyph"),
+                id={"type": "modal-label-delete-btn", "label": label},
+                color="link",
+                size="sm",
+                className="modal-label-inline-delete",
+                title=f"Delete label: {label}",
+                n_clicks=0,
+            )
+            delete_action = dcc.ConfirmDialogProvider(
                 delete_button,
                 id={"type": "modal-label-delete-confirm", "label": label},
-                message=f"Delete label '{label}'?",
+                message=f"Delete label '{label}' and all its bounding boxes?",
             )
-            if mode != "explore"
-            else delete_button
-        )
-        rows.append(
+        accepted_rows.append(
             html.Div(
                 [
                     html.Div(
                         [
                             html.Span(label, className="modal-label-text"),
-                            delete_action,
+                            delete_action if delete_action else None,
                         ],
                         className="modal-label-pill",
                     ),
@@ -883,53 +1276,186 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
             )
         )
 
+    verify_rows = []
+    if mode == "verify":
+        predicted_set = set(predicted_labels)
+        badge_models = []
+        for label in predicted_labels:
+            state = "model-unreviewed"
+            if label in rejected_set:
+                state = "model-rejected"
+            elif label in accepted_set or (is_verified and not has_pending_edits and label not in rejected_set):
+                state = "model-accepted"
+            badge_models.append(
+                {
+                    "label": label,
+                    "source": "model",
+                    "state": state,
+                    "actions": "accept_reject",
+                }
+            )
+        for label in active_labels:
+            if label in predicted_set:
+                continue
+            badge_models.append(
+                {
+                    "label": label,
+                    "source": "human",
+                    "state": "human-added",
+                    "actions": "delete",
+                }
+            )
+
+        for model in badge_models:
+            label = model.get("label")
+            if not isinstance(label, str):
+                continue
+            source = model.get("source")
+            state = model.get("state") or "model-unreviewed"
+            is_model = source == "model"
+            state_text = {
+                "model-unreviewed": "unverified",
+                "model-accepted": "accepted",
+                "model-rejected": "rejected",
+                "human-added": "",
+            }.get(state, "")
+            icon = (
+                html.I(className="bi bi-robot verify-label-source-icon", title="Model-derived label")
+                if is_model
+                else html.I(className="bi bi-person-fill verify-label-source-icon", title="Human-added label")
+            )
+
+            action_controls = None
+            if model.get("actions") == "accept_reject":
+                accept_disabled = state == "model-accepted"
+                reject_disabled = state == "model-rejected"
+                action_controls = html.Div(
+                    [
+                        html.Button(
+                            "✓",
+                            id={"type": "modal-verify-label-accept", "target": label},
+                            className="verify-inline-action verify-inline-action--accept",
+                            title=f"Accept: {label}",
+                            n_clicks=0,
+                            disabled=accept_disabled,
+                        ),
+                        html.Button(
+                            "×",
+                            id={"type": "modal-verify-label-reject", "target": label},
+                            className="verify-inline-action verify-inline-action--reject",
+                            title=f"Reject: {label}",
+                            n_clicks=0,
+                            disabled=reject_disabled,
+                        ),
+                    ],
+                    className="verify-inline-actions",
+                )
+            elif model.get("actions") == "delete":
+                action_controls = html.Div(
+                    [
+                        html.Button(
+                            "×",
+                            id={"type": "modal-verify-label-delete", "target": label},
+                            className="verify-inline-action verify-inline-action--reject",
+                            title=f"Delete: {label}",
+                            n_clicks=0,
+                        ),
+                    ],
+                    className="verify-inline-actions",
+                )
+
+            bbox_control = None
+            if label in accepted_set:
+                add_btn_color = "primary" if active_label == label else "outline-primary"
+                bbox_control = html.Div(
+                    [
+                        dbc.Button(
+                            html.I(className="fas fa-plus"),
+                            id={"type": "modal-label-add-box", "label": label},
+                            color=add_btn_color,
+                            size="sm",
+                            disabled=(mode == "explore"),
+                            className="modal-label-icon-btn modal-label-add-box-btn",
+                            title=f"Add bounding box for: {label}",
+                            n_clicks=0,
+                        ),
+                    ],
+                    className="modal-label-bbox-col",
+                )
+            else:
+                bbox_control = html.Div([], className="modal-label-bbox-col")
+
+            verify_rows.append(
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            [
+                                                icon,
+                                                html.Span(state_text, className="verify-label-state")
+                                                if state_text
+                                                else None,
+                                            ],
+                                            className="verify-label-row-meta",
+                                        ),
+                                        action_controls,
+                                    ],
+                                    className="verify-label-row-header",
+                                ),
+                                html.Span(label, className="verify-label-text verify-label-text--multiline"),
+                            ],
+                            className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
+                        ),
+                        bbox_control,
+                    ],
+                    className="modal-label-row modal-label-row--verify",
+                )
+            )
+
     action_buttons = []
     status_note = None
 
     if mode == "verify":
         if is_verified:
-            status_note = "Verified" if not needs_reverify else "Verified, label edits require re-verification"
-            action_buttons = [
-                dbc.Button(
-                    "Re-verify",
-                    id={"type": "modal-action-confirm", "scope": "modal"},
-                    color="success" if needs_reverify else "secondary",
-                    size="sm",
-                    disabled=not needs_reverify,
-                    outline=not needs_reverify,
-                    className="me-2",
-                ),
-                dbc.Button(
-                    "Revise",
-                    id={"type": "modal-action-edit", "scope": "modal"},
-                    color="primary",
-                    size="sm",
-                ),
-            ]
+            status_note = "Verified" if not has_pending_edits else "Verified, unsaved label edits"
         else:
-            status_note = "Unverified"
-            action_buttons = [
-                dbc.Button(
-                    "Confirm",
-                    id={"type": "modal-action-confirm", "scope": "modal"},
-                    color="success",
-                    size="sm",
-                    className="me-2",
-                ),
-                dbc.Button(
-                    "Edit",
-                    id={"type": "modal-action-edit", "scope": "modal"},
-                    color="secondary",
-                    size="sm",
-                ),
-            ]
-    elif mode == "label":
-        status_note = None
+            status_note = "Unverified" if not has_pending_edits else "Unverified, unsaved label edits"
         action_buttons = [
             dbc.Button(
-                "Add Label(s)",
+                "Save",
+                id={"type": "modal-action-confirm", "scope": "modal"},
+                color="success" if has_pending_edits else "secondary",
+                size="sm",
+                disabled=not has_pending_edits,
+                outline=not has_pending_edits,
+                className="me-2",
+            ),
+            dbc.Button(
+                "Edit",
                 id={"type": "modal-action-edit", "scope": "modal"},
-                color="primary",
+                color="secondary",
+                size="sm",
+            ),
+        ]
+    elif mode == "label":
+        status_note = "Unsaved label edits" if has_pending_edits else "All changes saved"
+        action_buttons = [
+            dbc.Button(
+                "Save",
+                id={"type": "modal-label-save", "scope": "modal"},
+                color="success" if has_pending_edits else "secondary",
+                disabled=not has_pending_edits,
+                outline=not has_pending_edits,
+                size="sm",
+                className="me-2",
+            ),
+            dbc.Button(
+                "Edit Labels",
+                id={"type": "modal-action-edit", "scope": "modal"},
+                color="secondary",
                 size="sm",
             ),
         ]
@@ -939,6 +1465,33 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
     if mode == "verify":
         verify_meta = f"Predicted: {len(predicted_labels)} | Current: {len(active_labels)}"
         status_note = f"{verify_meta} | {status_note}" if status_note else verify_meta
+
+    if mode == "verify":
+        return html.Div(
+            [
+                html.Div("Labels", className="small fw-semibold text-muted mb-2"),
+                (
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("Label", className="modal-label-col-title"),
+                                    html.Span("BBox", className="modal-bbox-col-title"),
+                                ],
+                                className="modal-label-table-header",
+                            ),
+                            html.Div(verify_rows, className="modal-label-list"),
+                        ],
+                        className="modal-label-table mb-3",
+                    )
+                    if verify_rows
+                    else html.Div("No labels", className="text-muted small mb-3")
+                ),
+                html.Div(status_note, className="modal-status-note") if status_note else None,
+                html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
+            ],
+            className="modal-item-actions-card",
+        )
 
     return html.Div(
         [
@@ -952,11 +1505,11 @@ def _build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_lab
                         ],
                         className="modal-label-table-header",
                     ),
-                    html.Div(rows, className="modal-label-list"),
+                    html.Div(accepted_rows, className="modal-label-list"),
                 ],
                 className="modal-label-table",
             )
-            if rows
+            if accepted_rows
             else html.Div("No labels", className="text-muted small"),
             html.Div(status_note, className="modal-status-note") if status_note else None,
             html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
@@ -979,7 +1532,12 @@ def _get_modal_navigation_items(
         data = verify_data or {}
         items = data.get("items", [])
         thresholds = thresholds or {"__global__": 0.5}
-        class_filter = class_filter or "all"
+        available_values = set(_build_verify_filter_paths(_extract_verify_leaf_classes(items)))
+        selected_filters = _normalize_verify_class_filter(class_filter)
+        if not available_values:
+            selected_filters = None
+        if selected_filters is not None:
+            selected_filters = [value for value in selected_filters if value in available_values]
         filtered_items = []
         for item in items:
             if not item:
@@ -990,12 +1548,13 @@ def _get_modal_navigation_items(
             predicted_labels = _filter_predictions(predictions, thresholds)
             if not is_verified and not predicted_labels:
                 continue
-            if class_filter != "all" and class_filter not in predicted_labels:
+            if not _predicted_labels_match_filter(predicted_labels, selected_filters):
                 continue
             display_item = dict(item)
             display_predictions = dict(predictions)
             display_predictions["labels"] = predicted_labels
             display_item["predictions"] = display_predictions
+            display_item["ui_rejected_labels"] = _get_item_rejected_labels(item)
             filtered_items.append(display_item)
         return filtered_items
 
@@ -1011,6 +1570,306 @@ def _get_modal_navigation_items(
 
 def _get_mode_data(mode, label_data, verify_data, explore_data):
     return {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
+
+
+def _replace_item_in_data(data, item_id, replacement_item):
+    if not isinstance(data, dict) or not item_id:
+        return data
+    updated = deepcopy(data)
+    items = updated.get("items")
+    if not isinstance(items, list):
+        return updated
+    replaced = False
+    for idx, item in enumerate(items):
+        if isinstance(item, dict) and item.get("item_id") == item_id:
+            items[idx] = deepcopy(replacement_item) if isinstance(replacement_item, dict) else replacement_item
+            replaced = True
+            break
+    if not replaced:
+        return updated
+
+    summary = updated.get("summary")
+    if isinstance(summary, dict):
+        summary["annotated"] = sum(
+            1
+            for item in items
+            if isinstance(item, dict) and ((item.get("annotations") or {}).get("labels") or [])
+        )
+        summary["verified"] = sum(
+            1
+            for item in items
+            if isinstance(item, dict) and bool((item.get("annotations") or {}).get("verified"))
+        )
+        updated["summary"] = summary
+    return updated
+
+
+def _modal_snapshot_payload(mode, item_id, item, boxes):
+    if not item_id or not isinstance(item, dict):
+        return None
+    return {
+        "mode": mode or "label",
+        "item_id": item_id,
+        "item": deepcopy(item),
+        "boxes": deepcopy(boxes) if isinstance(boxes, list) else [],
+    }
+
+
+def _is_modal_dirty(unsaved_store, current_item_id=None):
+    if not isinstance(unsaved_store, dict):
+        return False
+    if not bool(unsaved_store.get("dirty")):
+        return False
+    dirty_item = unsaved_store.get("item_id")
+    if current_item_id and dirty_item and dirty_item != current_item_id:
+        return False
+    return True
+
+
+def _persist_modal_item_before_exit(
+    mode,
+    item_id,
+    label_data,
+    verify_data,
+    explore_data,
+    thresholds,
+    profile,
+    bbox_store,
+    label_output_path,
+    cfg,
+):
+    """Persist modal edits for the active item, then allow pending modal action."""
+    mode = (mode or "label").strip()
+    if not item_id:
+        return no_update, no_update, no_update
+    _require_complete_profile(profile, "persist_modal_item_before_exit")
+
+    profile_name = _profile_actor(profile)
+
+    if mode == "label":
+        data = deepcopy(label_data or {})
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            return no_update, no_update, no_update
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            return no_update, no_update, no_update
+
+        _, _, active_labels = _get_modal_label_sets(active_item, "label", thresholds or {"__global__": 0.5})
+        labels_to_save = _ordered_unique_labels(active_labels)
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        note_text = annotations_obj.get("notes", "") if isinstance(annotations_obj.get("notes"), str) else ""
+
+        label_extents = {}
+        if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
+            label_extents = _extract_label_extent_map_from_boxes(bbox_store.get("boxes") or [])
+        else:
+            existing_extents = annotations_obj.get("label_extents")
+            if isinstance(existing_extents, dict):
+                for label, extent in existing_extents.items():
+                    if not isinstance(label, str):
+                        continue
+                    normalized_label = label.strip()
+                    if not normalized_label:
+                        continue
+                    cleaned_extent = _clean_annotation_extent(extent)
+                    if cleaned_extent:
+                        label_extents[normalized_label] = cleaned_extent
+
+        updated = _update_item_labels(
+            data,
+            item_id,
+            labels_to_save,
+            mode="label",
+            user_name=profile_name,
+            label_extents=label_extents or None,
+        )
+        updated = _update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
+
+        labels_file = (
+            label_output_path
+            or (updated or {}).get("summary", {}).get("labels_file")
+            or ((cfg or {}).get("label", {}).get("output_file"))
+        )
+        save_label_mode(
+            labels_file,
+            item_id,
+            labels_to_save,
+            annotated_by=profile_name,
+            notes=note_text,
+            label_extents=label_extents or None,
+        )
+        updated = _update_item_labels(
+            updated or {},
+            item_id,
+            labels_to_save,
+            mode="label",
+            user_name=profile_name,
+            is_reverification=True,
+            label_extents=label_extents or None,
+        )
+        return updated, no_update, no_update
+
+    if mode == "verify":
+        thresholds = thresholds or {"__global__": 0.5}
+        data = deepcopy(verify_data or {})
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            return no_update, no_update, no_update
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            return no_update, no_update, no_update
+
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        predictions = active_item.get("predictions") if isinstance(active_item.get("predictions"), dict) else {}
+
+        _, _, active_labels = _get_modal_label_sets(active_item, "verify", thresholds)
+        labels_to_confirm = _ordered_unique_labels(active_labels)
+        labels_set = set(labels_to_confirm)
+        predicted_labels = _ordered_unique_labels(_filter_predictions(predictions, thresholds))
+        predicted_set = set(predicted_labels)
+
+        model_extent_map = {}
+        model_scores = {}
+        model_outputs = predictions.get("model_outputs")
+        if isinstance(model_outputs, list):
+            for output in model_outputs:
+                if not isinstance(output, dict):
+                    continue
+                label = output.get("class_hierarchy")
+                if not isinstance(label, str) or not label.strip():
+                    continue
+                label = label.strip()
+                score = output.get("score")
+                if isinstance(score, (int, float)):
+                    model_scores[label] = float(score)
+                cleaned_extent = _clean_annotation_extent(output.get("annotation_extent"))
+                if cleaned_extent:
+                    model_extent_map[label] = cleaned_extent
+        else:
+            confidence = predictions.get("confidence") if isinstance(predictions.get("confidence"), dict) else {}
+            for label, score in confidence.items():
+                if isinstance(label, str) and isinstance(score, (int, float)):
+                    model_scores[label.strip()] = float(score)
+
+        box_extent_map = {}
+        box_extent_lists = {}
+        if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
+            modal_boxes = bbox_store.get("boxes") or []
+            box_extent_map = _extract_label_extent_map_from_boxes(modal_boxes)
+            box_extent_lists = _extract_label_extent_list_map_from_boxes(modal_boxes)
+        else:
+            existing_extents = annotations_obj.get("label_extents")
+            if isinstance(existing_extents, dict):
+                for label, extent in existing_extents.items():
+                    if not isinstance(label, str) or not label.strip():
+                        continue
+                    cleaned_extent = _clean_annotation_extent(extent)
+                    if not cleaned_extent:
+                        continue
+                    label = label.strip()
+                    box_extent_map[label] = cleaned_extent
+                    box_extent_lists[label] = [cleaned_extent]
+
+        threshold_used = float(thresholds.get("__global__", 0.5))
+        rejected_labels = set(_ordered_unique_labels(annotations_obj.get("rejected_labels") or []))
+        for label in predicted_labels:
+            if label not in labels_set:
+                rejected_labels.add(label)
+        for label in labels_to_confirm:
+            rejected_labels.discard(label)
+
+        label_decisions = []
+        for label in labels_to_confirm:
+            decision = "accepted" if label in predicted_set else "added"
+            entry = {
+                "label": label,
+                "decision": decision,
+                "threshold_used": threshold_used,
+            }
+            label_extents = box_extent_lists.get(label) or []
+            extent = (label_extents[0] if label_extents else None) or model_extent_map.get(label)
+            if extent:
+                entry["annotation_extent"] = extent
+            label_decisions.append(entry)
+            for extra_extent in label_extents[1:]:
+                if not isinstance(extra_extent, dict):
+                    continue
+                label_decisions.append(
+                    {
+                        "label": label,
+                        "decision": decision,
+                        "threshold_used": threshold_used,
+                        "annotation_extent": extra_extent,
+                    }
+                )
+
+        for label in sorted(rejected_labels - labels_set):
+            entry = {
+                "label": label,
+                "decision": "rejected",
+                "threshold_used": threshold_used,
+            }
+            label_extents = box_extent_lists.get(label) or []
+            extent = model_extent_map.get(label) or (label_extents[0] if label_extents else box_extent_map.get(label))
+            if extent:
+                entry["annotation_extent"] = extent
+            label_decisions.append(entry)
+
+        note_text = annotations_obj.get("notes", "") if isinstance(annotations_obj.get("notes"), str) else ""
+        verification = {
+            "verified_at": datetime.now().isoformat(),
+            "verified_by": profile_name or "anonymous",
+            "label_decisions": label_decisions,
+            "verification_status": "verified",
+            "notes": note_text,
+        }
+
+        predictions_path = (active_item.get("metadata") or {}).get("predictions_path")
+        if not predictions_path:
+            summary_pred = (data or {}).get("summary", {}).get("predictions_file")
+            if isinstance(summary_pred, str) and summary_pred.endswith(".json"):
+                predictions_path = summary_pred
+
+        updated = _update_item_labels(
+            data,
+            item_id,
+            labels_to_confirm,
+            mode="verify",
+            user_name=profile_name,
+            is_reverification=True,
+            label_extents=box_extent_map or None,
+        )
+        for item in (updated or {}).get("items", []):
+            if not isinstance(item, dict) or item.get("item_id") != item_id:
+                continue
+            item_annotations = item.get("annotations") or {}
+            item_annotations["rejected_labels"] = sorted(rejected_labels)
+            item["annotations"] = item_annotations
+            break
+
+        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        if stored_verification:
+            for item in (updated or {}).get("items", []):
+                if item.get("item_id") != item_id:
+                    continue
+                verifications = item.get("verifications")
+                if not isinstance(verifications, list):
+                    verifications = []
+                verifications.append(stored_verification)
+                item["verifications"] = verifications
+                break
+
+        return no_update, updated, no_update
+
+    # Explore mode is read-only.
+    return no_update, no_update, no_update
 
 
 def _create_folder_display(display_text, folders_list, data_root, popover_id):
@@ -1111,7 +1970,7 @@ def register_callbacks(app, config):
         if not n_clicks:
             raise PreventUpdate
         active_mode = mode or "label"
-        return {
+        payload = {
             "timestamp": time.time(),
             "mode": active_mode,
             "source": "global-load",
@@ -1119,6 +1978,15 @@ def register_callbacks(app, config):
             "date_value": date_value,
             "device_value": device_value,
         }
+        _tab_iso_debug(
+            "global_load_trigger",
+            n_clicks=n_clicks,
+            active_mode=active_mode,
+            date_value=date_value,
+            device_value=device_value,
+            cfg_data_dir=_config_default_data_dir(cfg or {}),
+        )
+        return payload
 
     @app.callback(
         Output("label-data-store", "data"),
@@ -1142,6 +2010,24 @@ def register_callbacks(app, config):
             trigger_mode = config_load_trigger.get("mode")
             trigger_source = config_load_trigger.get("source")
 
+        trigger_cfg_snapshot = (
+            config_load_trigger.get("config")
+            if isinstance(config_load_trigger, dict) and isinstance(config_load_trigger.get("config"), dict)
+            else None
+        )
+        _tab_iso_debug(
+            "load_label_start",
+            mode=mode,
+            trigger_mode=trigger_mode,
+            trigger_source=trigger_source,
+            triggered_props=sorted(triggered_props),
+            date_val=date_val,
+            device_val=device_val,
+            cfg_data_dir=_config_default_data_dir(cfg or {}),
+            trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg_snapshot),
+            current_label_snapshot=_tab_data_snapshot(current_label_data),
+        )
+
         # Only process if in label mode
         if mode != "label":
             raise PreventUpdate
@@ -1153,7 +2039,7 @@ def register_callbacks(app, config):
         # gets overwritten when loading data in other tabs (e.g., verify), so it won't match
         # the label data's source after switching tabs.
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_source = current_label_data and current_label_data.get("source_data_dir")
+        has_source = bool(current_label_data and current_label_data.get("source_data_dir"))
 
         # Load on: reload button, config load (for label mode only), or filter change (only if label data exists)
         # Note: trigger_mode == "label" means data-load-trigger-store was set for label mode,
@@ -1167,6 +2053,13 @@ def register_callbacks(app, config):
             config_panel_trigger or
             (filter_triggered and has_source)
         )
+        _tab_iso_debug(
+            "load_label_decision",
+            filter_triggered=bool(filter_triggered),
+            has_source=bool(has_source),
+            config_panel_trigger=config_panel_trigger,
+            should_load=should_load,
+        )
 
         if should_load:
             try:
@@ -1178,13 +2071,38 @@ def register_callbacks(app, config):
                     requested_date = config_load_trigger.get("date_value", requested_date)
                     requested_device = config_load_trigger.get("device_value", requested_device)
 
-                # The configured data root is authoritative across tabs.
                 effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
-                current_source_data_dir = current_label_data.get("source_data_dir") if current_label_data else None
-                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                active_data_dir = _resolve_tab_data_dir(
+                    cfg,
+                    current_tab_data=current_label_data,
+                    trigger_cfg=trigger_cfg,
+                    trigger_source=trigger_source,
+                )
+                _tab_iso_debug(
+                    "load_label_resolved_root",
+                    active_data_dir=active_data_dir,
+                    cfg_data_dir=_config_default_data_dir(cfg or {}),
+                    trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg or {}),
+                    current_source_data_dir=(current_label_data or {}).get("source_data_dir") if isinstance(current_label_data, dict) else None,
+                )
                 if active_data_dir:
                     data_cfg["data_dir"] = active_data_dir
+
+                # Keep Label mode labels source isolated from Verify/Explore config updates.
+                explicit_label_config_load = (
+                    "data-load-trigger-store" in triggered_props
+                    and trigger_source == "data-config-load"
+                    and trigger_mode == "label"
+                )
+                if not explicit_label_config_load and isinstance(current_label_data, dict):
+                    current_label_file = (
+                        (current_label_data.get("summary") or {}).get("labels_file")
+                        if isinstance(current_label_data.get("summary"), dict)
+                        else None
+                    )
+                    if current_label_file:
+                        data_cfg["predictions_file"] = current_label_file
                 effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "label", date_str=requested_date, hydrophone=requested_device)
@@ -1207,8 +2125,16 @@ def register_callbacks(app, config):
                 data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
+                _tab_iso_debug(
+                    "load_label_success",
+                    requested_date=requested_date,
+                    requested_device=requested_device,
+                    effective_predictions_file=(effective_cfg.get("data") or {}).get("predictions_file"),
+                    loaded_label_snapshot=_tab_data_snapshot(data),
+                )
                 return data
             except Exception as e:
+                _tab_iso_debug("load_label_error", error=str(e))
                 print(f"Error loading label dataset: {e}")
                 return {
                     "items": [],
@@ -1240,6 +2166,24 @@ def register_callbacks(app, config):
             trigger_mode = config_load_trigger.get("mode")
             trigger_source = config_load_trigger.get("source")
 
+        trigger_cfg_snapshot = (
+            config_load_trigger.get("config")
+            if isinstance(config_load_trigger, dict) and isinstance(config_load_trigger.get("config"), dict)
+            else None
+        )
+        _tab_iso_debug(
+            "load_verify_start",
+            mode=mode,
+            trigger_mode=trigger_mode,
+            trigger_source=trigger_source,
+            triggered_props=sorted(triggered_props),
+            date_val=date_val,
+            device_val=device_val,
+            cfg_data_dir=_config_default_data_dir(cfg or {}),
+            trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg_snapshot),
+            current_verify_snapshot=_tab_data_snapshot(current_verify_data),
+        )
+
         # Only process if in verify mode
         if mode != "verify":
             raise PreventUpdate
@@ -1248,7 +2192,7 @@ def register_callbacks(app, config):
         # 1. Verify data was ALREADY loaded (has source_data_dir), AND
         # 2. We're in verify mode (already checked above)
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_source = current_verify_data and current_verify_data.get("source_data_dir")
+        has_source = bool(current_verify_data and current_verify_data.get("source_data_dir"))
 
         # Load on: reload button, config load (for verify mode only), or filter change (only if verify data exists)
         config_panel_trigger = (
@@ -1259,6 +2203,13 @@ def register_callbacks(app, config):
             trigger_mode == "verify" or
             config_panel_trigger or
             (filter_triggered and has_source)
+        )
+        _tab_iso_debug(
+            "load_verify_decision",
+            filter_triggered=bool(filter_triggered),
+            has_source=bool(has_source),
+            config_panel_trigger=config_panel_trigger,
+            should_load=should_load,
         )
 
         if should_load:
@@ -1273,10 +2224,36 @@ def register_callbacks(app, config):
 
                 effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
-                current_source_data_dir = current_verify_data.get("source_data_dir") if current_verify_data else None
-                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                active_data_dir = _resolve_tab_data_dir(
+                    cfg,
+                    current_tab_data=current_verify_data,
+                    trigger_cfg=trigger_cfg,
+                    trigger_source=trigger_source,
+                )
+                _tab_iso_debug(
+                    "load_verify_resolved_root",
+                    active_data_dir=active_data_dir,
+                    cfg_data_dir=_config_default_data_dir(cfg or {}),
+                    trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg or {}),
+                    current_source_data_dir=(current_verify_data or {}).get("source_data_dir") if isinstance(current_verify_data, dict) else None,
+                )
                 if active_data_dir:
                     data_cfg["data_dir"] = active_data_dir
+
+                # Keep Verify mode predictions source isolated from Label/Explore config updates.
+                explicit_verify_config_load = (
+                    "data-load-trigger-store" in triggered_props
+                    and trigger_source == "data-config-load"
+                    and trigger_mode == "verify"
+                )
+                if not explicit_verify_config_load and isinstance(current_verify_data, dict):
+                    current_pred_file = (
+                        (current_verify_data.get("summary") or {}).get("predictions_file")
+                        if isinstance(current_verify_data.get("summary"), dict)
+                        else None
+                    )
+                    if current_pred_file and isinstance(current_pred_file, str):
+                        data_cfg["predictions_file"] = current_pred_file
                 effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "verify", date_str=requested_date, hydrophone=requested_device)
@@ -1297,8 +2274,16 @@ def register_callbacks(app, config):
                 data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
+                _tab_iso_debug(
+                    "load_verify_success",
+                    requested_date=requested_date,
+                    requested_device=requested_device,
+                    effective_predictions_file=(effective_cfg.get("data") or {}).get("predictions_file"),
+                    loaded_verify_snapshot=_tab_data_snapshot(data),
+                )
                 return data
             except Exception as e:
+                _tab_iso_debug("load_verify_error", error=str(e))
                 print(f"Error loading verify dataset: {e}")
                 return {
                     "items": [],
@@ -1330,6 +2315,24 @@ def register_callbacks(app, config):
             trigger_mode = config_load_trigger.get("mode")
             trigger_source = config_load_trigger.get("source")
 
+        trigger_cfg_snapshot = (
+            config_load_trigger.get("config")
+            if isinstance(config_load_trigger, dict) and isinstance(config_load_trigger.get("config"), dict)
+            else None
+        )
+        _tab_iso_debug(
+            "load_explore_start",
+            mode=mode,
+            trigger_mode=trigger_mode,
+            trigger_source=trigger_source,
+            triggered_props=sorted(triggered_props),
+            date_val=date_val,
+            device_val=device_val,
+            cfg_data_dir=_config_default_data_dir(cfg or {}),
+            trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg_snapshot),
+            current_explore_snapshot=_tab_data_snapshot(current_explore_data),
+        )
+
         # Only process if in explore mode
         if mode != "explore":
             raise PreventUpdate
@@ -1338,7 +2341,7 @@ def register_callbacks(app, config):
         # 1. Explore data was ALREADY loaded (has source_data_dir), AND
         # 2. We're in explore mode (already checked above)
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
-        has_source = current_explore_data and current_explore_data.get("source_data_dir")
+        has_source = bool(current_explore_data and current_explore_data.get("source_data_dir"))
 
         # Load on: reload button, config load (for explore mode only), or filter change (only if explore data exists)
         config_panel_trigger = (
@@ -1349,6 +2352,13 @@ def register_callbacks(app, config):
             trigger_mode == "explore" or
             config_panel_trigger or
             (filter_triggered and has_source)
+        )
+        _tab_iso_debug(
+            "load_explore_decision",
+            filter_triggered=bool(filter_triggered),
+            has_source=bool(has_source),
+            config_panel_trigger=config_panel_trigger,
+            should_load=should_load,
         )
 
         if should_load:
@@ -1363,8 +2373,19 @@ def register_callbacks(app, config):
 
                 effective_cfg = trigger_cfg.copy() if trigger_cfg else (cfg.copy() if cfg else {})
                 data_cfg = dict(effective_cfg.get("data", {}))
-                current_source_data_dir = current_explore_data.get("source_data_dir") if current_explore_data else None
-                active_data_dir = data_cfg.get("data_dir") or current_source_data_dir
+                active_data_dir = _resolve_tab_data_dir(
+                    cfg,
+                    current_tab_data=current_explore_data,
+                    trigger_cfg=trigger_cfg,
+                    trigger_source=trigger_source,
+                )
+                _tab_iso_debug(
+                    "load_explore_resolved_root",
+                    active_data_dir=active_data_dir,
+                    cfg_data_dir=_config_default_data_dir(cfg or {}),
+                    trigger_cfg_data_dir=_config_default_data_dir(trigger_cfg or {}),
+                    current_source_data_dir=(current_explore_data or {}).get("source_data_dir") if isinstance(current_explore_data, dict) else None,
+                )
                 if active_data_dir:
                     data_cfg["data_dir"] = active_data_dir
                 effective_cfg["data"] = data_cfg
@@ -1379,8 +2400,15 @@ def register_callbacks(app, config):
                 data["source_data_dir"] = active_data_dir
                 from app.main import set_audio_roots
                 set_audio_roots(data.get("audio_roots", []))
+                _tab_iso_debug(
+                    "load_explore_success",
+                    requested_date=requested_date,
+                    requested_device=requested_device,
+                    loaded_explore_snapshot=_tab_data_snapshot(data),
+                )
                 return data
             except Exception as e:
+                _tab_iso_debug("load_explore_error", error=str(e))
                 print(f"Error loading explore dataset: {e}")
                 return {
                     "items": [],
@@ -1480,7 +2508,7 @@ def register_callbacks(app, config):
         Output("verify-ui-ready-store", "data"),
         Input("verify-data-store", "data"),
         Input("verify-thresholds-store", "data"),
-        Input("verify-class-filter", "value"),
+        Input("verify-class-filter", "data"),
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
         Input("verify-yaxis-toggle", "value"),
@@ -1495,7 +2523,13 @@ def register_callbacks(app, config):
         summary = data.get("summary", {})
         items = data.get("items", [])
         thresholds = thresholds or {"__global__": 0.5}
-        class_filter = class_filter or "all"
+        available_values = _build_verify_filter_paths(_extract_verify_leaf_classes(items))
+        available_value_set = set(available_values)
+        selected_filters = _normalize_verify_class_filter(class_filter)
+        if not available_values:
+            selected_filters = None
+        if selected_filters is not None:
+            selected_filters = [value for value in selected_filters if value in available_value_set]
         current_threshold = float(thresholds.get("__global__", 0.5))
 
         # Get folder display info from summary
@@ -1515,16 +2549,23 @@ def register_callbacks(app, config):
             if not is_verified and not predicted_labels:
                 continue
 
-            # Apply class filter - skip if a specific class is selected and item doesn't have it
-            if class_filter != "all":
-                if class_filter not in predicted_labels:
-                    continue
+            if not _predicted_labels_match_filter(predicted_labels, selected_filters):
+                continue
 
             display_item = dict(item)
             display_predictions = dict(predictions)
             display_predictions["labels"] = predicted_labels
             display_item["predictions"] = display_predictions
             filtered_items.append(display_item)
+
+        if selected_filters is None:
+            filter_text = "All selected"
+        elif not selected_filters:
+            filter_text = "None selected"
+        elif available_values and len(selected_filters) == len(available_values):
+            filter_text = "All selected"
+        else:
+            filter_text = f"{len(selected_filters)} selected"
 
         colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
@@ -1534,7 +2575,7 @@ def register_callbacks(app, config):
             html.Span(f"Total: {summary.get('total_items', len(items))}", className="ms-3 text-muted"),
             html.Span(f"Verified: {summary.get('verified', 0)}", className="ms-3 text-muted"),
             html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
-            html.Span(f"Filter: {class_filter}", className="ms-3 text-muted"),
+            html.Span(f"Filter: {filter_text}", className="ms-3 text-muted"),
         ], className="summary-info")
 
         total_items = len(filtered_items)
@@ -1585,41 +2626,222 @@ def register_callbacks(app, config):
         )
 
     @app.callback(
-        Output("verify-class-filter", "options"),
-        Output("verify-class-filter", "value"),
+        Output("verify-class-filter-options", "data"),
+        Output("verify-class-filter", "data"),
+        Output("verify-class-filter-expanded", "data"),
         Input("verify-data-store", "data"),
-        State("verify-class-filter", "value"),
+        State("verify-class-filter", "data"),
+        State("verify-class-filter-expanded", "data"),
         prevent_initial_call=False,
     )
-    def update_verify_class_filter(data, current_value):
+    def sync_verify_class_filter_state(data, current_value, expanded_value):
         items = (data or {}).get("items", [])
-        classes = set()
-        for item in items:
-            predictions = item.get("predictions") or {}
-            
-            # Unified v2.x
-            model_outputs = predictions.get("model_outputs")
-            if model_outputs and isinstance(model_outputs, list):
-                for out in model_outputs:
-                    if out.get("class_hierarchy"):
-                        classes.add(out.get("class_hierarchy"))
-            
-            # Legacy
-            probs = predictions.get("confidence") or {}
-            labels = predictions.get("labels") or []
-            classes.update(list(probs.keys()) + list(labels))
+        classes = _extract_verify_leaf_classes(items)
+        option_values = _build_verify_filter_paths(classes)
+        option_value_set = set(option_values)
 
-        options = [{"label": "All classes", "value": "all"}] + [
-            {"label": label, "value": label} for label in sorted(classes)
-        ]
-        if current_value and any(opt["value"] == current_value for opt in options):
-            return options, current_value
-        return options, "all"
+        normalized_current = _normalize_verify_class_filter(current_value)
+        # Default behavior should be all selected when no prior selection exists.
+        if normalized_current is None or not normalized_current:
+            selected_values = list(option_values)
+        else:
+            selected_values = [value for value in normalized_current if value in option_value_set]
+
+        normalized_expanded = _ordered_unique_labels(expanded_value or [])
+        if not option_values:
+            return [], selected_values, []
+
+        valid_paths = set()
+        for path in option_values:
+            parts = _split_hierarchy_label(path)
+            for depth in range(1, len(parts) + 1):
+                valid_paths.add(" > ".join(parts[:depth]))
+        expanded_paths = [path for path in normalized_expanded if path in valid_paths]
+
+        if not expanded_paths:
+            roots = []
+            seen = set()
+            for path in option_values:
+                parts = _split_hierarchy_label(path)
+                if not parts:
+                    continue
+                root = parts[0]
+                if root in seen:
+                    continue
+                roots.append(root)
+                seen.add(root)
+            expanded_paths = roots
+
+        return option_values, selected_values, expanded_paths
+
+    @app.callback(
+        Output("verify-class-filter-tree", "children"),
+        Output("verify-class-filter-toggle", "children"),
+        Output("verify-class-filter-select-all", "value"),
+        Input("verify-class-filter-options", "data"),
+        Input("verify-class-filter", "data"),
+        Input("verify-class-filter-expanded", "data"),
+        prevent_initial_call=False,
+    )
+    def render_verify_class_filter_tree(option_values, selected_values, expanded_values):
+        option_values = _ordered_unique_labels(option_values or [])
+        if not option_values:
+            return (
+                html.Div("No classes available", className="text-muted small"),
+                [
+                    html.Span("No classes available", className="verify-class-filter-toggle-label"),
+                    html.Span("▾", className="verify-class-filter-toggle-caret"),
+                ],
+                False,
+            )
+
+        normalized_selected = _normalize_verify_class_filter(selected_values)
+        if normalized_selected is None:
+            normalized_selected = list(option_values)
+        else:
+            normalized_selected = [value for value in normalized_selected if value in set(option_values)]
+
+        tree_rows = _build_verify_filter_tree_rows(option_values, normalized_selected, expanded_values or [])
+        if len(normalized_selected) == len(option_values):
+            toggle_label = "All classes selected"
+            select_all_value = True
+        elif not normalized_selected:
+            toggle_label = "No classes selected"
+            select_all_value = False
+        elif len(normalized_selected) == 1:
+            toggle_label = normalized_selected[0]
+            select_all_value = False
+        else:
+            toggle_label = f"{len(normalized_selected)} classes selected"
+            select_all_value = False
+
+        return (
+            html.Div(tree_rows),
+            [
+                html.Span(toggle_label, className="verify-class-filter-toggle-label"),
+                html.Span("▾", className="verify-class-filter-toggle-caret"),
+            ],
+            select_all_value,
+        )
+
+    @app.callback(
+        Output("verify-class-filter-collapse", "is_open"),
+        Output("verify-class-filter-toggle", "className"),
+        Output("verify-class-filter-dismiss-overlay", "style"),
+        Input("verify-class-filter-toggle", "n_clicks"),
+        Input("verify-class-filter-dismiss-overlay", "n_clicks"),
+        State("verify-class-filter-collapse", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_verify_class_filter_dropdown(toggle_clicks, dismiss_clicks, is_open):
+        triggered = ctx.triggered_id
+        if triggered not in {"verify-class-filter-toggle", "verify-class-filter-dismiss-overlay"}:
+            raise PreventUpdate
+
+        is_currently_open = bool(is_open)
+        if triggered == "verify-class-filter-toggle":
+            if not toggle_clicks:
+                raise PreventUpdate
+            next_open = not is_currently_open
+        else:
+            if not dismiss_clicks or not is_currently_open:
+                raise PreventUpdate
+            next_open = False
+
+        base_class = "w-100 text-start verify-class-filter-toggle"
+        overlay_style = {"display": "block"} if next_open else {"display": "none"}
+        return (
+            next_open,
+            (f"{base_class} verify-class-filter-toggle--open" if next_open else base_class),
+            overlay_style,
+        )
+
+    @app.callback(
+        Output("verify-class-filter-expanded", "data", allow_duplicate=True),
+        Input({"type": "verify-filter-expand", "path": ALL}, "n_clicks"),
+        State("verify-class-filter-expanded", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_verify_filter_expand(expand_clicks, expanded_paths):
+        if not ctx.triggered:
+            raise PreventUpdate
+        if (ctx.triggered[0].get("value") or 0) <= 0:
+            raise PreventUpdate
+
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict):
+            raise PreventUpdate
+        path = (triggered.get("path") or "").strip()
+        if not path:
+            raise PreventUpdate
+
+        next_paths = set(_ordered_unique_labels(expanded_paths or []))
+        if path in next_paths:
+            next_paths.remove(path)
+        else:
+            next_paths.add(path)
+        return sorted(next_paths, key=lambda text: text.lower())
+
+    @app.callback(
+        Output("verify-class-filter", "data", allow_duplicate=True),
+        Input({"type": "verify-filter-checkbox", "path": ALL}, "value"),
+        Input("verify-class-filter-select-all", "value"),
+        State({"type": "verify-filter-checkbox", "path": ALL}, "id"),
+        State("verify-class-filter-options", "data"),
+        State("verify-class-filter", "data"),
+        prevent_initial_call=True,
+    )
+    def update_verify_filter_selection(
+        checkbox_values,
+        select_all_checked,
+        checkbox_ids,
+        option_values,
+        current_values,
+    ):
+        option_values = _ordered_unique_labels(option_values or [])
+        if not option_values:
+            raise PreventUpdate
+
+        option_set = set(option_values)
+        normalized_current = _normalize_verify_class_filter(current_values)
+        if normalized_current is None:
+            selected_values = list(option_values)
+        else:
+            selected_values = [value for value in normalized_current if value in option_set]
+
+        triggered = ctx.triggered_id
+
+        if triggered == "verify-class-filter-select-all":
+            is_all_selected = len(selected_values) == len(option_values)
+            if bool(select_all_checked):
+                if is_all_selected:
+                    raise PreventUpdate
+                return option_values
+            if is_all_selected:
+                return []
+            raise PreventUpdate
+
+        if not (isinstance(triggered, dict) and triggered.get("type") == "verify-filter-checkbox"):
+            raise PreventUpdate
+
+        selected_from_checks = []
+        for checkbox_value, checkbox_id in zip(checkbox_values or [], checkbox_ids or []):
+            if not isinstance(checkbox_id, dict):
+                continue
+            path = (checkbox_id.get("path") or "").strip()
+            if not path or path not in option_set:
+                continue
+            if bool(checkbox_value):
+                selected_from_checks.append(path)
+        selected_from_checks = _ordered_unique_labels(selected_from_checks)
+        if selected_from_checks == selected_values:
+            raise PreventUpdate
+        return selected_from_checks
 
     @app.callback(
         Output("verify-thresholds-store", "data"),
         Input("verify-threshold-slider", "value"),
-        State("verify-class-filter", "value"),
+        State("verify-class-filter", "data"),
         State("verify-thresholds-store", "data"),
         prevent_initial_call=True,
     )
@@ -1635,7 +2857,7 @@ def register_callbacks(app, config):
 
     @app.callback(
         Output("verify-threshold-slider", "value"),
-        Input("verify-class-filter", "value"),
+        Input("verify-class-filter", "data"),
         State("verify-thresholds-store", "data"),
         prevent_initial_call=True,
     )
@@ -1770,10 +2992,11 @@ def register_callbacks(app, config):
         State("active-item-store", "data"),
         State("verify-thresholds-store", "data"),
         State("mode-tabs", "data"),
+        State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
     def open_label_editor(n_clicks_list, modal_edit_clicks_list, cancel_clicks, click_store, edit_ids, modal_item_id, label_data, verify_data,
-                          explore_data, active_item_id, thresholds, mode):
+                          explore_data, active_item_id, thresholds, mode, profile):
         # Select the appropriate data store based on mode
         data = _get_mode_data(mode, label_data, verify_data, explore_data)
         triggered = ctx.triggered_id
@@ -1781,6 +3004,7 @@ def register_callbacks(app, config):
             return False, no_update, None, click_store or {}
         if mode == "explore":
             return False, no_update, None, click_store or {}
+        _require_complete_profile(profile, "open_label_editor")
 
         click_store = click_store or {}
         updated_store = dict(click_store)
@@ -1843,6 +3067,8 @@ def register_callbacks(app, config):
         Output("explore-data-store", "data", allow_duplicate=True),
         Output("label-editor-modal", "is_open", allow_duplicate=True),
         Output("label-editor-body", "children", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("modal-snapshot-store", "data", allow_duplicate=True),
         Input("label-editor-save", "n_clicks"),
         State("active-item-store", "data"),
         State({"type": "selected-labels-store", "filename": ALL}, "data"),
@@ -1857,15 +3083,17 @@ def register_callbacks(app, config):
         State("config-store", "data"),
         State("label-output-input", "value"),
         State("modal-bbox-store", "data"),
+        State("current-filename", "data"),
         prevent_initial_call=True,
     )
     def save_label_editor(save_clicks, active_item_id, labels_list, labels_ids,
                           note_values, note_ids, label_data, verify_data, explore_data,
-                          profile, mode, cfg, label_output_path, modal_bbox_store):
+                          profile, mode, cfg, label_output_path, modal_bbox_store, current_modal_item_id):
         if not save_clicks or not active_item_id:
             raise PreventUpdate
         if mode == "explore":
-            return no_update, no_update, no_update, False, []
+            return no_update, no_update, no_update, False, [], no_update, no_update
+        _require_complete_profile(profile, "save_label_editor")
 
         # Select the appropriate data store based on mode
         data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
@@ -1895,7 +3123,7 @@ def register_callbacks(app, config):
                     existing.add(label)
             selected_labels = merged
 
-        profile_name = (profile or {}).get("name") if isinstance(profile, dict) else None
+        profile_name = _profile_actor(profile)
         updated = _update_item_labels(
             data or {},
             active_item_id,
@@ -1907,31 +3135,65 @@ def register_callbacks(app, config):
         if note_text is not None:
             updated = _update_item_notes(updated or {}, active_item_id, note_text, user_name=profile_name)
 
-        if mode == "label":
-            # Priority: user input > data summary > config
-            labels_file = label_output_path or (data or {}).get("summary", {}).get("labels_file") or cfg.get("label", {}).get("output_file")
+        if mode == "verify":
+            # Verify mode persists only on Confirm/Re-verify.
+            pass
+        elif mode == "label":
+            cfg = cfg or {}
+            labels_file = (
+                label_output_path
+                or (updated.get("summary", {}) if isinstance(updated.get("summary"), dict) else {}).get("labels_file")
+                or (cfg.get("label", {}) if isinstance(cfg.get("label"), dict) else {}).get("output_file")
+            )
             save_label_mode(
                 labels_file,
                 active_item_id,
                 selected_labels,
                 annotated_by=profile_name,
-                notes=note_text,
+                notes=(note_text or ""),
                 label_extents=label_extents or None,
             )
-        elif mode == "verify":
-            # Verify mode persists only on Confirm/Re-verify.
-            pass
+            # "Save Labels" in label mode is a full save, so clear pending-save state.
+            updated = _update_item_labels(
+                updated or {},
+                active_item_id,
+                selected_labels,
+                mode="label",
+                user_name=profile_name,
+                is_reverification=True,
+                label_extents=label_extents or None,
+            )
+
+        dirty_update = no_update
+        snapshot_update = no_update
+        if active_item_id and active_item_id == current_modal_item_id:
+            updated_item = next(
+                (item for item in (updated or {}).get("items", []) if isinstance(item, dict) and item.get("item_id") == active_item_id),
+                None,
+            )
+            if isinstance(updated_item, dict):
+                if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == active_item_id:
+                    snapshot_boxes = modal_bbox_store.get("boxes") or []
+                else:
+                    snapshot_boxes = _build_modal_boxes_from_item(updated_item)
+                if mode == "verify":
+                    dirty_update = {"dirty": True, "item_id": active_item_id}
+                else:
+                    dirty_update = {"dirty": False, "item_id": active_item_id}
+                    snapshot_update = _modal_snapshot_payload("label", active_item_id, updated_item, snapshot_boxes)
 
         # Return updated data to the appropriate store, no_update for others
         if mode == "label":
-            return updated, no_update, no_update, False, []
+            return updated, no_update, no_update, False, [], dirty_update, snapshot_update
         elif mode == "verify":
-            return no_update, updated, no_update, False, []
+            return no_update, updated, no_update, False, [], dirty_update, snapshot_update
         else:
-            return no_update, no_update, updated, False, []
+            return no_update, no_update, updated, False, [], dirty_update, snapshot_update
 
     @app.callback(
         Output("verify-data-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("modal-snapshot-store", "data", allow_duplicate=True),
         Input({"type": "confirm-btn", "item_id": ALL}, "n_clicks"),
         Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
         State("current-filename", "data"),
@@ -1954,6 +3216,7 @@ def register_callbacks(app, config):
         modal_bbox_store,
         profile,
     ):
+        _require_complete_profile(profile, "confirm_verification")
 
         triggered = ctx.triggered_id
         if isinstance(triggered, dict) and triggered.get("type") == "modal-action-confirm":
@@ -1979,9 +3242,8 @@ def register_callbacks(app, config):
                 annotations = item.get("annotations") or {}
                 predictions = item.get("predictions") or {}
                 predictions_path = (item.get("metadata") or {}).get("predictions_path")
-                labels_to_confirm = annotations.get("labels") or []
-                if not labels_to_confirm:
-                    labels_to_confirm = _filter_predictions(predictions, {"__global__": threshold_used})
+                _, _, active_labels = _get_modal_label_sets(item, "verify", thresholds)
+                labels_to_confirm = list(active_labels or [])
                 break
 
         box_extent_map = {}
@@ -2005,7 +3267,7 @@ def register_callbacks(app, config):
             if isinstance(summary_pred, str) and summary_pred.endswith(".json"):
                 predictions_path = summary_pred
 
-        predicted_labels = _filter_predictions(predictions, {"__global__": threshold_used})
+        predicted_labels = _filter_predictions(predictions, thresholds)
         predicted_set = set(predicted_labels)
         labels_set = set(labels_to_confirm)
 
@@ -2094,7 +3356,7 @@ def register_callbacks(app, config):
                 entry["annotation_extent"] = extent
             label_decisions.append(entry)
 
-        profile_name = (profile or {}).get("name") if isinstance(profile, dict) else None
+        profile_name = _profile_actor(profile)
         note_text = annotations.get("notes", "") if isinstance(annotations, dict) else ""
         verification = {
             "verified_at": datetime.now().isoformat(),
@@ -2113,6 +3375,13 @@ def register_callbacks(app, config):
             is_reverification=True,
             label_extents=box_extent_map or None,
         )
+        for item in (updated or {}).get("items", []):
+            if not isinstance(item, dict) or item.get("item_id") != item_id:
+                continue
+            annotations_obj = item.get("annotations") or {}
+            annotations_obj["rejected_labels"] = sorted(rejected_labels)
+            item["annotations"] = annotations_obj
+            break
 
         stored_verification = save_verify_predictions(predictions_path, item_id, verification)
         if stored_verification:
@@ -2124,12 +3393,694 @@ def register_callbacks(app, config):
                     verifications.append(stored_verification)
                     item["verifications"] = verifications
                     break
-        return updated
+        dirty_update = no_update
+        snapshot_update = no_update
+        if modal_item_id and modal_item_id == item_id:
+            dirty_update = {"dirty": False, "item_id": item_id}
+            updated_item = next(
+                (item for item in (updated or {}).get("items", []) if isinstance(item, dict) and item.get("item_id") == item_id),
+                None,
+            )
+            if isinstance(updated_item, dict):
+                if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
+                    snapshot_boxes = modal_bbox_store.get("boxes") or []
+                else:
+                    snapshot_boxes = _build_modal_boxes_from_item(updated_item)
+                snapshot_update = _modal_snapshot_payload("verify", item_id, updated_item, snapshot_boxes)
+
+        return updated, dirty_update, snapshot_update
+
+    @app.callback(
+        Output("label-data-store", "data", allow_duplicate=True),
+        Output("modal-bbox-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Input({"type": "label-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        State("label-data-store", "data"),
+        State("current-filename", "data"),
+        State("modal-bbox-store", "data"),
+        State("user-profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def quick_delete_label_mode(delete_timestamps, label_data, modal_item_id, modal_bbox_store, profile):
+        if not ctx.triggered:
+            raise PreventUpdate
+        if (ctx.triggered[0].get("value") or 0) <= 0:
+            raise PreventUpdate
+        _require_complete_profile(profile, "quick_delete_label_mode")
+
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict):
+            raise PreventUpdate
+
+        item_key, item_id, label = _parse_verify_target((triggered.get("target") or "").strip())
+        _ = item_key  # label-mode delete currently resolves by item_id.
+        if not item_id:
+            item_id = (triggered.get("item_id") or "").strip()
+        if not label:
+            label = (triggered.get("label") or "").strip()
+        if not item_id or not label:
+            raise PreventUpdate
+
+        data = deepcopy(label_data or {})
+        items = data.get("items") or []
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            raise PreventUpdate
+
+        _, _, active_labels = _get_modal_label_sets(active_item, "label", {"__global__": 0.5})
+        updated_labels = [
+            existing
+            for existing in _ordered_unique_labels(active_labels)
+            if existing != label
+        ]
+        if len(updated_labels) == len(_ordered_unique_labels(active_labels)):
+            raise PreventUpdate
+
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        label_extents = {}
+        raw_label_extents = annotations_obj.get("label_extents") if isinstance(annotations_obj, dict) else None
+        if isinstance(raw_label_extents, dict):
+            for extent_label, extent in raw_label_extents.items():
+                if not isinstance(extent_label, str):
+                    continue
+                normalized = extent_label.strip()
+                if not normalized or normalized == label:
+                    continue
+                cleaned_extent = _clean_annotation_extent(extent)
+                if cleaned_extent:
+                    label_extents[normalized] = cleaned_extent
+
+        next_bbox_store = no_update
+        unsaved_update = no_update
+        if item_id == (modal_item_id or ""):
+            unsaved_update = {"dirty": True, "item_id": item_id}
+            if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
+                filtered_boxes = [
+                    box
+                    for box in (modal_bbox_store.get("boxes") or [])
+                    if isinstance(box, dict) and (box.get("label") or "").strip() != label
+                ]
+                next_bbox_store = {"item_id": item_id, "boxes": filtered_boxes}
+                label_extents = _extract_label_extent_map_from_boxes(filtered_boxes)
+
+        profile_name = _profile_actor(profile)
+        updated_data = _update_item_labels(
+            data,
+            item_id,
+            updated_labels,
+            mode="label",
+            user_name=profile_name,
+            label_extents=label_extents or None,
+        )
+        return updated_data, next_bbox_store, unsaved_update
+
+    @app.callback(
+        Output("label-data-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("modal-snapshot-store", "data", allow_duplicate=True),
+        Input({"type": "label-save-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "modal-label-save", "scope": ALL}, "n_clicks"),
+        State("current-filename", "data"),
+        State("label-data-store", "data"),
+        State("modal-bbox-store", "data"),
+        State("user-profile-store", "data"),
+        State("config-store", "data"),
+        State("label-output-input", "value"),
+        prevent_initial_call=True,
+    )
+    def save_label_changes(
+        card_save_clicks,
+        modal_save_clicks,
+        modal_item_id,
+        label_data,
+        modal_bbox_store,
+        profile,
+        cfg,
+        label_output_path,
+    ):
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict):
+            raise PreventUpdate
+
+        if triggered.get("type") == "modal-label-save":
+            if not modal_save_clicks or not any(modal_save_clicks) or not modal_item_id:
+                raise PreventUpdate
+            item_id = modal_item_id
+        elif triggered.get("type") == "label-save-btn":
+            if not card_save_clicks or not any(card_save_clicks):
+                raise PreventUpdate
+            item_id = (triggered.get("item_id") or "").strip()
+        else:
+            raise PreventUpdate
+
+        if not item_id:
+            raise PreventUpdate
+        _require_complete_profile(profile, "save_label_changes")
+
+        data = deepcopy(label_data or {})
+        items = data.get("items") or []
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            raise PreventUpdate
+
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        if not _has_pending_label_edits(annotations_obj):
+            raise PreventUpdate
+
+        labels_to_save = _ordered_unique_labels(annotations_obj.get("labels") or [])
+        note_text = annotations_obj.get("notes", "") if isinstance(annotations_obj.get("notes"), str) else ""
+
+        label_extents = {}
+        if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
+            label_extents = _extract_label_extent_map_from_boxes(modal_bbox_store.get("boxes") or [])
+        else:
+            raw_label_extents = annotations_obj.get("label_extents")
+            if isinstance(raw_label_extents, dict):
+                for extent_label, extent in raw_label_extents.items():
+                    if not isinstance(extent_label, str):
+                        continue
+                    normalized = extent_label.strip()
+                    if not normalized:
+                        continue
+                    cleaned_extent = _clean_annotation_extent(extent)
+                    if cleaned_extent:
+                        label_extents[normalized] = cleaned_extent
+
+        if label_extents:
+            merged = list(labels_to_save)
+            seen = set(merged)
+            for label in label_extents.keys():
+                if label not in seen:
+                    merged.append(label)
+                    seen.add(label)
+            labels_to_save = merged
+
+        cfg = cfg or {}
+        labels_file = (
+            label_output_path
+            or (data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}).get("labels_file")
+            or (cfg.get("label", {}) if isinstance(cfg.get("label"), dict) else {}).get("output_file")
+        )
+        profile_name = _profile_actor(profile)
+
+        save_label_mode(
+            labels_file,
+            item_id,
+            labels_to_save,
+            annotated_by=profile_name,
+            notes=note_text,
+            label_extents=label_extents or None,
+        )
+
+        updated = _update_item_labels(
+            data,
+            item_id,
+            labels_to_save,
+            mode="label",
+            user_name=profile_name,
+            is_reverification=True,
+            label_extents=label_extents or None,
+        )
+
+        dirty_update = no_update
+        snapshot_update = no_update
+        if item_id == (modal_item_id or ""):
+            dirty_update = {"dirty": False, "item_id": item_id}
+            updated_item = next(
+                (
+                    item
+                    for item in (updated or {}).get("items", [])
+                    if isinstance(item, dict) and item.get("item_id") == item_id
+                ),
+                None,
+            )
+            if isinstance(updated_item, dict):
+                if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
+                    snapshot_boxes = modal_bbox_store.get("boxes") or []
+                else:
+                    snapshot_boxes = _build_modal_boxes_from_item(updated_item)
+                snapshot_update = _modal_snapshot_payload("label", item_id, updated_item, snapshot_boxes)
+
+        return updated, dirty_update, snapshot_update
+
+    @app.callback(
+        Output("verify-data-store", "data", allow_duplicate=True),
+        Output("modal-bbox-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("verify-badge-event-store", "data", allow_duplicate=True),
+        Input({"type": "verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-accept", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-reject", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-delete", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-accept", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "label": ALL}, "n_clicks_timestamp"),
+        State("verify-data-store", "data"),
+        State("verify-thresholds-store", "data"),
+        State("current-filename", "data"),
+        State("modal-bbox-store", "data"),
+        State("user-profile-store", "data"),
+        State("verify-badge-event-store", "data"),
+        prevent_initial_call=True,
+    )
+    def quick_update_verify_labels(
+        card_accept_ts,
+        card_reject_ts,
+        card_delete_ts,
+        card_accept_ts_legacy,
+        card_reject_ts_legacy,
+        card_delete_ts_legacy,
+        modal_accept_ts,
+        modal_reject_ts,
+        modal_delete_ts,
+        modal_accept_ts_legacy,
+        modal_reject_ts_legacy,
+        modal_delete_ts_legacy,
+        verify_data,
+        thresholds,
+        modal_item_id,
+        modal_bbox_store,
+        profile,
+        badge_event_store,
+    ):
+        _require_complete_profile(profile, "quick_update_verify_labels")
+        _verify_badge_debug(
+            "start",
+            triggered_id=ctx.triggered_id,
+            triggered=ctx.triggered,
+            modal_item_id=modal_item_id,
+            verify_items=len((verify_data or {}).get("items") or []),
+            modal_bbox_item_id=(modal_bbox_store or {}).get("item_id") if isinstance(modal_bbox_store, dict) else None,
+            timestamp_summary={
+                "card_accept_target": max((v or -1) for v in (card_accept_ts or [None])) if card_accept_ts else -1,
+                "card_reject_target": max((v or -1) for v in (card_reject_ts or [None])) if card_reject_ts else -1,
+                "card_delete_target": max((v or -1) for v in (card_delete_ts or [None])) if card_delete_ts else -1,
+                "card_accept_legacy": max((v or -1) for v in (card_accept_ts_legacy or [None])) if card_accept_ts_legacy else -1,
+                "card_reject_legacy": max((v or -1) for v in (card_reject_ts_legacy or [None])) if card_reject_ts_legacy else -1,
+                "card_delete_legacy": max((v or -1) for v in (card_delete_ts_legacy or [None])) if card_delete_ts_legacy else -1,
+                "modal_accept_target": max((v or -1) for v in (modal_accept_ts or [None])) if modal_accept_ts else -1,
+                "modal_reject_target": max((v or -1) for v in (modal_reject_ts or [None])) if modal_reject_ts else -1,
+                "modal_delete_target": max((v or -1) for v in (modal_delete_ts or [None])) if modal_delete_ts else -1,
+                "modal_accept_legacy": max((v or -1) for v in (modal_accept_ts_legacy or [None])) if modal_accept_ts_legacy else -1,
+                "modal_reject_legacy": max((v or -1) for v in (modal_reject_ts_legacy or [None])) if modal_reject_ts_legacy else -1,
+                "modal_delete_legacy": max((v or -1) for v in (modal_delete_ts_legacy or [None])) if modal_delete_ts_legacy else -1,
+            },
+            last_event_store=badge_event_store,
+        )
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict):
+            _verify_badge_debug("prevent_missing_triggered_id", triggered_id=triggered)
+            raise PreventUpdate
+
+        action_type = (triggered.get("type") or "").strip()
+        if action_type not in {
+            "verify-label-accept",
+            "verify-label-reject",
+            "verify-label-delete",
+            "modal-verify-label-accept",
+            "modal-verify-label-reject",
+            "modal-verify-label-delete",
+        }:
+            _verify_badge_debug("prevent_unknown_action_type", action_type=action_type, triggered=triggered)
+            raise PreventUpdate
+
+        input_entries = []
+        for group in (ctx.inputs_list or []):
+            if isinstance(group, list):
+                input_entries.extend(group)
+            elif isinstance(group, dict):
+                input_entries.append(group)
+
+        triggered_key_json = json.dumps(triggered, sort_keys=True, ensure_ascii=True)
+        matching_timestamps = []
+        for entry in input_entries:
+            if not isinstance(entry, dict):
+                continue
+            event_id = entry.get("id")
+            if not isinstance(event_id, dict):
+                continue
+            if json.dumps(event_id, sort_keys=True, ensure_ascii=True) != triggered_key_json:
+                continue
+            ts_val = entry.get("value")
+            if isinstance(ts_val, (int, float)) and ts_val > 0:
+                matching_timestamps.append(int(ts_val))
+
+        if not matching_timestamps:
+            _verify_badge_debug(
+                "prevent_no_timestamp_for_trigger",
+                triggered=triggered,
+                inputs_count=len(input_entries),
+            )
+            raise PreventUpdate
+
+        triggered_value = max(matching_timestamps)
+        selected_key = f"{triggered_value}|{triggered_key_json}"
+        last_key = (badge_event_store or {}).get("last_key") if isinstance(badge_event_store, dict) else ""
+        if selected_key == last_key:
+            _verify_badge_debug("prevent_duplicate_event", selected_key=selected_key)
+            raise PreventUpdate
+
+        label = ""
+        item_id = ""
+        item_key = ""
+        target = (triggered.get("target") or "").strip()
+        _verify_badge_debug(
+            "resolved_trigger_payload",
+            action_type=action_type,
+            target=target,
+            triggered=triggered,
+            triggered_value=triggered_value,
+        )
+        if action_type in {"verify-label-accept", "verify-label-reject", "verify-label-delete"}:
+            parsed_key, parsed_item_id, parsed_label = _parse_verify_target(target)
+            item_key = parsed_key
+            item_id = parsed_item_id or (triggered.get("item_id") or "").strip()
+            label = parsed_label or (triggered.get("label") or target).strip()
+        elif action_type in {"modal-verify-label-accept", "modal-verify-label-reject", "modal-verify-label-delete"}:
+            item_id = (modal_item_id or "").strip()
+            label = (triggered.get("label") or target).strip()
+        else:
+            _verify_badge_debug("prevent_unknown_action_type", action_type=action_type)
+            raise PreventUpdate
+
+        if not item_id:
+            _verify_badge_debug("prevent_missing_item_id", action_type=action_type, target=target, triggered=triggered)
+            raise PreventUpdate
+        if not label:
+            _verify_badge_debug("prevent_missing_label", action_type=action_type, target=target, triggered=triggered)
+            raise PreventUpdate
+
+        if action_type.endswith("accept"):
+            action = "accept"
+        elif action_type.endswith("reject"):
+            action = "reject"
+        else:
+            action = "delete"
+        _verify_badge_debug("resolved_action", action=action, item_id=item_id, label=label, modal_item_id=modal_item_id)
+        thresholds = thresholds or {"__global__": 0.5}
+        data = deepcopy(verify_data or {})
+        items = data.get("items") or []
+        active_item = None
+        active_item_index = -1
+        if item_key:
+            for idx, item in enumerate(items):
+                if not isinstance(item, dict):
+                    continue
+                if _item_action_key(item) == item_key:
+                    active_item = item
+                    active_item_index = idx
+                    break
+        if active_item is None:
+            for idx, item in enumerate(items):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("item_id") == item_id:
+                    active_item = item
+                    active_item_index = idx
+                    break
+        if not isinstance(active_item, dict):
+            _verify_badge_debug(
+                "prevent_item_not_found",
+                item_id=item_id,
+                item_key=item_key,
+                available_ids=[i.get("item_id") for i in items if isinstance(i, dict)][:40],
+            )
+            raise PreventUpdate
+        item_id = (active_item.get("item_id") or item_id).strip()
+        if not item_id:
+            _verify_badge_debug("prevent_active_item_missing_id", item_key=item_key)
+            raise PreventUpdate
+
+        predicted_set = set(_filter_predictions(active_item.get("predictions") or {}, thresholds))
+        _, _, active_labels = _get_modal_label_sets(active_item, "verify", thresholds)
+        updated_labels = _ordered_unique_labels(active_labels)
+        rejected_set = set(_get_item_rejected_labels(active_item))
+        _verify_badge_debug(
+            "before_update",
+            item_id=item_id,
+            label=label,
+            action=action,
+            predicted_labels=sorted(predicted_set),
+            active_labels=updated_labels,
+            rejected_labels=sorted(rejected_set),
+        )
+        if action == "accept":
+            if label not in updated_labels:
+                updated_labels.append(label)
+            rejected_set.discard(label)
+        elif action == "reject":
+            updated_labels = [existing for existing in updated_labels if existing != label]
+            if label in predicted_set:
+                rejected_set.add(label)
+            else:
+                rejected_set.discard(label)
+        else:
+            updated_labels = [existing for existing in updated_labels if existing != label]
+            rejected_set.discard(label)
+
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        label_extents = {}
+        raw_label_extents = annotations_obj.get("label_extents") if isinstance(annotations_obj, dict) else None
+        if isinstance(raw_label_extents, dict):
+            for extent_label, extent in raw_label_extents.items():
+                if not isinstance(extent_label, str):
+                    continue
+                normalized_label = extent_label.strip()
+                if not normalized_label:
+                    continue
+                cleaned_extent = _clean_annotation_extent(extent)
+                if cleaned_extent:
+                    label_extents[normalized_label] = cleaned_extent
+
+        next_bbox_store = no_update
+        is_modal_target = item_id == (modal_item_id or "")
+        if is_modal_target:
+            if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
+                boxes = deepcopy(modal_bbox_store.get("boxes") or [])
+            else:
+                boxes = _build_modal_boxes_from_item(active_item)
+            if action in {"reject", "delete"}:
+                boxes = [
+                    box
+                    for box in boxes
+                    if not (isinstance(box, dict) and (box.get("label") or "").strip() == label)
+                ]
+            next_bbox_store = {"item_id": item_id, "boxes": boxes}
+            label_extents = _extract_label_extent_map_from_boxes(boxes)
+        elif action in {"reject", "delete"}:
+            label_extents.pop(label, None)
+
+        profile_name = _profile_actor(profile)
+        annotations_update = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {
+            "labels": [],
+            "annotated_by": None,
+            "annotated_at": None,
+            "verified": False,
+            "notes": "",
+        }
+        annotations_update["labels"] = updated_labels
+        annotations_update["label_extents"] = label_extents
+        annotations_update["rejected_labels"] = sorted(rejected_set)
+        annotations_update["annotated_at"] = datetime.now().isoformat()
+        annotations_update["has_manual_review"] = True
+        if annotations_update.get("verified"):
+            annotations_update["needs_reverify"] = True
+        annotations_update["pending_save"] = True
+        if profile_name:
+            annotations_update["annotated_by"] = profile_name
+        active_item["annotations"] = annotations_update
+        if 0 <= active_item_index < len(items):
+            items[active_item_index] = active_item
+
+        summary_obj = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        summary_obj["annotated"] = sum(
+            1
+            for entry in items
+            if isinstance(entry, dict) and ((entry.get("annotations") or {}).get("labels") or [])
+        )
+        summary_obj["verified"] = sum(
+            1
+            for entry in items
+            if isinstance(entry, dict) and bool((entry.get("annotations") or {}).get("verified"))
+        )
+        data["summary"] = summary_obj
+        updated_data = data
+
+        unsaved_update = {"dirty": True, "item_id": item_id} if item_id == (modal_item_id or "") else no_update
+        _verify_badge_debug(
+            "return_update",
+            item_id=item_id,
+            item_key=item_key,
+            label=label,
+            action=action,
+            labels_after=updated_labels,
+            rejected_after=sorted(rejected_set),
+            next_bbox_store_item=(next_bbox_store or {}).get("item_id") if isinstance(next_bbox_store, dict) else None,
+            unsaved_update=unsaved_update,
+            event_key=selected_key,
+        )
+        return updated_data, next_bbox_store, unsaved_update, {"last_key": selected_key}
+
+    @app.callback(
+        Output("user-profile-store", "data", allow_duplicate=True),
+        Output("profile-reset-applied-store", "data"),
+        Input("mode-tabs", "data"),
+        State("profile-reset-applied-store", "data"),
+        State("user-profile-store", "data"),
+        prevent_initial_call="initial_duplicate",
+    )
+    def maybe_reset_profile_on_start(mode, reset_applied, current_profile):
+        _ = mode
+        if not _RESET_PROFILE_ON_START:
+            raise PreventUpdate
+        if reset_applied:
+            raise PreventUpdate
+        profile = current_profile if isinstance(current_profile, dict) else {}
+        if not profile.get("name") and not profile.get("email"):
+            return no_update, True
+        logger.warning("[PROFILE_RESET] reset_profile_on_start_applied=true")
+        return {"name": "", "email": ""}, True
+
+    @app.callback(
+        Output("profile-modal", "is_open", allow_duplicate=True),
+        Output("profile-name", "value", allow_duplicate=True),
+        Output("profile-email", "value", allow_duplicate=True),
+        Output("profile-name", "invalid", allow_duplicate=True),
+        Output("profile-email", "invalid", allow_duplicate=True),
+        Output("profile-required-message", "children", allow_duplicate=True),
+        Input({"type": "edit-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
+        Input("label-editor-save", "n_clicks"),
+        Input({"type": "confirm-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
+        Input({"type": "label-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "label-save-btn", "item_id": ALL}, "n_clicks"),
+        Input({"type": "verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-accept", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-reject", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "verify-label-delete", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-accept", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-label-add-box", "label": ALL}, "n_clicks"),
+        Input({"type": "modal-label-delete-confirm", "label": ALL}, "submit_n_clicks"),
+        Input("unsaved-save-btn", "n_clicks"),
+        Input("modal-image-graph", "relayoutData"),
+        Input("modal-image-graph", "clickData"),
+        State("user-profile-store", "data"),
+        State("mode-tabs", "data"),
+        prevent_initial_call=True,
+    )
+    def prompt_profile_for_blocked_actions(
+        edit_clicks,
+        modal_edit_clicks,
+        label_editor_save_clicks,
+        confirm_clicks,
+        modal_confirm_clicks,
+        label_delete_clicks,
+        label_save_clicks,
+        verify_accept_clicks,
+        verify_reject_clicks,
+        verify_delete_clicks,
+        verify_accept_clicks_legacy,
+        verify_reject_clicks_legacy,
+        verify_delete_clicks_legacy,
+        modal_verify_accept_clicks,
+        modal_verify_reject_clicks,
+        modal_verify_delete_clicks,
+        modal_verify_accept_clicks_legacy,
+        modal_verify_reject_clicks_legacy,
+        modal_verify_delete_clicks_legacy,
+        modal_add_box_clicks,
+        modal_delete_label_clicks,
+        unsaved_save_clicks,
+        modal_graph_relayout,
+        modal_graph_click,
+        profile,
+        mode,
+    ):
+        _ = (
+            edit_clicks,
+            modal_edit_clicks,
+            label_editor_save_clicks,
+            confirm_clicks,
+            modal_confirm_clicks,
+            label_delete_clicks,
+            label_save_clicks,
+            verify_accept_clicks,
+            verify_reject_clicks,
+            verify_delete_clicks,
+            verify_accept_clicks_legacy,
+            verify_reject_clicks_legacy,
+            verify_delete_clicks_legacy,
+            modal_verify_accept_clicks,
+            modal_verify_reject_clicks,
+            modal_verify_delete_clicks,
+            modal_verify_accept_clicks_legacy,
+            modal_verify_reject_clicks_legacy,
+            modal_verify_delete_clicks_legacy,
+            modal_add_box_clicks,
+            modal_delete_label_clicks,
+            unsaved_save_clicks,
+            modal_graph_relayout,
+            modal_graph_click,
+        )
+        if not ctx.triggered:
+            raise PreventUpdate
+        if _is_profile_complete(profile):
+            raise PreventUpdate
+        if (mode or "label") == "explore":
+            raise PreventUpdate
+
+        prop_id = (ctx.triggered[0] or {}).get("prop_id", "")
+        if prop_id.endswith(".relayoutData"):
+            relayout = modal_graph_relayout if isinstance(modal_graph_relayout, dict) else {}
+            keys = set(relayout.keys())
+            has_shape_edit = bool(
+                "shapes" in relayout
+                or any(str(key).startswith("shapes[") for key in keys)
+            )
+            if not has_shape_edit:
+                raise PreventUpdate
+        elif prop_id.endswith(".clickData"):
+            click_data = modal_graph_click if isinstance(modal_graph_click, dict) else {}
+            points = click_data.get("points")
+            if not (isinstance(points, list) and points):
+                raise PreventUpdate
+
+        name, email = _profile_name_email(profile)
+        return (
+            True,
+            name,
+            email,
+            not bool(name),
+            not _is_valid_email(email),
+            _PROFILE_REQUIRED_MESSAGE,
+        )
 
     @app.callback(
         Output("profile-modal", "is_open"),
         Output("profile-name", "value"),
         Output("profile-email", "value"),
+        Output("profile-name", "invalid"),
+        Output("profile-email", "invalid"),
+        Output("profile-required-message", "children"),
         Input("profile-btn", "n_clicks"),
         Input("profile-cancel", "n_clicks"),
         State("user-profile-store", "data"),
@@ -2139,14 +4090,18 @@ def register_callbacks(app, config):
         triggered = ctx.triggered_id
         if triggered == "profile-btn":
             profile = profile or {}
-            return True, profile.get("name", ""), profile.get("email", "")
+            name, email = _profile_name_email(profile)
+            return True, name, email, False, False, _PROFILE_REQUIRED_MESSAGE
         if triggered == "profile-cancel":
-            return False, no_update, no_update
+            return False, no_update, no_update, False, False, _PROFILE_REQUIRED_MESSAGE
         raise PreventUpdate
 
     @app.callback(
         Output("user-profile-store", "data"),
         Output("profile-modal", "is_open", allow_duplicate=True),
+        Output("profile-name", "invalid", allow_duplicate=True),
+        Output("profile-email", "invalid", allow_duplicate=True),
+        Output("profile-required-message", "children", allow_duplicate=True),
         Input("profile-save", "n_clicks"),
         State("profile-name", "value"),
         State("profile-email", "value"),
@@ -2155,7 +4110,25 @@ def register_callbacks(app, config):
     def save_profile(n_clicks, name, email):
         if not n_clicks:
             raise PreventUpdate
-        return {"name": name or "", "email": email or ""}, False
+        normalized_name = str(name or "").strip()
+        normalized_email = str(email or "").strip()
+        name_invalid = not bool(normalized_name)
+        email_invalid = not _is_valid_email(normalized_email)
+        if name_invalid or email_invalid:
+            return (
+                no_update,
+                True,
+                name_invalid,
+                email_invalid,
+                _PROFILE_REQUIRED_MESSAGE,
+            )
+        return (
+            {"name": normalized_name, "email": normalized_email},
+            False,
+            False,
+            False,
+            _PROFILE_REQUIRED_MESSAGE,
+        )
 
     @app.callback(
         Output("profile-name-display", "children"),
@@ -2168,6 +4141,39 @@ def register_callbacks(app, config):
         name = profile.get("name") or "Anonymous"
         email = profile.get("email") or "email not set"
         return name, email
+
+    @app.callback(
+        Output("profile-required-banner", "children"),
+        Output("profile-required-banner", "style"),
+        Output("profile-btn", "className"),
+        Input("user-profile-store", "data"),
+        Input("mode-tabs", "data"),
+        prevent_initial_call=False,
+    )
+    def render_profile_requirement_banner(profile, mode):
+        base_profile_class = "profile-summary"
+        mode = (mode or "label").strip()
+        profile_complete = _is_profile_complete(profile)
+
+        if mode == "explore" or profile_complete:
+            return (
+                no_update,
+                {"display": "none"},
+                base_profile_class,
+            )
+
+        banner = html.Div(
+            [
+                html.I(className="bi bi-exclamation-triangle-fill"),
+                html.Span("Set your profile (name and email) using the top-right profile button before labeling or verifying."),
+            ],
+            className="profile-required-banner-inner",
+        )
+        return (
+            banner,
+            {"display": "block"},
+            f"{base_profile_class} profile-summary--required",
+        )
 
     def _coerce_positive_int(value, fallback):
         try:
@@ -2287,20 +4293,26 @@ def register_callbacks(app, config):
         Output("modal-nav-prev", "disabled"),
         Output("modal-nav-next", "disabled"),
         Output("modal-nav-position", "children"),
+        Output("modal-snapshot-store", "data"),
+        Output("modal-unsaved-store", "data"),
+        Output("unsaved-changes-modal", "is_open"),
+        Output("modal-pending-action-store", "data"),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
         Input("close-modal", "n_clicks"),
+        Input("modal-force-action-store", "data"),
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
         State("mode-tabs", "data"),
         State("verify-thresholds-store", "data"),
-        State("verify-class-filter", "value"),
+        State("verify-class-filter", "data"),
         State("modal-audio-settings-store", "data"),
         State("current-filename", "data"),
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
+        State("modal-unsaved-store", "data"),
         prevent_initial_call=True,
     )
     def handle_modal_trigger(
@@ -2308,6 +4320,7 @@ def register_callbacks(app, config):
         prev_clicks,
         next_clicks,
         close_clicks,
+        force_action,
         label_data,
         verify_data,
         explore_data,
@@ -2318,11 +4331,94 @@ def register_callbacks(app, config):
         current_item_id,
         colormap,
         y_axis_scale,
+        unsaved_store,
     ):
         mode = mode or "label"
         data = _get_mode_data(mode, label_data, verify_data, explore_data)
         triggered = ctx.triggered_id
-        if triggered == "close-modal":
+
+        page_items = _get_modal_navigation_items(
+            mode,
+            label_data,
+            verify_data,
+            explore_data,
+            thresholds,
+            class_filter,
+        )
+        page_item_ids = [item.get("item_id") for item in page_items if item and item.get("item_id")]
+
+        is_forced = triggered == "modal-force-action-store"
+        action = None
+        if is_forced:
+            if not isinstance(force_action, dict):
+                raise PreventUpdate
+            candidate = force_action.get("action")
+            if isinstance(candidate, dict) and candidate.get("kind") in {"close", "open"}:
+                action = candidate
+        elif triggered == "close-modal":
+            action = {"kind": "close"}
+        elif isinstance(triggered, dict) and triggered.get("type") == "spectrogram-image":
+            if not any(image_clicks_list):
+                raise PreventUpdate
+            clicked_item_id = (triggered.get("item_id") or "").strip()
+            if clicked_item_id:
+                action = {"kind": "open", "item_id": clicked_item_id}
+        elif triggered in {"modal-nav-prev", "modal-nav-next"}:
+            if not current_item_id or not page_item_ids:
+                raise PreventUpdate
+            if current_item_id not in page_item_ids:
+                action = {"kind": "open", "item_id": page_item_ids[0]}
+            else:
+                current_index = page_item_ids.index(current_item_id)
+                if triggered == "modal-nav-prev":
+                    target_item_id = page_item_ids[max(0, current_index - 1)]
+                else:
+                    target_item_id = page_item_ids[min(len(page_item_ids) - 1, current_index + 1)]
+                action = {"kind": "open", "item_id": target_item_id}
+        if not isinstance(action, dict):
+            raise PreventUpdate
+
+        is_dirty = _is_modal_dirty(unsaved_store, current_item_id=current_item_id)
+        if not is_forced and is_dirty:
+            if action.get("kind") == "close":
+                return (
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    True,
+                    action,
+                )
+            pending_item_id = (action.get("item_id") or "").strip() if action.get("kind") == "open" else ""
+            if pending_item_id and pending_item_id != current_item_id:
+                return (
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    True,
+                    action,
+                )
+
+        if action.get("kind") == "close":
             return (
                 False,
                 None,
@@ -2335,38 +4431,17 @@ def register_callbacks(app, config):
                 no_update,
                 no_update,
                 no_update,
+                None,
+                {"dirty": False, "item_id": None},
+                False,
+                None,
             )
 
-        page_items = _get_modal_navigation_items(
-            mode,
-            label_data,
-            verify_data,
-            explore_data,
-            thresholds,
-            class_filter,
-        )
-        page_item_ids = [item.get("item_id") for item in page_items if item and item.get("item_id")]
-
-        item_id = None
-        if isinstance(triggered, dict) and triggered.get("type") == "spectrogram-image":
-            if not any(image_clicks_list):
-                raise PreventUpdate
-            item_id = triggered.get("item_id")
-        elif triggered in {"modal-nav-prev", "modal-nav-next"}:
-            if not current_item_id or not page_item_ids:
-                raise PreventUpdate
-            if current_item_id not in page_item_ids:
-                item_id = page_item_ids[0]
-            else:
-                current_index = page_item_ids.index(current_item_id)
-                if triggered == "modal-nav-prev":
-                    item_id = page_item_ids[max(0, current_index - 1)]
-                else:
-                    item_id = page_item_ids[min(len(page_item_ids) - 1, current_index + 1)]
-        else:
-            raise PreventUpdate
+        item_id = (action.get("item_id") or "").strip()
 
         if not item_id:
+            raise PreventUpdate
+        if item_id == current_item_id and not is_forced:
             raise PreventUpdate
 
         active_item = next((i for i in page_items if i.get("item_id") == item_id), None)
@@ -2375,11 +4450,16 @@ def register_callbacks(app, config):
             active_item = next((i for i in items if i.get("item_id") == item_id), None)
         if not active_item:
             raise PreventUpdate
+        source_items = (data or {}).get("items", [])
+        source_item = next(
+            (item for item in source_items if isinstance(item, dict) and item.get("item_id") == item_id),
+            active_item,
+        )
 
         mat_path = active_item.get("mat_path")
         spectrogram = load_spectrogram_cached(mat_path)
         fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
-        modal_boxes = _build_modal_boxes_from_item(active_item)
+        modal_boxes = _build_modal_boxes_from_item(source_item)
         fig = _apply_modal_boxes_to_figure(fig, modal_boxes)
         default_box_label = None
 
@@ -2401,7 +4481,7 @@ def register_callbacks(app, config):
                 eq_values[eq_key] = 0.0
         gain_value = settings.get("gain", 1.0)
 
-        audio_path = active_item.get("audio_path")
+        audio_path = source_item.get("audio_path")
         modal_audio = create_modal_audio_player(
             audio_path,
             item_id,
@@ -2412,7 +4492,7 @@ def register_callbacks(app, config):
         ) if audio_path else html.P("No audio available for this item.", className="text-muted italic")
 
         modal_actions = _build_modal_item_actions(
-            active_item,
+            source_item,
             mode,
             thresholds or {"__global__": 0.5},
             boxes=modal_boxes,
@@ -2429,6 +4509,8 @@ def register_callbacks(app, config):
             next_disabled = current_index >= len(page_item_ids) - 1
             position = f"{current_index + 1} / {len(page_item_ids)}"
 
+        snapshot_payload = _modal_snapshot_payload(mode, item_id, source_item, modal_boxes)
+
         return (
             True,
             item_id,
@@ -2441,6 +4523,132 @@ def register_callbacks(app, config):
             prev_disabled,
             next_disabled,
             position,
+            snapshot_payload,
+            {"dirty": False, "item_id": item_id},
+            False,
+            None,
+        )
+
+    @app.callback(
+        Output("unsaved-changes-modal", "is_open", allow_duplicate=True),
+        Output("modal-pending-action-store", "data", allow_duplicate=True),
+        Output("modal-force-action-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("label-data-store", "data", allow_duplicate=True),
+        Output("verify-data-store", "data", allow_duplicate=True),
+        Output("explore-data-store", "data", allow_duplicate=True),
+        Output("modal-bbox-store", "data", allow_duplicate=True),
+        Input("unsaved-stay-btn", "n_clicks"),
+        Input("unsaved-save-btn", "n_clicks"),
+        Input("unsaved-discard-btn", "n_clicks"),
+        State("modal-pending-action-store", "data"),
+        State("modal-snapshot-store", "data"),
+        State("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-store", "data"),
+        State("explore-data-store", "data"),
+        State("current-filename", "data"),
+        State("verify-thresholds-store", "data"),
+        State("modal-bbox-store", "data"),
+        State("user-profile-store", "data"),
+        State("label-output-input", "value"),
+        State("config-store", "data"),
+        prevent_initial_call=True,
+    )
+    def resolve_unsaved_modal_action(
+        stay_clicks,
+        save_clicks,
+        discard_clicks,
+        pending_action,
+        snapshot_store,
+        mode,
+        label_data,
+        verify_data,
+        explore_data,
+        current_item_id,
+        thresholds,
+        bbox_store,
+        profile,
+        label_output_path,
+        cfg,
+    ):
+        triggered = ctx.triggered_id
+        if triggered == "unsaved-stay-btn":
+            if not stay_clicks:
+                raise PreventUpdate
+            return False, None, no_update, no_update, no_update, no_update, no_update, no_update
+
+        force_payload = no_update
+        if isinstance(pending_action, dict) and pending_action.get("kind") in {"close", "open"}:
+            force_payload = {
+                "action": pending_action,
+                "ts": time.time_ns(),
+            }
+
+        if triggered == "unsaved-save-btn":
+            if not save_clicks:
+                raise PreventUpdate
+            next_label_data, next_verify_data, next_explore_data = _persist_modal_item_before_exit(
+                mode=mode,
+                item_id=current_item_id,
+                label_data=label_data,
+                verify_data=verify_data,
+                explore_data=explore_data,
+                thresholds=thresholds,
+                profile=profile,
+                bbox_store=bbox_store,
+                label_output_path=label_output_path,
+                cfg=cfg,
+            )
+            dirty_update = {"dirty": False, "item_id": current_item_id}
+            return (
+                False,
+                None,
+                force_payload,
+                dirty_update,
+                next_label_data,
+                next_verify_data,
+                next_explore_data,
+                no_update,
+            )
+
+        if triggered != "unsaved-discard-btn" or not discard_clicks:
+            raise PreventUpdate
+
+        restored_label_data = no_update
+        restored_verify_data = no_update
+        restored_explore_data = no_update
+        restored_bbox_store = no_update
+        dirty_update = {"dirty": False, "item_id": current_item_id}
+
+        snap = snapshot_store if isinstance(snapshot_store, dict) else {}
+        snap_item_id = (snap.get("item_id") or "").strip()
+        snap_item = snap.get("item")
+        snap_boxes = snap.get("boxes")
+        snap_mode = (snap.get("mode") or mode or "label").strip()
+
+        if snap_item_id and isinstance(snap_item, dict):
+            if snap_mode == "label":
+                restored_label_data = _replace_item_in_data(label_data, snap_item_id, snap_item)
+            elif snap_mode == "verify":
+                restored_verify_data = _replace_item_in_data(verify_data, snap_item_id, snap_item)
+            elif snap_mode == "explore":
+                restored_explore_data = _replace_item_in_data(explore_data, snap_item_id, snap_item)
+            restored_bbox_store = {
+                "item_id": snap_item_id,
+                "boxes": deepcopy(snap_boxes) if isinstance(snap_boxes, list) else [],
+            }
+            dirty_update = {"dirty": False, "item_id": snap_item_id}
+
+        return (
+            False,
+            None,
+            force_payload,
+            dirty_update,
+            restored_label_data,
+            restored_verify_data,
+            restored_explore_data,
+            restored_bbox_store,
         )
 
     @app.callback(
@@ -2520,11 +4728,13 @@ def register_callbacks(app, config):
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Input({"type": "modal-label-add-box", "label": ALL}, "n_clicks"),
         State("modal-image-graph", "figure"),
+        State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
-    def set_modal_active_box_label(add_box_clicks, figure):
+    def set_modal_active_box_label(add_box_clicks, figure, profile):
         if not ctx.triggered or (ctx.triggered[0].get("value") or 0) <= 0:
             raise PreventUpdate
+        _require_complete_profile(profile, "set_modal_active_box_label")
         triggered = ctx.triggered_id
         if not isinstance(triggered, dict):
             raise PreventUpdate
@@ -2554,6 +4764,7 @@ def register_callbacks(app, config):
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("modal-active-box-label", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
         Input({"type": "modal-label-delete-confirm", "label": ALL}, "submit_n_clicks"),
         State("current-filename", "data"),
         State("mode-tabs", "data"),
@@ -2564,8 +4775,6 @@ def register_callbacks(app, config):
         State("modal-image-graph", "figure"),
         State("verify-thresholds-store", "data"),
         State("user-profile-store", "data"),
-        State("config-store", "data"),
-        State("label-output-input", "value"),
         prevent_initial_call=True,
     )
     def delete_modal_label(
@@ -2579,8 +4788,6 @@ def register_callbacks(app, config):
         figure,
         thresholds,
         profile,
-        cfg,
-        label_output_path,
     ):
         if not submit_clicks or all((clicks or 0) <= 0 for clicks in submit_clicks):
             raise PreventUpdate
@@ -2600,6 +4807,7 @@ def register_callbacks(app, config):
         mode = mode or "label"
         if mode == "explore":
             raise PreventUpdate
+        _require_complete_profile(profile, "delete_modal_label")
 
         data = deepcopy(_get_mode_data(mode, label_data, verify_data, explore_data))
         if not data:
@@ -2611,20 +4819,24 @@ def register_callbacks(app, config):
             raise PreventUpdate
 
         _, _, active_labels = _get_modal_label_sets(active_item, mode, thresholds or {"__global__": 0.5})
-        if label_to_delete not in active_labels:
+        active_label_set = {(label or "").strip() for label in active_labels if isinstance(label, str)}
+        if label_to_delete not in active_label_set:
             raise PreventUpdate
-        updated_labels = [label for label in active_labels if label != label_to_delete]
+        updated_labels = [
+            label for label in active_labels
+            if isinstance(label, str) and (label or "").strip() != label_to_delete
+        ]
 
         store = deepcopy(bbox_store) if isinstance(bbox_store, dict) else {"item_id": current_item_id, "boxes": []}
         existing_boxes = store.get("boxes") if isinstance(store.get("boxes"), list) else []
         filtered_boxes = [
             box for box in existing_boxes
-            if (box.get("label") if isinstance(box, dict) else None) != label_to_delete
+            if isinstance(box, dict) and (box.get("label") or "").strip() != label_to_delete
         ]
         store["item_id"] = current_item_id
         store["boxes"] = filtered_boxes
 
-        profile_name = (profile or {}).get("name") if isinstance(profile, dict) else None
+        profile_name = _profile_actor(profile)
         label_extents = _extract_label_extent_map_from_boxes(filtered_boxes)
         updated_data = _update_item_labels(
             data,
@@ -2634,50 +4846,47 @@ def register_callbacks(app, config):
             user_name=profile_name,
             label_extents=label_extents or None,
         )
-
-        if mode == "label":
-            updated_item = next(
-                (item for item in (updated_data or {}).get("items", []) if item and item.get("item_id") == current_item_id),
-                None,
-            )
-            note_text = ((updated_item or {}).get("annotations") or {}).get("notes", "")
-            labels_file = (
-                label_output_path
-                or (updated_data or {}).get("summary", {}).get("labels_file")
-                or (cfg or {}).get("label", {}).get("output_file")
-            )
-            save_label_mode(
-                labels_file,
-                current_item_id,
-                updated_labels,
-                annotated_by=profile_name,
-                notes=note_text,
-                label_extents=label_extents or None,
-            )
+        if mode == "verify":
+            current_rejected = set(_get_item_rejected_labels(active_item))
+            current_rejected.add(label_to_delete)
+            for entry in (updated_data or {}).get("items", []):
+                if not isinstance(entry, dict) or entry.get("item_id") != current_item_id:
+                    continue
+                annotations_obj = entry.get("annotations") or {}
+                annotations_obj["rejected_labels"] = sorted(current_rejected)
+                entry["annotations"] = annotations_obj
+                break
 
         updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, filtered_boxes)
         next_active_label = None
+        unsaved_update = {"dirty": True, "item_id": current_item_id}
 
         if mode == "label":
-            return updated_data, no_update, no_update, store, updated_fig, next_active_label
+            return updated_data, no_update, no_update, store, updated_fig, next_active_label, unsaved_update
         if mode == "verify":
-            return no_update, updated_data, no_update, store, updated_fig, next_active_label
-        return no_update, no_update, updated_data, store, updated_fig, next_active_label
+            return no_update, updated_data, no_update, store, updated_fig, next_active_label, unsaved_update
+        return no_update, no_update, updated_data, store, updated_fig, next_active_label, unsaved_update
 
     @app.callback(
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("modal-active-box-label", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
         Input("modal-image-graph", "relayoutData"),
         State("modal-bbox-store", "data"),
         State("modal-image-graph", "figure"),
         State("modal-active-box-label", "data"),
         State("current-filename", "data"),
+        State("mode-tabs", "data"),
+        State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
-    def update_modal_boxes_from_graph(relayout_data, bbox_store, figure, active_box_label, current_item_id):
+    def update_modal_boxes_from_graph(relayout_data, bbox_store, figure, active_box_label, current_item_id, mode, profile):
         if not current_item_id or not relayout_data:
             raise PreventUpdate
+        if mode == "explore":
+            raise PreventUpdate
+        _require_complete_profile(profile, "update_modal_boxes_from_graph")
 
         store = deepcopy(bbox_store) if isinstance(bbox_store, dict) else {}
         if store.get("item_id") != current_item_id:
@@ -2959,21 +5168,28 @@ def register_callbacks(app, config):
             clear_active_label=clear_active_label,
             boxes_after=_bbox_debug_box_summary(boxes),
         )
-        return store, updated_fig, (None if clear_active_label else no_update)
+        dirty_update = {"dirty": True, "item_id": current_item_id} if updated else no_update
+        return store, updated_fig, (None if clear_active_label else no_update), dirty_update
 
     @app.callback(
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("modal-active-box-label", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
         Input("modal-image-graph", "clickData"),
         State("modal-bbox-store", "data"),
         State("modal-image-graph", "figure"),
         State("current-filename", "data"),
+        State("mode-tabs", "data"),
+        State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
-    def delete_modal_box_from_graph_click(click_data, bbox_store, figure, current_item_id):
+    def delete_modal_box_from_graph_click(click_data, bbox_store, figure, current_item_id, mode, profile):
         if not current_item_id:
             raise PreventUpdate
+        if mode == "explore":
+            raise PreventUpdate
+        _require_complete_profile(profile, "delete_modal_box_from_graph_click")
 
         def _coerce_int(value):
             if isinstance(value, bool) or value is None:
@@ -3044,7 +5260,7 @@ def register_callbacks(app, config):
                 boxes,
                 revision_bump=time.time_ns(),
             )
-            return store, updated_fig, no_update
+            return store, updated_fig, no_update, no_update
 
         _bbox_debug("inline_delete_remove_index", box_index=box_index, box=boxes[box_index])
         boxes.pop(box_index)
@@ -3059,7 +5275,170 @@ def register_callbacks(app, config):
             layout["dragmode"] = "pan"
             updated_fig["layout"] = layout
         _bbox_debug("inline_delete_return", boxes_after=_bbox_debug_box_summary(boxes))
-        return store, updated_fig, no_update
+        return store, updated_fig, no_update, {"dirty": True, "item_id": current_item_id}
+
+    @app.callback(
+        Output("label-data-store", "data", allow_duplicate=True),
+        Input("modal-bbox-store", "data"),
+        Input("modal-unsaved-store", "data"),
+        State("mode-tabs", "data"),
+        State("current-filename", "data"),
+        State("label-data-store", "data"),
+        State("user-profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def sync_label_bbox_edits_to_item(
+        bbox_store,
+        unsaved_store,
+        mode,
+        current_item_id,
+        label_data,
+        profile,
+    ):
+        """Mirror modal bbox edits into label item annotations so Save becomes available."""
+        if mode != "label":
+            raise PreventUpdate
+        if not current_item_id:
+            raise PreventUpdate
+        if not isinstance(bbox_store, dict) or bbox_store.get("item_id") != current_item_id:
+            raise PreventUpdate
+        if not _is_modal_dirty(unsaved_store, current_item_id=current_item_id):
+            raise PreventUpdate
+        _require_complete_profile(profile, "sync_label_bbox_edits_to_item")
+
+        data = deepcopy(label_data or {})
+        items = data.get("items") or []
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == current_item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            raise PreventUpdate
+
+        _, _, active_labels = _get_modal_label_sets(active_item, "label", {"__global__": 0.5})
+        active_labels = _ordered_unique_labels(active_labels)
+
+        boxes = bbox_store.get("boxes")
+        boxes = boxes if isinstance(boxes, list) else []
+        next_label_extents = _extract_label_extent_map_from_boxes(boxes)
+        if next_label_extents:
+            merged_labels = list(active_labels)
+            seen_labels = set(merged_labels)
+            for extent_label in next_label_extents.keys():
+                if extent_label not in seen_labels:
+                    merged_labels.append(extent_label)
+                    seen_labels.add(extent_label)
+            active_labels = merged_labels
+
+        existing_annotations = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        existing_labels = _ordered_unique_labels(existing_annotations.get("labels") or [])
+        existing_raw_extents = existing_annotations.get("label_extents") if isinstance(existing_annotations, dict) else None
+        existing_label_extents = {}
+        if isinstance(existing_raw_extents, dict):
+            for label, extent in existing_raw_extents.items():
+                if not isinstance(label, str):
+                    continue
+                normalized_label = label.strip()
+                if not normalized_label:
+                    continue
+                cleaned = _clean_annotation_extent(extent)
+                if cleaned:
+                    existing_label_extents[normalized_label] = cleaned
+
+        if (
+            existing_labels == active_labels
+            and existing_label_extents == next_label_extents
+            and _has_pending_label_edits(existing_annotations)
+        ):
+            raise PreventUpdate
+
+        profile_name = _profile_actor(profile)
+        updated_data = _update_item_labels(
+            data,
+            current_item_id,
+            active_labels,
+            mode="label",
+            user_name=profile_name,
+            label_extents=next_label_extents,
+        )
+        return updated_data
+
+    @app.callback(
+        Output("verify-data-store", "data", allow_duplicate=True),
+        Input("modal-bbox-store", "data"),
+        Input("modal-unsaved-store", "data"),
+        State("mode-tabs", "data"),
+        State("current-filename", "data"),
+        State("verify-data-store", "data"),
+        State("verify-thresholds-store", "data"),
+        State("user-profile-store", "data"),
+        prevent_initial_call=True,
+    )
+    def sync_verify_bbox_edits_to_item(
+        bbox_store,
+        unsaved_store,
+        mode,
+        current_item_id,
+        verify_data,
+        thresholds,
+        profile,
+    ):
+        """Mirror modal bbox edits into verify item annotations so Save becomes available."""
+        if mode != "verify":
+            raise PreventUpdate
+        if not current_item_id:
+            raise PreventUpdate
+        if not isinstance(bbox_store, dict) or bbox_store.get("item_id") != current_item_id:
+            raise PreventUpdate
+        if not _is_modal_dirty(unsaved_store, current_item_id=current_item_id):
+            raise PreventUpdate
+        _require_complete_profile(profile, "sync_verify_bbox_edits_to_item")
+
+        data = deepcopy(verify_data or {})
+        items = data.get("items") or []
+        active_item = next(
+            (item for item in items if isinstance(item, dict) and item.get("item_id") == current_item_id),
+            None,
+        )
+        if not isinstance(active_item, dict):
+            raise PreventUpdate
+
+        thresholds = thresholds or {"__global__": 0.5}
+        _, _, active_labels = _get_modal_label_sets(active_item, "verify", thresholds)
+        active_labels = _ordered_unique_labels(active_labels)
+
+        boxes = bbox_store.get("boxes")
+        boxes = boxes if isinstance(boxes, list) else []
+        next_label_extents = _extract_label_extent_map_from_boxes(boxes)
+
+        existing_annotations = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        existing_raw_extents = existing_annotations.get("label_extents") if isinstance(existing_annotations, dict) else None
+        existing_label_extents = {}
+        if isinstance(existing_raw_extents, dict):
+            for label, extent in existing_raw_extents.items():
+                if not isinstance(label, str):
+                    continue
+                normalized_label = label.strip()
+                if not normalized_label:
+                    continue
+                cleaned = _clean_annotation_extent(extent)
+                if cleaned:
+                    existing_label_extents[normalized_label] = cleaned
+
+        # Ignore no-op updates so opening the modal does not trigger a fake dirty state.
+        if existing_label_extents == next_label_extents:
+            raise PreventUpdate
+
+        profile_name = _profile_actor(profile)
+        updated_data = _update_item_labels(
+            data,
+            current_item_id,
+            active_labels,
+            mode="verify",
+            user_name=profile_name,
+            label_extents=next_label_extents,
+        )
+        return updated_data
 
     # Initialize audio players when page content or modal changes
     app.clientside_callback(
@@ -3317,6 +5696,62 @@ def register_callbacks(app, config):
     )
 
     @app.callback(
+        Output("tab-filter-state-store", "data"),
+        Input("global-date-selector", "value"),
+        Input("global-device-selector", "value"),
+        State("mode-tabs", "data"),
+        State("tab-filter-state-store", "data"),
+        prevent_initial_call=True,
+    )
+    def persist_active_tab_filters(selected_date, selected_device, mode, tab_filter_state):
+        mode = (mode or "").strip()
+        if mode not in {"label", "verify", "explore"}:
+            _tab_iso_debug(
+                "persist_filters_skip_invalid_mode",
+                mode=mode,
+                selected_date=selected_date,
+                selected_device=selected_device,
+            )
+            raise PreventUpdate
+
+        state = deepcopy(tab_filter_state or {})
+        for tab in ("label", "verify", "explore"):
+            if not isinstance(state.get(tab), dict):
+                state[tab] = {"date": None, "device": None}
+
+        current = state.get(mode, {})
+        next_entry = dict(current)
+        triggered = ctx.triggered_id
+        if triggered == "global-date-selector":
+            next_entry["date"] = selected_date
+        elif triggered == "global-device-selector":
+            next_entry["device"] = selected_device
+        else:
+            next_entry["date"] = selected_date
+            next_entry["device"] = selected_device
+
+        if current == next_entry:
+            _tab_iso_debug(
+                "persist_filters_nochange",
+                mode=mode,
+                triggered=str(triggered),
+                selected_date=selected_date,
+                selected_device=selected_device,
+            )
+            raise PreventUpdate
+
+        state[mode] = next_entry
+        _tab_iso_debug(
+            "persist_filters_update",
+            mode=mode,
+            triggered=str(triggered),
+            selected_date=selected_date,
+            selected_device=selected_device,
+            next_entry=next_entry,
+        )
+        return state
+
+    @app.callback(
         Output("global-date-selector", "options", allow_duplicate=True),
         Output("global-date-selector", "value", allow_duplicate=True),
         Input("mode-tabs", "data"),
@@ -3324,21 +5759,37 @@ def register_callbacks(app, config):
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
+        State("tab-filter-state-store", "data"),
+        State("global-date-selector", "value"),
         prevent_initial_call="initial_duplicate",
     )
-    def discover_dates(mode, cfg, label_data, verify_data, explore_data):
-        # Prefer the configured data root so root changes persist across tab switches.
+    def discover_dates(mode, cfg, label_data, verify_data, explore_data, tab_filter_state, global_date_value):
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        configured_data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        configured_data_dir = _config_default_data_dir(cfg or {})
         tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
-        data_dir = configured_data_dir or tab_data_dir
+        # Keep tab roots isolated: use this tab's loaded source first.
+        data_dir = tab_data_dir or configured_data_dir
+        _tab_iso_debug(
+            "discover_dates_start",
+            mode=mode,
+            tab_data_dir=tab_data_dir,
+            configured_data_dir=configured_data_dir,
+            resolved_data_dir=data_dir,
+            global_date_value=global_date_value,
+        )
         if not data_dir or not os.path.exists(data_dir):
+            _tab_iso_debug("discover_dates_no_dir", mode=mode, resolved_data_dir=data_dir)
             return [], None
+
+        tab_state = (tab_filter_state or {}).get(mode, {}) if isinstance(tab_filter_state, dict) else {}
+        saved_date = tab_state.get("date") if isinstance(tab_state, dict) else None
+        current_date = global_date_value
 
         # Dates are folders like YYYY-MM-DD
         try:
             base_name = os.path.basename(data_dir.rstrip(os.sep))
             if len(base_name) == 10 and base_name[4] == '-' and base_name[7] == '-':
+                _tab_iso_debug("discover_dates_return_base_date", mode=mode, base_name=base_name)
                 return [{"label": base_name, "value": base_name}], base_name
 
             dates = [d for d in os.listdir(data_dir) if len(d) == 10 and os.path.isdir(os.path.join(data_dir, d))]
@@ -3347,23 +5798,50 @@ def register_callbacks(app, config):
             options = [{"label": "All Dates", "value": "__all__"}] + [
                 {"label": d, "value": d} for d in dates
             ]
+            option_values = {"__all__", *dates}
             default_val = dates[0] if dates else None
 
-            # Override with config if present
-            config_date = cfg.get("verify", {}).get("date")
-            if config_date in dates:
+            # Apply config defaults only for Verify mode.
+            config_date = None
+            if mode == "verify" and isinstance(cfg, dict):
+                verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
+                config_date = verify_cfg.get("date")
+            if saved_date in option_values:
+                default_val = saved_date
+            elif current_date in option_values:
+                default_val = current_date
+            elif config_date in dates:
                 default_val = config_date
 
             if dates:
+                _tab_iso_debug(
+                    "discover_dates_return_dates",
+                    mode=mode,
+                    options_count=len(options),
+                    default_val=default_val,
+                    saved_date=saved_date,
+                    current_date=current_date,
+                    config_date=config_date,
+                )
                 return options, default_val
 
             # Device-only root (no date folders) - keep date selector meaningful
             devices = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
             if devices:
-                return [{"label": "Device folders", "value": "__device_only__"}], "__device_only__"
+                device_only_val = "__device_only__"
+                if saved_date == device_only_val:
+                    _tab_iso_debug("discover_dates_return_device_only_saved", mode=mode, default_val=saved_date)
+                    return [{"label": "Device folders", "value": device_only_val}], saved_date
+                if current_date == device_only_val:
+                    _tab_iso_debug("discover_dates_return_device_only_current", mode=mode, default_val=current_date)
+                    return [{"label": "Device folders", "value": device_only_val}], current_date
+                _tab_iso_debug("discover_dates_return_device_only_default", mode=mode, default_val=device_only_val)
+                return [{"label": "Device folders", "value": device_only_val}], device_only_val
 
+            _tab_iso_debug("discover_dates_return_empty", mode=mode)
             return [], None
-        except Exception:
+        except Exception as e:
+            _tab_iso_debug("discover_dates_error", mode=mode, error=str(e))
             return [], None
 
     @app.callback(
@@ -3375,22 +5853,40 @@ def register_callbacks(app, config):
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
+        State("tab-filter-state-store", "data"),
+        State("global-device-selector", "value"),
     )
-    def discover_devices(selected_date, cfg, mode, label_data, verify_data, explore_data):
+    def discover_devices(selected_date, cfg, mode, label_data, verify_data, explore_data, tab_filter_state, global_device_value):
         if not selected_date:
+            _tab_iso_debug("discover_devices_no_selected_date", mode=mode)
             return [], None
 
         # Skip discovery for flat structures
         if selected_date == "__flat__":
+            _tab_iso_debug("discover_devices_skip_flat", mode=mode)
             return [], None
 
-        # Prefer the configured data root so root changes persist across tab switches.
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        configured_data_dir = cfg.get("data", {}).get("data_dir") or cfg.get("verify", {}).get("dashboard_root")
+        configured_data_dir = _config_default_data_dir(cfg or {})
         tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
-        data_dir = configured_data_dir or tab_data_dir
+        # Keep tab roots isolated: use this tab's loaded source first.
+        data_dir = tab_data_dir or configured_data_dir
+        _tab_iso_debug(
+            "discover_devices_start",
+            mode=mode,
+            selected_date=selected_date,
+            tab_data_dir=tab_data_dir,
+            configured_data_dir=configured_data_dir,
+            resolved_data_dir=data_dir,
+            global_device_value=global_device_value,
+        )
         if not data_dir:
+            _tab_iso_debug("discover_devices_no_dir", mode=mode)
             return [], None
+
+        tab_state = (tab_filter_state or {}).get(mode, {}) if isinstance(tab_filter_state, dict) else {}
+        saved_device = tab_state.get("device") if isinstance(tab_state, dict) else None
+        current_device = global_device_value
         
         try:
             devices = set()
@@ -3420,15 +5916,34 @@ def register_callbacks(app, config):
             options = [{"label": "All Devices", "value": "__all__"}] + [
                 {"label": d, "value": d} for d in devices
             ]
+            option_values = {"__all__", *devices}
             default_val = devices[0] if devices else None
             
-            # Override with config if present
-            config_dev = cfg.get("verify", {}).get("hydrophone")
-            if config_dev in devices:
+            # Apply config defaults only for Verify mode.
+            config_dev = None
+            if mode == "verify" and isinstance(cfg, dict):
+                verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
+                config_dev = verify_cfg.get("hydrophone")
+            if saved_device in option_values:
+                default_val = saved_device
+            elif current_device in option_values:
+                default_val = current_device
+            elif config_dev in devices:
                 default_val = config_dev
-                
+
+            _tab_iso_debug(
+                "discover_devices_return",
+                mode=mode,
+                selected_date=selected_date,
+                devices_count=len(devices),
+                default_val=default_val,
+                saved_device=saved_device,
+                current_device=current_device,
+                config_dev=config_dev,
+            )
             return options, default_val
-        except Exception:
+        except Exception as e:
+            _tab_iso_debug("discover_devices_error", mode=mode, selected_date=selected_date, error=str(e))
             return [], None
 
     @app.callback(
@@ -3446,9 +5961,15 @@ def register_callbacks(app, config):
         data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
 
         # Show the current tab's data directory
-        configured_data_dir = cfg.get("data", {}).get("data_dir") if isinstance(cfg, dict) else None
-        data_dir = configured_data_dir or (data.get("source_data_dir") if data else None)
+        configured_data_dir = _config_default_data_dir(cfg or {})
+        data_dir = (data.get("source_data_dir") if data else None) or configured_data_dir
         data_dir_display = data_dir or "Not selected"
+        _tab_iso_debug(
+            "active_selection_display",
+            mode=mode,
+            data_dir_display=data_dir_display,
+            selected_snapshot=_tab_data_snapshot(data),
+        )
 
         if not data:
             return "No data loaded", data_dir_display

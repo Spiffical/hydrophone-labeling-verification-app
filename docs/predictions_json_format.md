@@ -16,6 +16,7 @@ output structure. Human decisions always go into `items[].verifications[].label_
 4. **Avoid data duplication** - reference files, don't embed them
 5. **Flexible localization** - support clip-level, time-only, frequency-only, or time-frequency extents
 6. **Single output format** - no conversion needed between label and verify modes
+7. **Reviewer identity required** - labeling/verification requires both reviewer name and email
 
 ---
 
@@ -252,6 +253,9 @@ local workflow references and are not ingested by O3.0.
 Supports **multiple verification rounds** with full audit trail.
 Used for **both** model prediction verification **and** manual labeling.
 
+`verified_by` must include reviewer identity with both name and email
+(recommended serialization: `"Name <email>"`).
+
 `annotation_extent` is shared between:
 - `items[].model_outputs[]`
 - `items[].verifications[].label_decisions[]`
@@ -268,7 +272,7 @@ Supported extent types:
 "verifications": [
   {
     "verified_at": "2026-01-16T15:00:00Z",
-    "verified_by": "alice@example.com",
+    "verified_by": "Alice Reviewer <alice@example.com>",
     "verification_round": 1,
     "verification_status": "verified",
     "label_decisions": [
@@ -301,7 +305,7 @@ Supported extent types:
   },
   {
     "verified_at": "2026-01-17T10:30:00Z",
-    "verified_by": "bob@example.com",
+    "verified_by": "Bob Reviewer <bob@example.com>",
     "verification_round": 2,
     "verification_status": "verified",
     "label_decisions": [
@@ -332,7 +336,7 @@ Manual labels use the same structure. All labels have `decision: "added"` and
 "verifications": [
   {
     "verified_at": "2026-01-16T15:00:00Z",
-    "verified_by": "alice@example.com",
+    "verified_by": "Alice Reviewer <alice@example.com>",
     "verification_round": 1,
     "verification_status": "verified",
     "label_decisions": [
@@ -409,7 +413,7 @@ reference the underlying file via `items[].source_audio`.
       "verifications": [
         {
           "verified_at": "2026-01-16T15:30:00Z",
-          "verified_by": "expert1@onc.ca",
+          "verified_by": "Expert 1 <expert1@onc.ca>",
           "verification_round": 1,
           "verification_status": "verified",
           "label_decisions": [
@@ -455,7 +459,7 @@ reference the underlying file via `items[].source_audio`.
       "verifications": [
         {
           "verified_at": "2026-01-16T16:00:00Z",
-          "verified_by": "expert2@onc.ca",
+          "verified_by": "Expert 2 <expert2@onc.ca>",
           "verification_round": 1,
           "verification_status": "verified",
           "label_decisions": [
@@ -487,7 +491,7 @@ reference the underlying file via `items[].source_audio`.
       "verifications": [
         {
           "verified_at": "2026-01-29T21:10:00Z",
-          "verified_by": "sbialek",
+          "verified_by": "Spencer Bialek <sbialek@onc.ca>",
           "verification_round": 1,
           "verification_status": "verified",
           "label_decisions": [

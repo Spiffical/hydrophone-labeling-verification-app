@@ -210,7 +210,7 @@ This structure is used for **both** expert verification of model predictions
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `verified_at` | date-time | yes | When this review was completed. |
-| `verified_by` | string | yes | Reviewer identifier (email or username). |
+| `verified_by` | string | yes | Reviewer identity, including **name and email** (recommended: `"Name <email>"`). |
 | `reviewer_affiliation` | string | no | e.g. `"ONC"`, `"UVic"`. |
 | `verification_round` | integer | yes | 1-based round number. |
 | `verification_status` | enum | no | `"verified"`, `"rejected"`, or `"uncertain"`. |
@@ -282,7 +282,7 @@ Example (single verification round):
 ```json
 {
   "verified_at": "2026-02-24T18:12:00Z",
-  "verified_by": "expert@onc.ca",
+  "verified_by": "Expert Reviewer <expert@onc.ca>",
   "verification_round": 3,
   "verification_status": "verified",
   "label_decisions": [
@@ -383,7 +383,7 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
       "verifications": [
         {
           "verified_at": "2026-01-29T21:10:00Z",
-          "verified_by": "sbialek",
+          "verified_by": "Spencer Bialek <sbialek@onc.ca>",
           "verification_round": 1,
           "verification_status": "verified",
           "label_decisions": [
@@ -522,7 +522,7 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
       "verifications": [
         {
           "verified_at": "2026-01-27T20:05:00Z",
-          "verified_by": "expert1@onc.ca",
+          "verified_by": "Expert 1 <expert1@onc.ca>",
           "reviewer_affiliation": "ONC",
           "verification_round": 1,
           "verification_status": "verified",
@@ -774,7 +774,10 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
       "additionalProperties": false,
       "properties": {
         "verified_at": { "type": "string", "format": "date-time" },
-        "verified_by": { "type": "string" },
+        "verified_by": {
+          "type": "string",
+          "description": "Reviewer identity including name and email (recommended: \"Name <email>\")."
+        },
         "reviewer_affiliation": { "type": "string" },
         "verification_round": { "type": "integer", "minimum": 1 },
         "verification_status": {

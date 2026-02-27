@@ -13,16 +13,202 @@ def _label_badges(labels, color="primary"):
     ], style={"display": "flex", "flex-wrap": "wrap"})
 
 
+def _ordered_unique_labels(labels):
+    ordered = []
+    seen = set()
+    for label in labels or []:
+        if not isinstance(label, str):
+            continue
+        normalized = label.strip()
+        if not normalized or normalized in seen:
+            continue
+        ordered.append(normalized)
+        seen.add(normalized)
+    return ordered
+
+
+def _has_pending_label_edits(annotations_data):
+    if not isinstance(annotations_data, dict):
+        return False
+    return bool(annotations_data.get("pending_save") or annotations_data.get("needs_reverify"))
+
+
+def _render_label_badges_with_delete(item_id, labels):
+    labels = _ordered_unique_labels(labels or [])
+    if not labels:
+        return html.Div("No labels", className="text-muted small")
+
+    badges = []
+    for label in labels:
+        target = f"{item_id}||{label}"
+        badges.append(
+            html.Div(
+                [
+                    html.Span(label, className="verify-label-text"),
+                    html.Div(
+                        [
+                            html.Button(
+                                "×",
+                                id={"type": "label-label-delete", "target": target},
+                                className="verify-inline-action verify-inline-action--reject",
+                                title=f"Delete: {label}",
+                                n_clicks=0,
+                            ),
+                        ],
+                        className="verify-inline-actions",
+                    ),
+                ],
+                className="verify-label-badge verify-label-badge--human-added",
+            )
+        )
+    return html.Div(badges, className="verify-badge-list")
+
+
+def _render_label_badges_readonly(labels):
+    labels = _ordered_unique_labels(labels or [])
+    if not labels:
+        return html.Div("No labels", className="text-muted small")
+
+    badges = []
+    for label in labels:
+        badges.append(
+            html.Div(
+                [
+                    html.Span(label, className="verify-label-text"),
+                ],
+                className="verify-label-badge verify-label-badge--human-added",
+            )
+        )
+    return html.Div(badges, className="verify-badge-list")
+
+
+def _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, assume_verified=False):
+    models = []
+    predicted = _ordered_unique_labels(predicted_labels or [])
+    accepted = _ordered_unique_labels(accepted_labels or [])
+    rejected = _ordered_unique_labels(rejected_labels or [])
+    accepted_set = set(accepted)
+    rejected_set = set(rejected)
+    predicted_set = set(predicted)
+
+    for label in predicted:
+        state = "model-unreviewed"
+        if label in rejected_set:
+            state = "model-rejected"
+        elif label in accepted_set or (assume_verified and label not in rejected_set):
+            state = "model-accepted"
+        models.append(
+            {
+                "label": label,
+                "source": "model",
+                "state": state,
+                "actions": "accept_reject",
+            }
+        )
+
+    for label in accepted:
+        if label in predicted_set:
+            continue
+        models.append(
+            {
+                "label": label,
+                "source": "human",
+                "state": "human-added",
+                "actions": "delete",
+            }
+        )
+    return models
+
+
+def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_labels, assume_verified=False):
+    models = _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, assume_verified=assume_verified)
+    if not models:
+        return html.Div("No labels", className="text-muted small")
+
+    badges = []
+    for model in models:
+        label = model["label"]
+        source = model["source"]
+        state = model["state"]
+        is_model = source == "model"
+
+        icon = (
+            html.I(className="bi bi-robot verify-label-source-icon", title="Model-derived label")
+            if is_model
+            else html.I(className="bi bi-person-fill verify-label-source-icon", title="Human-added label")
+        )
+        state_text = {
+            "model-unreviewed": "unverified",
+            "model-accepted": "accepted",
+            "model-rejected": "rejected",
+            "human-added": "",
+        }.get(state, "")
+
+        action_controls = None
+        target = f"{item_id}||{label}"
+        if model.get("actions") == "accept_reject":
+            accept_disabled = state == "model-accepted"
+            reject_disabled = state == "model-rejected"
+            action_controls = html.Div(
+                [
+                    html.Button(
+                        "✓",
+                        id={"type": "verify-label-accept", "target": target},
+                        className="verify-inline-action verify-inline-action--accept",
+                        title=f"Accept: {label}",
+                        n_clicks=0,
+                        disabled=accept_disabled,
+                    ),
+                    html.Button(
+                        "×",
+                        id={"type": "verify-label-reject", "target": target},
+                        className="verify-inline-action verify-inline-action--reject",
+                        title=f"Reject: {label}",
+                        n_clicks=0,
+                        disabled=reject_disabled,
+                    ),
+                ],
+                className="verify-inline-actions",
+            )
+        elif model.get("actions") == "delete":
+            action_controls = html.Div(
+                [
+                    html.Button(
+                        "×",
+                        id={"type": "verify-label-delete", "target": target},
+                        className="verify-inline-action verify-inline-action--reject",
+                        title=f"Delete: {label}",
+                        n_clicks=0,
+                    ),
+                ],
+                className="verify-inline-actions",
+            )
+
+        badges.append(
+            html.Div(
+                [
+                    icon,
+                    html.Span(label, className="verify-label-text"),
+                    html.Span(state_text, className="verify-label-state") if state_text else None,
+                    action_controls,
+                ],
+                className=f"verify-label-badge verify-label-badge--{state}",
+            )
+        )
+    return html.Div(badges, className="verify-badge-list")
+
+
 def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label") -> dbc.Card:
     item_id = item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
     audio_path = item.get("audio_path")
 
     predictions = item.get("predictions") or {}
     annotations_data = item.get("annotations") or {}
-    predicted = predictions.get("labels", [])
-    annotations = annotations_data.get("labels", [])
-    is_verified = bool(annotations_data.get("verified"))
-    needs_reverify = bool(annotations_data.get("needs_reverify"))
+    predicted = _ordered_unique_labels(predictions.get("labels", []))
+    annotations = _ordered_unique_labels(annotations_data.get("labels", []))
+    rejected = _ordered_unique_labels((item.get("ui_rejected_labels") or annotations_data.get("rejected_labels") or []))
+    has_pending_edits = _has_pending_label_edits(annotations_data)
+    assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
 
     # Make image clickable for modal zoom
     image = html.Div([
@@ -47,58 +233,51 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     badges = []
     if mode == "verify":
         badges.append(html.Div([
-            html.Small("Predicted", className="text-muted mb-1 d-block"),
-            _label_badges(predicted, color="primary"),
-        ], className="mb-2"))
-        badges.append(html.Div([
-            html.Small("Verified", className="text-muted mb-1 d-block"),
-            _label_badges(annotations, color="success"),
+            html.Small("Labels", className="text-muted mb-1 d-block"),
+            _render_verify_badges(item_id, predicted, annotations, rejected, assume_verified=assume_verified),
         ]))
-    else:
+    elif mode == "label":
+        label_display = annotations or predicted
         badges.append(html.Div([
             html.Small("Labels", className="text-muted mb-1 d-block"),
-            _label_badges(annotations or predicted, color="primary"),
+            _render_label_badges_with_delete(item_id, label_display),
+        ]))
+    else:
+        label_display = annotations or predicted
+        badges.append(html.Div([
+            html.Small("Labels", className="text-muted mb-1 d-block"),
+            _render_label_badges_readonly(label_display),
         ]))
 
     actions = []
     if mode == "verify":
-        # For verified items: Re-verify button only enabled if labels were modified
-        # For unverified items: Confirm button always enabled
-        if is_verified:
-            actions = [
-                dbc.Button(
-                    "Re-verify",
-                    id={"type": "confirm-btn", "item_id": item_id},
-                    size="sm",
-                    color="success" if needs_reverify else "secondary",
-                    disabled=not needs_reverify,
-                    outline=not needs_reverify,
-                ),
-                dbc.Button(
-                    "Revise",
-                    id={"type": "edit-btn", "item_id": item_id},
-                    size="sm",
-                    color="primary",
-                ),
-            ]
-        else:
-            actions = [
-                dbc.Button(
-                    "Confirm",
-                    id={"type": "confirm-btn", "item_id": item_id},
-                    size="sm",
-                    color="success",
-                ),
-                dbc.Button(
-                    "Edit",
-                    id={"type": "edit-btn", "item_id": item_id},
-                    size="sm",
-                    color="secondary",
-                ),
-            ]
+        actions = [
+            dbc.Button(
+                "Save",
+                id={"type": "confirm-btn", "item_id": item_id},
+                size="sm",
+                color="success" if has_pending_edits else "secondary",
+                disabled=not has_pending_edits,
+                outline=not has_pending_edits,
+            ),
+            dbc.Button(
+                "Edit",
+                id={"type": "edit-btn", "item_id": item_id},
+                size="sm",
+                color="secondary",
+            ),
+        ]
     elif mode == "label":
         actions = [
-            dbc.Button("Add Label(s)", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="primary"),
+            dbc.Button(
+                "Save",
+                id={"type": "label-save-btn", "item_id": item_id},
+                size="sm",
+                color="success" if has_pending_edits else "secondary",
+                disabled=not has_pending_edits,
+                outline=not has_pending_edits,
+            ),
+            dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="secondary"),
         ]
     else:
         actions = []

@@ -55,26 +55,6 @@ def create_label_layout(config: dict) -> html.Div:
                 ], className="info-line"),
             ], className="info-grid", style={"maxHeight": "200px", "overflowY": "auto"}),
 
-            # Pagination controls
-            html.Div([
-                dbc.Button("← Previous", id="label-prev-page", n_clicks=0, color="primary", size="sm", className="me-2"),
-                dbc.Button("Next →", id="label-next-page", n_clicks=0, color="primary", size="sm", className="me-3"),
-                html.Div([
-                    html.Label("Go to page:", className="me-2", style={'font-weight': '500'}),
-                    dbc.Input(
-                        id="label-page-input",
-                        type="number",
-                        min=1,
-                        step=1,
-                        value=1,
-                        className="me-2",
-                        style={'width': '80px', 'display': 'inline-block'}
-                    ),
-                    dbc.Button("Go", id="label-goto-page", n_clicks=0, color="secondary", size="sm"),
-                ], style={'display': 'inline-flex', 'align-items': 'center'}),
-                html.Span(id="label-page-info", className="ms-3", style={'font-weight': '500', 'color': '#667eea'}),
-            ], className="mb-3", style={'display': 'flex', 'align-items': 'center'}),
-
             html.Div([
                 dbc.Switch(
                     id="label-colormap-toggle",
@@ -91,6 +71,27 @@ def create_label_layout(config: dict) -> html.Div:
                 dbc.Button("Reload data", id="label-reload", color="primary", className="primary-btn"),
             ], className="control-row"),
         ], className="panel-card"),
+
+        html.Div([
+            html.Div("Page Navigation", className="pagination-sticky-title"),
+            html.Div([
+                dbc.Button("← Previous", id="label-prev-page", n_clicks=0, color="primary", size="sm"),
+                dbc.Button("Next →", id="label-next-page", n_clicks=0, color="primary", size="sm"),
+                html.Div([
+                    html.Label("Go to page:", className="pagination-goto-label"),
+                    dbc.Input(
+                        id="label-page-input",
+                        type="number",
+                        min=1,
+                        step=1,
+                        value=1,
+                        className="pagination-page-input",
+                    ),
+                    dbc.Button("Go", id="label-goto-page", n_clicks=0, color="secondary", size="sm"),
+                ], className="pagination-goto-group"),
+                html.Span(id="label-page-info", className="pagination-page-info"),
+            ], className="pagination-controls"),
+        ], className="pagination-sticky-bar"),
 
         html.Div(id="label-summary", className="summary-bar"),
         dcc.Store(id="label-current-page", data=0, storage_type="session"),

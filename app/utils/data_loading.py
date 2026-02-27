@@ -1,5 +1,6 @@
 import glob
 import os
+from copy import deepcopy
 from typing import Dict, Optional, Tuple
 
 from app.utils.audio_matching import find_matching_audio_files, get_representative_audio_file
@@ -134,6 +135,216 @@ def _normalize_item_key(key: Optional[str]) -> Optional[str]:
     return key
 
 
+def _is_segment_item_id(item_id: Optional[str]) -> bool:
+    if not isinstance(item_id, str) or "_seg" not in item_id:
+        return False
+    prefix, suffix = item_id.rsplit("_seg", 1)
+    return bool(prefix) and suffix.isdigit()
+
+
+def _item_matches_scope(item: dict, active_date: Optional[str], active_device: Optional[str]) -> bool:
+    if not isinstance(item, dict):
+        return False
+
+    if active_device:
+        device_code = item.get("device_code")
+        if isinstance(device_code, str) and device_code and device_code != active_device:
+            return False
+
+    if active_date:
+        item_date = item.get("date")
+        if isinstance(item_date, str) and item_date and item_date != active_date:
+            return False
+
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    if active_device:
+        meta_device = metadata.get("hydrophone")
+        if isinstance(meta_device, str) and meta_device and meta_device != active_device:
+            return False
+    if active_date:
+        meta_date = metadata.get("date")
+        if isinstance(meta_date, str) and meta_date and meta_date != active_date:
+            return False
+
+    path_values = []
+    for key in ("mat_path", "spectrogram_path", "audio_path"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            path_values.append(value.replace("\\", "/"))
+
+    if path_values:
+        if active_date and not any(f"/{active_date}/" in p for p in path_values):
+            return False
+        if active_device and not any(f"/{active_device}/" in p for p in path_values):
+            return False
+        return True
+
+    if active_date or active_device:
+        has_scope_hint = any(
+            bool(item.get(k))
+            for k in ("date", "device_code")
+        ) or any(bool(metadata.get(k)) for k in ("date", "hydrophone"))
+        return has_scope_hint
+
+    return True
+
+
+def _item_dedupe_key(item: dict, index: int) -> str:
+    if not isinstance(item, dict):
+        return f"__index__{index}"
+
+    item_id = item.get("item_id")
+    if isinstance(item_id, str) and item_id.strip():
+        return f"id::{item_id.strip()}"
+
+    for path_key in ("spectrogram_path", "mat_path"):
+        raw_path = item.get(path_key)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        normalized = os.path.normcase(os.path.abspath(raw_path.strip()))
+        return f"{path_key}::{normalized}"
+
+    return f"__index__{index}"
+
+
+def _merge_duplicate_items(primary: dict, incoming: dict) -> dict:
+    if not isinstance(primary, dict):
+        return deepcopy(incoming) if isinstance(incoming, dict) else primary
+    if not isinstance(incoming, dict):
+        return primary
+
+    merged = primary
+
+    # Fill in missing top-level fields while preserving the first-loaded item.
+    for field in (
+        "spectrogram_path",
+        "mat_path",
+        "audio_path",
+        "device_code",
+        "date",
+        "predictions",
+        "model_outputs",
+        "verifications",
+    ):
+        existing_value = merged.get(field)
+        incoming_value = incoming.get(field)
+        if existing_value in (None, "", [], {}) and incoming_value not in (None, "", [], {}):
+            merged[field] = incoming_value
+
+    primary_ts = merged.get("timestamps")
+    incoming_ts = incoming.get("timestamps")
+    if not isinstance(primary_ts, dict):
+        primary_ts = {}
+    if isinstance(incoming_ts, dict):
+        for key in ("start", "end"):
+            if primary_ts.get(key) in (None, "") and incoming_ts.get(key) not in (None, ""):
+                primary_ts[key] = incoming_ts.get(key)
+    if primary_ts:
+        merged["timestamps"] = primary_ts
+
+    primary_annotations = merged.get("annotations")
+    incoming_annotations = incoming.get("annotations")
+    if not isinstance(primary_annotations, dict) and isinstance(incoming_annotations, dict):
+        merged["annotations"] = deepcopy(incoming_annotations)
+    elif isinstance(primary_annotations, dict) and isinstance(incoming_annotations, dict):
+        for field in ("annotated_by", "annotated_at", "notes"):
+            if not primary_annotations.get(field) and incoming_annotations.get(field):
+                primary_annotations[field] = incoming_annotations.get(field)
+        primary_annotations["verified"] = bool(primary_annotations.get("verified")) or bool(
+            incoming_annotations.get("verified")
+        )
+
+        for field in ("labels", "rejected_labels"):
+            base = primary_annotations.get(field)
+            extra = incoming_annotations.get(field)
+            if not isinstance(base, list):
+                base = []
+            if isinstance(extra, list):
+                seen = set(base)
+                for value in extra:
+                    if value not in seen:
+                        base.append(value)
+                        seen.add(value)
+            primary_annotations[field] = base
+
+        base_extents = primary_annotations.get("label_extents")
+        extra_extents = incoming_annotations.get("label_extents")
+        if not isinstance(base_extents, dict):
+            base_extents = {}
+        if isinstance(extra_extents, dict):
+            for label, extent in extra_extents.items():
+                if label not in base_extents and isinstance(extent, dict):
+                    base_extents[label] = extent
+        if base_extents:
+            primary_annotations["label_extents"] = base_extents
+
+        merged["annotations"] = primary_annotations
+
+    primary_metadata = merged.get("metadata")
+    incoming_metadata = incoming.get("metadata")
+    if not isinstance(primary_metadata, dict) and isinstance(incoming_metadata, dict):
+        merged["metadata"] = deepcopy(incoming_metadata)
+    elif isinstance(primary_metadata, dict) and isinstance(incoming_metadata, dict):
+        for key, value in incoming_metadata.items():
+            if key not in primary_metadata or primary_metadata.get(key) in (None, "", [], {}):
+                primary_metadata[key] = value
+        merged["metadata"] = primary_metadata
+
+    return merged
+
+
+def _dedupe_items(items: list) -> Tuple[list, int]:
+    if not isinstance(items, list) or not items:
+        return items or [], 0
+
+    deduped = {}
+    order = []
+    removed = 0
+
+    for idx, item in enumerate(items):
+        key = _item_dedupe_key(item, idx)
+        if key in deduped:
+            deduped[key] = _merge_duplicate_items(deduped[key], item)
+            removed += 1
+        else:
+            deduped[key] = deepcopy(item) if isinstance(item, dict) else item
+            order.append(key)
+
+    return [deduped[key] for key in order], removed
+
+
+def _apply_item_deduplication(data: Dict) -> Dict:
+    if not isinstance(data, dict):
+        return data
+
+    items = data.get("items", [])
+    deduped_items, removed = _dedupe_items(items)
+    data["items"] = deduped_items
+
+    summary = data.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+
+    summary["total_items"] = len(deduped_items)
+    summary["annotated"] = sum(
+        1
+        for item in deduped_items
+        if isinstance(item, dict) and (item.get("annotations") or {}).get("labels")
+    )
+    summary["verified"] = sum(
+        1
+        for item in deduped_items
+        if isinstance(item, dict) and (item.get("annotations") or {}).get("verified")
+    )
+    if removed > 0:
+        summary["duplicates_removed"] = removed
+    else:
+        summary.pop("duplicates_removed", None)
+
+    data["summary"] = summary
+    return data
+
+
 def _build_audio_index(audio_dir: Optional[str]) -> Dict[str, str]:
     index: Dict[str, str] = {}
     if not audio_dir or not os.path.exists(audio_dir):
@@ -210,6 +421,11 @@ def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_p
                 matched = audio_index[key]
                 break
 
+        # Segment-indexed items should only bind to exact filename matches.
+        # Do not fallback to broad timestamp matching, which can assign the wrong segment.
+        if not matched and _is_segment_item_id(item_id):
+            continue
+
         if not matched:
             probe_name = None
             mat_path = item.get("mat_path")
@@ -249,6 +465,10 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     ld["label"] for ld in label_decisions
                     if ld.get("decision") in ("accepted", "added")
                 ]
+                rejected_labels = [
+                    ld["label"] for ld in label_decisions
+                    if ld.get("decision") == "rejected"
+                ]
                 label_extents = {}
                 for ld in label_decisions:
                     if ld.get("decision") not in ("accepted", "added"):
@@ -263,6 +483,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "annotated_by": latest.get("verified_by"),
                     "annotated_at": latest.get("verified_at"),
                     "verified": True,
+                    "rejected_labels": rejected_labels,
                     "label_extents": label_extents,
                 }
             else:
@@ -274,6 +495,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "annotated_by": annotations.get("annotated_by"),
                     "annotated_at": annotations.get("annotated_at"),
                     "verified": bool(annotations.get("verified")),
+                    "rejected_labels": annotations.get("rejected_labels", []) or [],
                     "label_extents": annotations.get("label_extents", {}) or {},
                 }
             for key in {item_id, _normalize_item_key(item_id)}:
@@ -309,6 +531,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
             "annotated_by": annotated_by,
             "annotated_at": annotated_at,
             "verified": verified,
+            "rejected_labels": entry.get("rejected_labels", []) if isinstance(entry, dict) else [],
             "label_extents": entry.get("label_extents", {}) if isinstance(entry, dict) else {},
         }
         for key in {raw_key, _normalize_item_key(raw_key)}:
@@ -558,6 +781,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
@@ -656,6 +880,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
@@ -820,6 +1045,7 @@ def load_verify_mode(
                             "annotated_by": None,
                             "annotated_at": None,
                             "verified": False,
+                            "rejected_labels": [],
                             "notes": "",
                         },
                         "metadata": {},
@@ -912,16 +1138,23 @@ def load_verify_mode(
 
             if override_path and os.path.exists(override_path):
                 override_data = load_predictions_cached(override_path)
-                folder_data = {"items": list(override_data.get("items", [])), "summary": {}}
+                filtered_override_items = [
+                    deepcopy(i)
+                    for i in override_data.get("items", [])
+                    if _item_matches_scope(i, active_date_label, active_device)
+                ]
+                folder_data = {"items": filtered_override_items, "summary": {}}
                 predictions_paths_loaded.append(override_path)
             elif root_data:
-                # Filter root-level predictions by device when possible
-                if root_has_device:
-                    filtered = [i for i in root_items if i.get("device_code") == active_device]
-                else:
-                    # No device codes in predictions - avoid duplicating items across devices
-                    filtered = root_items if active_device == devices_to_load[0] else []
-                folder_data = {"items": list(filtered), "summary": {}}
+                filtered = [
+                    deepcopy(i)
+                    for i in root_items
+                    if _item_matches_scope(i, active_date_label, active_device)
+                ]
+                if not filtered and not root_has_device:
+                    # Legacy fallback: if root predictions have no scope info at all, only show once.
+                    filtered = [deepcopy(i) for i in root_items] if active_device == devices_to_load[0] else []
+                folder_data = {"items": filtered, "summary": {}}
             else:
                 # Check device-level predictions
                 local_predictions_path = os.path.join(base_path, "predictions.json")
@@ -1138,17 +1371,44 @@ def load_verify_mode(
 
                 if device_override_path and os.path.exists(device_override_path):
                     override_data = load_predictions_cached(device_override_path)
-                    folder_data = {"items": list(override_data.get("items", [])), "summary": {}}
+                    filtered_override_items = [
+                        deepcopy(i)
+                        for i in override_data.get("items", [])
+                        if _item_matches_scope(i, active_date, active_device)
+                    ]
+                    folder_data = {"items": filtered_override_items, "summary": {}}
                     predictions_paths_loaded.append(device_override_path)
                 elif date_override_data:
-                    folder_data = {"items": list(date_override_data.get("items", [])), "summary": {}}
+                    filtered_date_override_items = [
+                        deepcopy(i)
+                        for i in date_override_data.get("items", [])
+                        if _item_matches_scope(i, active_date, active_device)
+                    ]
+                    if not filtered_date_override_items and active_device == devices_to_load[0]:
+                        filtered_date_override_items = [deepcopy(i) for i in date_override_data.get("items", [])]
+                    folder_data = {"items": filtered_date_override_items, "summary": {}}
                 elif root_data:
-                    # Use root-level predictions - filter items relevant to this device/date
-                    # The items should match based on item_id or mat file matching
-                    folder_data = {"items": list(root_data.get("items", [])), "summary": {}}
+                    filtered_root_items = [
+                        deepcopy(i)
+                        for i in root_data.get("items", [])
+                        if _item_matches_scope(i, active_date, active_device)
+                    ]
+                    if (
+                        not filtered_root_items
+                        and active_date == dates_to_load[0]
+                        and active_device == devices_to_load[0]
+                    ):
+                        filtered_root_items = [deepcopy(i) for i in root_data.get("items", [])]
+                    folder_data = {"items": filtered_root_items, "summary": {}}
                 elif date_data:
-                    # Use date-level predictions
-                    folder_data = {"items": list(date_data.get("items", [])), "summary": {}}
+                    filtered_date_items = [
+                        deepcopy(i)
+                        for i in date_data.get("items", [])
+                        if _item_matches_scope(i, active_date, active_device)
+                    ]
+                    if not filtered_date_items and active_device == devices_to_load[0]:
+                        filtered_date_items = [deepcopy(i) for i in date_data.get("items", [])]
+                    folder_data = {"items": filtered_date_items, "summary": {}}
                 else:
                     # Check device-level predictions
                     local_predictions_path = os.path.join(base_path, "predictions.json")
@@ -1244,6 +1504,7 @@ def load_verify_mode(
                                 "annotated_by": None,
                                 "annotated_at": None,
                                 "verified": False,
+                                "rejected_labels": [],
                                 "notes": "",
                             },
                             "metadata": {"date": active_date, "hydrophone": active_device},
@@ -1382,6 +1643,7 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
                 annotations["annotated_by"] = match.get("annotated_by")
                 annotations["annotated_at"] = match.get("annotated_at")
                 annotations["verified"] = bool(match.get("verified"))
+                annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
                 item["annotations"] = annotations
 
@@ -1424,12 +1686,15 @@ def load_whale_mode(config: Dict) -> Dict:
 
 
 def load_dataset(config: Dict, mode: str, date_str: Optional[str] = None, hydrophone: Optional[str] = None) -> Dict:
+    data: Dict
     if mode == "label":
-        return load_label_mode(config, date_str, hydrophone)
-    if mode == "verify":
-        return load_verify_mode(config, date_str, hydrophone)
-    if mode == "explore":
-        return load_explore_mode(config, date_str, hydrophone)
-    if mode == "whale":
-        return load_whale_mode(config)
-    return {"items": [], "summary": {"total_items": 0}}
+        data = load_label_mode(config, date_str, hydrophone)
+    elif mode == "verify":
+        data = load_verify_mode(config, date_str, hydrophone)
+    elif mode == "explore":
+        data = load_explore_mode(config, date_str, hydrophone)
+    elif mode == "whale":
+        data = load_whale_mode(config)
+    else:
+        data = {"items": [], "summary": {"total_items": 0}}
+    return _apply_item_deduplication(data)

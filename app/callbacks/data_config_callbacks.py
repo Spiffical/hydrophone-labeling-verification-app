@@ -4,6 +4,8 @@ Handles data structure detection, manual path overrides, and loading.
 """
 import os
 import re
+import json
+import logging
 from dash import Input, Output, State, callback, ctx, no_update, ALL
 from dash.exceptions import PreventUpdate
 from dash import html
@@ -12,6 +14,19 @@ import dash_bootstrap_components as dbc
 from app.utils.data_discovery import detect_data_structure, discover_items_from_folder
 from app.layouts.data_config_panel import create_hierarchy_tree, create_labels_recommendation, create_multi_folder_display, create_multi_file_display
 from app.utils.label_operations import get_path_for_filter, get_smart_labels_path
+
+logger = logging.getLogger(__name__)
+_TAB_ISO_DEBUG_ENABLED = os.getenv("O3_TAB_ISO_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tab_iso_debug(event, **payload):
+    if not _TAB_ISO_DEBUG_ENABLED:
+        return
+    try:
+        serialized = json.dumps(payload, default=str, ensure_ascii=True)
+    except Exception:
+        serialized = str(payload)
+    logger.warning("[TAB_ISO_DEBUG] %s | %s", event, serialized)
 
 
 def register_data_config_callbacks(app):
@@ -259,6 +274,12 @@ def register_data_config_callbacks(app):
             raise PreventUpdate
         if browse_target and browse_target.get("target"):
             raise PreventUpdate
+        _tab_iso_debug(
+            "data_config_update_root_path",
+            confirm_clicks=confirm_clicks,
+            selected_path=selected_path,
+            browse_target=browse_target,
+        )
         return selected_path
 
     app.clientside_callback(
@@ -490,6 +511,20 @@ def register_data_config_callbacks(app):
             "date_value": date_value,
             "device_value": device_value,
         }
+        _tab_iso_debug(
+            "data_config_load_trigger",
+            current_mode=current_mode,
+            base_path=base_path,
+            structure_type=structure_type,
+            spec_folder=spec_folder,
+            audio_folder=audio_folder,
+            predictions_file=predictions_file,
+            date_value=date_value,
+            device_value=device_value,
+            config_data_dir=(config.get("data", {}) or {}).get("data_dir") if isinstance(config, dict) else None,
+            config_predictions_file=(config.get("data", {}) or {}).get("predictions_file") if isinstance(config, dict) else None,
+            trigger_timestamp=trigger_value.get("timestamp"),
+        )
 
         return (
             True,  # Keep modal open until data finishes loading

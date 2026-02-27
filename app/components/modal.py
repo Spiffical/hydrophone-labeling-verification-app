@@ -5,7 +5,7 @@ def create_spectrogram_modal():
     """
     Create a large modal for zoomed-in spectrogram view with Plotly interactivity.
     """
-    return dbc.Modal(
+    main_modal = dbc.Modal(
         [
             dbc.ModalHeader(
                 html.Div(
@@ -39,7 +39,7 @@ def create_spectrogram_modal():
                     className="modal-header-row",
                 ),
                 className="spectrogram-modal-header",
-                close_button=True,
+                close_button=False,
             ),
             dbc.ModalBody([
                 # Control panel for modal settings
@@ -85,7 +85,7 @@ def create_spectrogram_modal():
                         ], width=6),
                     ])
                 ], className="modal-controls-card mb-4"),
-                
+
                 # Interactive Plotly Graph
                 dbc.Card([
                     dbc.CardBody([
@@ -93,7 +93,7 @@ def create_spectrogram_modal():
                             id='modal-image-graph',
                             style={'height': '500px'},
                             config={
-                                'displayModeBar': True, 
+                                'displayModeBar': True,
                                 'displaylogo': False,
                                 'modeBarButtonsToAdd': ['drawrect', 'eraseshape'],
                                 'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
@@ -129,17 +129,21 @@ def create_spectrogram_modal():
                     ],
                     className="modal-bottom-layout",
                 ),
-                
+
                 # Current filename store
                 dcc.Store(id='current-filename', data=None),
                 dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
                 dcc.Store(id='modal-active-box-label', data=None),
+                dcc.Store(id='modal-unsaved-store', data={"dirty": False}),
+                dcc.Store(id='modal-snapshot-store', data=None),
+                dcc.Store(id='modal-pending-action-store', data=None),
+                dcc.Store(id='modal-force-action-store', data=None),
             ], className="p-4"),
-            
+
             dbc.ModalFooter([
                 dbc.Button(
-                    "Close", 
-                    id='close-modal', 
+                    "Close",
+                    id='close-modal',
                     color="secondary",
                     className="px-4"
                 )
@@ -149,5 +153,47 @@ def create_spectrogram_modal():
         size='xl',
         is_open=False,
         backdrop='static',
+        keyboard=False,
         className="spectrogram-zoom-modal"
     )
+
+    unsaved_changes_modal = dbc.Modal(
+        [
+            dbc.ModalHeader("Unsaved Changes"),
+            dbc.ModalBody(
+                "You made label or bounding box edits that are not confirmed yet. "
+                "Stay to confirm/save, or exit without saving."
+            ),
+            dbc.ModalFooter(
+                [
+                    dbc.Button(
+                        "Stay",
+                        id="unsaved-stay-btn",
+                        color="secondary",
+                        className="me-2",
+                        n_clicks=0,
+                    ),
+                    dbc.Button(
+                        "Save & Exit",
+                        id="unsaved-save-btn",
+                        color="success",
+                        className="me-2",
+                        n_clicks=0,
+                    ),
+                    dbc.Button(
+                        "Exit Without Saving",
+                        id="unsaved-discard-btn",
+                        color="danger",
+                        n_clicks=0,
+                    ),
+                ]
+            ),
+        ],
+        id="unsaved-changes-modal",
+        is_open=False,
+        centered=True,
+        backdrop="static",
+        keyboard=False,
+    )
+
+    return html.Div([main_modal, unsaved_changes_modal])

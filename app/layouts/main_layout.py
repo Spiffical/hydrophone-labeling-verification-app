@@ -42,8 +42,21 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="active-item-store", data=None, storage_type="memory"),
         dcc.Store(id="label-editor-clicks", data={}, storage_type="memory"),
         dcc.Store(id="user-profile-store", data={"name": "", "email": ""}, storage_type="local"),
+        dcc.Store(id="profile-reset-applied-store", data=False, storage_type="session"),
         dcc.Store(id="theme-store", data=initial_theme, storage_type="local"),
         dcc.Store(id="verify-thresholds-store", data={"__global__": 0.5}, storage_type="memory"),
+        dcc.Store(id="verify-class-filter", data=None, storage_type="memory"),
+        dcc.Store(id="verify-class-filter-options", data=[], storage_type="memory"),
+        dcc.Store(id="verify-class-filter-expanded", data=[], storage_type="memory"),
+        dcc.Store(
+            id="tab-filter-state-store",
+            data={
+                "label": {"date": None, "device": None},
+                "verify": {"date": None, "device": None},
+                "explore": {"date": None, "device": None},
+            },
+            storage_type="session",
+        ),
         dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
         dcc.Store(id="folder-browser-selected-store", data=None, storage_type="memory"),
         dcc.Store(id="path-browse-target-store", data=None, storage_type="memory"),
@@ -54,6 +67,7 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="label-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="explore-ui-ready-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-badge-event-store", data={"last_key": ""}, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
         dcc.Store(
             id="modal-audio-settings-store",
@@ -171,6 +185,8 @@ def create_main_layout(config: dict) -> html.Div:
                 ], className="mt-1 text-end", style={"min-height": "1.5em"}),
             ], id="global-selector-container", className="data-selection-bar"),
 
+            html.Div(id="profile-required-banner", className="profile-required-banner", style={"display": "none"}),
+
             # ── Tab content panels ──────────────────────────────────
             html.Div(
                 create_label_layout(config),
@@ -208,9 +224,14 @@ def create_main_layout(config: dict) -> html.Div:
                 dbc.ModalBody([
                     dbc.Form([
                         dbc.Label("Name", html_for="profile-name", className="small fw-semibold"),
-                        dbc.Input(id="profile-name", type="text", placeholder="Your name"),
+                        dbc.Input(id="profile-name", type="text", placeholder="Your name", required=True),
                         dbc.Label("Email", html_for="profile-email", className="small fw-semibold mt-3"),
-                        dbc.Input(id="profile-email", type="email", placeholder="name@example.com"),
+                        dbc.Input(id="profile-email", type="email", placeholder="name@example.com", required=True),
+                        html.Div(
+                            "Name and a valid email are required for labeling and verification.",
+                            id="profile-required-message",
+                            className="profile-required-message mt-2",
+                        ),
                     ])
                 ]),
                 dbc.ModalFooter([
