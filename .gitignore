@@ -166,6 +166,8 @@ outputs/
 !tests/data/*.json
 !config/*.yaml
 !requirements.txt
+!app/callbacks/data/
+!app/callbacks/data/*.py
 
 # OS generated files
 .DS_Store

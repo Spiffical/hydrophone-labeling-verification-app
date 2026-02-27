@@ -1,25 +1,10 @@
-"""Pagination callbacks for label mode."""
+"""Verify pagination helper logic (pending-save guard + save-all)."""
+
 from copy import deepcopy
 from datetime import datetime
 
-from dash import Input, Output, State, ctx, no_update
-from dash.exceptions import PreventUpdate
-
+from app.services.annotations import ordered_unique_labels
 from app.utils.persistence import save_verify_predictions
-
-
-def _ordered_unique_labels(labels):
-    ordered = []
-    seen = set()
-    for label in labels or []:
-        if not isinstance(label, str):
-            continue
-        normalized = label.strip()
-        if not normalized or normalized in seen:
-            continue
-        ordered.append(normalized)
-        seen.add(normalized)
-    return ordered
 
 
 def _safe_float(value, default=None):
@@ -101,7 +86,7 @@ def _filter_predictions(predictions, thresholds):
             label_threshold = float(thresholds.get(label, global_threshold))
             if score >= label_threshold:
                 filtered.append(label.strip())
-        return _ordered_unique_labels(filtered)
+        return ordered_unique_labels(filtered)
 
     confidence = predictions.get("confidence")
     if isinstance(confidence, dict):
@@ -114,10 +99,10 @@ def _filter_predictions(predictions, thresholds):
             label_threshold = float(thresholds.get(label_clean, global_threshold))
             if _safe_float(score, 0.0) >= label_threshold:
                 filtered.append(label_clean)
-        return _ordered_unique_labels(filtered)
+        return ordered_unique_labels(filtered)
 
     labels = predictions.get("labels")
-    return _ordered_unique_labels(labels if isinstance(labels, list) else [])
+    return ordered_unique_labels(labels if isinstance(labels, list) else [])
 
 
 def _has_pending_verify_changes(item):
@@ -140,7 +125,7 @@ def _has_pending_verify_changes(item):
     )
 
 
-def _any_pending_verify_changes(verify_data):
+def any_pending_verify_changes(verify_data):
     items = (verify_data or {}).get("items")
     if not isinstance(items, list):
         return False
@@ -152,8 +137,8 @@ def _build_verification_payload(item, thresholds, profile_name):
     predictions = item.get("predictions") if isinstance(item.get("predictions"), dict) else {}
     threshold_used = float((thresholds or {}).get("__global__", 0.5))
 
-    current_labels = _ordered_unique_labels(annotations.get("labels") or [])
-    predicted_labels = _ordered_unique_labels(_filter_predictions(predictions, thresholds))
+    current_labels = ordered_unique_labels(annotations.get("labels") or [])
+    predicted_labels = ordered_unique_labels(_filter_predictions(predictions, thresholds))
     predicted_set = set(predicted_labels)
     current_set = set(current_labels)
 
@@ -178,7 +163,7 @@ def _build_verification_payload(item, thresholds, profile_name):
             if cleaned_extent:
                 annotation_extent_map[label.strip()] = cleaned_extent
 
-    explicit_rejected = set(_ordered_unique_labels(annotations.get("rejected_labels") or []))
+    explicit_rejected = set(ordered_unique_labels(annotations.get("rejected_labels") or []))
     rejected_labels = sorted((predicted_set - current_set) | explicit_rejected)
 
     label_decisions = []
@@ -229,7 +214,7 @@ def _resolve_predictions_path(item, summary_predictions_file):
     return None
 
 
-def _save_all_pending_verify_changes(verify_data, thresholds, profile):
+def save_all_pending_verify_changes(verify_data, thresholds, profile):
     if not isinstance(verify_data, dict):
         return verify_data, 0
     updated_data = deepcopy(verify_data)
@@ -296,7 +281,7 @@ def _save_all_pending_verify_changes(verify_data, thresholds, profile):
     return updated_data, saved_count
 
 
-def _compute_target_page(triggered_id, current_page, goto_page, max_pages):
+def compute_target_page(triggered_id, current_page, goto_page, max_pages):
     current_page = current_page or 0
     max_pages = max_pages or 1
     if triggered_id == "verify-prev-page":
@@ -307,155 +292,3 @@ def _compute_target_page(triggered_id, current_page, goto_page, max_pages):
         return max(0, min(int(goto_page) - 1, max_pages - 1))
     return current_page
 
-
-def register_pagination_callbacks(app):
-    """Register callbacks for pagination controls."""
-    
-    @app.callback(
-        Output("label-current-page", "data"),
-        Input("label-prev-page", "n_clicks"),
-        Input("label-next-page", "n_clicks"),
-        Input("label-goto-page", "n_clicks"),
-        State("label-current-page", "data"),
-        State("label-page-input", "value"),
-        State("label-page-input", "max"),
-        prevent_initial_call=True
-    )
-    def handle_pagination(prev_clicks, next_clicks, goto_clicks, current_page, goto_page, max_pages):
-        """Handle pagination button clicks."""
-        from dash import callback_context
-        
-        if not callback_context.triggered:
-            raise PreventUpdate
-        
-        button_id = callback_context.triggered[0]["prop_id"].split(".")[0]
-        current_page = current_page or 0
-        max_pages = max_pages or 1
-        
-        if button_id == "label-prev-page":
-            return max(0, current_page - 1)
-        elif button_id == "label-next-page":
-            return min(max_pages - 1, current_page + 1)
-        elif button_id == "label-goto-page" and goto_page:
-            # goto_page is 1-indexed, current_page is 0-indexed
-            return max(0, min(int(goto_page) - 1, max_pages - 1))
-        
-        return current_page
-    
-    @app.callback(
-        Output("label-page-input", "value"),
-        Input("label-current-page", "data"),
-    )
-    def sync_page_input(current_page):
-        """Sync page input with current page."""
-        return (current_page or 0) + 1  # Convert 0-indexed to 1-indexed
-
-    @app.callback(
-        Output("verify-current-page", "data"),
-        Output("verify-unsaved-page-modal", "is_open"),
-        Output("verify-pending-page-store", "data"),
-        Output("verify-data-store", "data", allow_duplicate=True),
-        Input("verify-prev-page", "n_clicks"),
-        Input("verify-next-page", "n_clicks"),
-        Input("verify-goto-page", "n_clicks"),
-        Input("verify-unsaved-page-stay", "n_clicks"),
-        Input("verify-unsaved-page-save", "n_clicks"),
-        State("verify-current-page", "data"),
-        State("verify-page-input", "value"),
-        State("verify-page-input", "max"),
-        State("verify-pending-page-store", "data"),
-        State("verify-data-store", "data"),
-        State("verify-thresholds-store", "data"),
-        State("user-profile-store", "data"),
-        prevent_initial_call=True
-    )
-    def handle_verify_pagination(
-        prev_clicks,
-        next_clicks,
-        goto_clicks,
-        stay_clicks,
-        save_all_clicks,
-        current_page,
-        goto_page,
-        max_pages,
-        pending_page,
-        verify_data,
-        thresholds,
-        profile,
-    ):
-        """Handle verify pagination, including unsaved-change guard + save-all."""
-        triggered_id = ctx.triggered_id
-        current_page = current_page or 0
-        max_pages = max_pages or 1
-
-        if triggered_id in {"verify-prev-page", "verify-next-page", "verify-goto-page"}:
-            target_page = _compute_target_page(triggered_id, current_page, goto_page, max_pages)
-            if target_page == current_page:
-                raise PreventUpdate
-
-            if _any_pending_verify_changes(verify_data):
-                return no_update, True, target_page, no_update
-
-            return target_page, False, None, no_update
-
-        if triggered_id == "verify-unsaved-page-stay":
-            if not stay_clicks:
-                raise PreventUpdate
-            return no_update, False, None, no_update
-
-        if triggered_id == "verify-unsaved-page-save":
-            if not save_all_clicks:
-                raise PreventUpdate
-            target_page = pending_page if isinstance(pending_page, int) else current_page
-            target_page = max(0, min(max_pages - 1, target_page))
-            updated_data, saved_count = _save_all_pending_verify_changes(verify_data, thresholds, profile)
-            verify_data_update = updated_data if saved_count > 0 else no_update
-            return target_page, False, None, verify_data_update
-
-        raise PreventUpdate
-
-    @app.callback(
-        Output("verify-page-input", "value"),
-        Input("verify-current-page", "data"),
-    )
-    def sync_verify_page_input(current_page):
-        """Sync verify page input with current page."""
-        return (current_page or 0) + 1
-
-    @app.callback(
-        Output("explore-current-page", "data"),
-        Input("explore-prev-page", "n_clicks"),
-        Input("explore-next-page", "n_clicks"),
-        Input("explore-goto-page", "n_clicks"),
-        State("explore-current-page", "data"),
-        State("explore-page-input", "value"),
-        State("explore-page-input", "max"),
-        prevent_initial_call=True
-    )
-    def handle_explore_pagination(prev_clicks, next_clicks, goto_clicks, current_page, goto_page, max_pages):
-        """Handle pagination button clicks in explore mode."""
-        from dash import callback_context
-
-        if not callback_context.triggered:
-            raise PreventUpdate
-
-        button_id = callback_context.triggered[0]["prop_id"].split(".")[0]
-        current_page = current_page or 0
-        max_pages = max_pages or 1
-
-        if button_id == "explore-prev-page":
-            return max(0, current_page - 1)
-        elif button_id == "explore-next-page":
-            return min(max_pages - 1, current_page + 1)
-        elif button_id == "explore-goto-page" and goto_page:
-            return max(0, min(int(goto_page) - 1, max_pages - 1))
-
-        return current_page
-
-    @app.callback(
-        Output("explore-page-input", "value"),
-        Input("explore-current-page", "data"),
-    )
-    def sync_explore_page_input(current_page):
-        """Sync explore page input with current page."""
-        return (current_page or 0) + 1

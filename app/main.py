@@ -6,10 +6,7 @@ import dash_bootstrap_components as dbc
 from flask import abort, send_file
 
 from app.layouts.main_layout import create_main_layout
-from app.callbacks.main_callbacks import register_callbacks
-from app.callbacks.pagination_callbacks import register_pagination_callbacks
-from app.callbacks.folder_browser_callbacks import register_folder_browser_callbacks
-from app.callbacks.data_config_callbacks import register_data_config_callbacks
+from app.callbacks import register_callbacks
 
 
 # Global audio search roots (updated on data load)
@@ -39,9 +36,6 @@ def create_app(config: Dict) -> dash.Dash:
 
     app.layout = create_main_layout(config)
     register_callbacks(app, config)
-    register_pagination_callbacks(app)
-    register_folder_browser_callbacks(app)
-    register_data_config_callbacks(app)
 
     # Serve audio files by filename lookup in configured roots
     @app.server.route("/audio/<filename>")
