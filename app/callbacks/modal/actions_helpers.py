@@ -11,6 +11,7 @@ from app.callbacks.modal.action_rows_helpers import (
 from app.services.verification import (
     get_item_rejected_labels,
     get_modal_label_sets,
+    has_explicit_review,
     has_pending_label_edits,
 )
 
@@ -21,13 +22,15 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
         return html.Div("No item selected.", className="text-muted small")
 
     annotations = item.get("annotations") or {}
-    predicted_labels, _verified_labels, active_labels = get_modal_label_sets(item, mode, thresholds)
+    predicted_labels, verified_labels, active_labels = get_modal_label_sets(item, mode, thresholds)
     active_labels = ordered_unique_labels(active_labels)
+    verified_labels = ordered_unique_labels(verified_labels)
     rejected_labels = get_item_rejected_labels(item) if mode == "verify" else []
     accepted_set = set(active_labels)
     rejected_labels = [label for label in ordered_unique_labels(rejected_labels) if label not in accepted_set]
     rejected_set = set(rejected_labels)
     is_verified = bool(annotations.get("verified"))
+    explicit_review = has_explicit_review(annotations)
     has_pending_edits = has_pending_label_edits(annotations)
 
     accepted_rows = build_accepted_rows(
@@ -39,9 +42,11 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
     if mode == "verify":
         verify_rows = build_verify_rows(
             predicted_labels=predicted_labels,
+            verified_labels=verified_labels,
             active_labels=active_labels,
             rejected_set=rejected_set,
             is_verified=is_verified,
+            explicit_review=explicit_review,
             has_pending_edits=has_pending_edits,
             active_box_label=active_box_label,
             mode=mode,

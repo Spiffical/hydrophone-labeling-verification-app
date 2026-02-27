@@ -61,15 +61,18 @@ def build_accepted_rows(*, active_labels, active_box_label, mode):
 def build_verify_rows(
     *,
     predicted_labels,
+    verified_labels,
     active_labels,
     rejected_set,
     is_verified,
+    explicit_review,
     has_pending_edits,
     active_box_label,
     mode,
 ):
     verify_rows = []
     predicted_set = set(predicted_labels)
+    verified_set = set(verified_labels)
     accepted_set = set(active_labels)
     active_label, _ = parse_active_box_target(active_box_label)
 
@@ -78,7 +81,10 @@ def build_verify_rows(
         state = "model-unreviewed"
         if label in rejected_set:
             state = "model-rejected"
-        elif label in accepted_set or (is_verified and not has_pending_edits and label not in rejected_set):
+        elif (
+            (explicit_review and label in verified_set)
+            or (is_verified and not has_pending_edits and label not in rejected_set)
+        ):
             state = "model-accepted"
         badge_models.append(
             {
