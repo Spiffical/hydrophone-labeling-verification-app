@@ -740,16 +740,70 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         const graphDiv = modalGraph.querySelector('.js-plotly-plot');
         if (!graphDiv || !graphDiv.layout) return;
 
-        // Get the x-axis range from the graph
+        if (!isFinite(currentTime) || currentTime < 0) return;
+
+        const toFiniteNumber = function (value) {
+            const n = Number(value);
+            return isFinite(n) ? n : null;
+        };
+
+        // Resolve full x-domain (data coordinates), not the current zoom/pan range.
+        // This keeps playback mapping stable even when the user zooms the graph.
+        let domainStart = null;
+        let domainEnd = null;
+        const firstTrace = graphDiv.data && graphDiv.data.length ? graphDiv.data[0] : null;
+        const xVals = firstTrace && Array.isArray(firstTrace.x) ? firstTrace.x : null;
+        if (xVals && xVals.length) {
+            const first = toFiniteNumber(xVals[0]);
+            const last = toFiniteNumber(xVals[xVals.length - 1]);
+            if (first !== null && last !== null) {
+                let leftStep = null;
+                let rightStep = null;
+                if (xVals.length > 1) {
+                    const second = toFiniteNumber(xVals[1]);
+                    const penultimate = toFiniteNumber(xVals[xVals.length - 2]);
+                    if (second !== null) leftStep = Math.abs(second - first);
+                    if (penultimate !== null) rightStep = Math.abs(last - penultimate);
+                }
+                const halfLeft = leftStep && leftStep > 0 ? leftStep / 2 : 0;
+                const halfRight = rightStep && rightStep > 0 ? rightStep / 2 : 0;
+                domainStart = Math.min(first, last) - halfLeft;
+                domainEnd = Math.max(first, last) + halfRight;
+            }
+        }
+
+        // Fallback to figure meta x-bounds.
+        const meta = graphDiv.layout.meta || {};
+        if (domainStart === null || domainEnd === null || domainEnd <= domainStart) {
+            const metaMin = toFiniteNumber(meta.x_min);
+            const metaMax = toFiniteNumber(meta.x_max);
+            if (metaMin !== null && metaMax !== null && metaMax > metaMin) {
+                domainStart = metaMin;
+                domainEnd = metaMax;
+            }
+        }
+
+        // Last fallback: current axis range.
         const xaxis = graphDiv.layout.xaxis;
-        if (!xaxis || !xaxis.range) return;
+        if ((domainStart === null || domainEnd === null || domainEnd <= domainStart) && xaxis && xaxis.range) {
+            const rangeMin = toFiniteNumber(xaxis.range[0]);
+            const rangeMax = toFiniteNumber(xaxis.range[1]);
+            if (rangeMin !== null && rangeMax !== null && rangeMax > rangeMin) {
+                domainStart = rangeMin;
+                domainEnd = rangeMax;
+            }
+        }
+        if (domainStart === null || domainEnd === null || domainEnd <= domainStart) return;
 
-        const xMin = xaxis.range[0];
-        const xMax = xaxis.range[1];
-        const totalTime = xMax - xMin;
+        // Convert audio seconds to the graph's x-axis units.
+        let xToSeconds = toFiniteNumber(meta.x_to_seconds);
+        if (xToSeconds === null || xToSeconds <= 0) {
+            const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
+            xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
+        }
 
-        // Calculate the position of the playback marker
-        const markerPosition = xMin + (currentTime / duration) * totalTime;
+        const markerRaw = domainStart + (currentTime / xToSeconds);
+        const markerPosition = clamp(markerRaw, domainStart, domainEnd);
 
         // Update the shape (playback marker line)
         if (!graphDiv.layout.shapes || graphDiv.layout.shapes.length === 0) {
