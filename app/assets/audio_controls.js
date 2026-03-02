@@ -795,15 +795,28 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         }
         if (domainStart === null || domainEnd === null || domainEnd <= domainStart) return;
 
-        // Convert audio seconds to the graph's x-axis units.
-        let xToSeconds = toFiniteNumber(meta.x_to_seconds);
-        if (xToSeconds === null || xToSeconds <= 0) {
-            const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
-            xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
+        const domainSpan = domainEnd - domainStart;
+        if (!isFinite(domainSpan) || domainSpan <= 0) return;
+
+        // Primary mapping: progress through audio duration -> progress through full spectrogram domain.
+        // This is robust when spectrogram bins represent centers (domain span differs slightly from duration).
+        let markerPosition = null;
+        if (isFinite(duration) && duration > 0) {
+            const progress = clamp(currentTime / duration, 0, 1);
+            markerPosition = domainStart + progress * domainSpan;
         }
 
-        const markerRaw = domainStart + (currentTime / xToSeconds);
-        const markerPosition = clamp(markerRaw, domainStart, domainEnd);
+        // Fallback: direct seconds-to-x conversion.
+        if (markerPosition === null || !isFinite(markerPosition)) {
+            let xToSeconds = toFiniteNumber(meta.x_to_seconds);
+            if (xToSeconds === null || xToSeconds <= 0) {
+                const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
+                xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
+            }
+            markerPosition = domainStart + (currentTime / xToSeconds);
+        }
+
+        markerPosition = clamp(markerPosition, domainStart, domainEnd);
 
         // Update the shape (playback marker line)
         if (!graphDiv.layout.shapes || graphDiv.layout.shapes.length === 0) {
