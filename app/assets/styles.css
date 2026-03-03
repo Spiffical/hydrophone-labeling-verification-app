@@ -1349,8 +1349,40 @@ body.theme-dark #app-config-modal .form-label,
 
 body.theme-dark #app-config-modal .form-text,
 .theme-dark #app-config-modal .form-text {
-    color: #9da7b3 !important;
+    color: #b8c4d1 !important;
     opacity: 1 !important;
+}
+
+body.theme-dark #app-config-modal .control-dropdown .Select__single-value,
+body.theme-dark #app-config-modal .control-dropdown .Select__placeholder,
+body.theme-dark #app-config-modal .control-dropdown .Select-value-label,
+body.theme-dark #app-config-modal .control-dropdown .Select-value,
+body.theme-dark #app-config-modal .control-dropdown .Select-placeholder,
+body.theme-dark #app-config-modal .control-dropdown [class*="singleValue"],
+body.theme-dark #app-config-modal .control-dropdown [class*="single-value"],
+body.theme-dark #app-config-modal .control-dropdown [class*="placeholder"],
+body.theme-dark #app-config-modal .control-dropdown [class*="input"],
+body.theme-dark #app-config-modal .control-dropdown [class*="input"] input,
+.theme-dark #app-config-modal .control-dropdown .Select__single-value,
+.theme-dark #app-config-modal .control-dropdown .Select__placeholder,
+.theme-dark #app-config-modal .control-dropdown .Select-value-label,
+.theme-dark #app-config-modal .control-dropdown .Select-value,
+.theme-dark #app-config-modal .control-dropdown .Select-placeholder,
+.theme-dark #app-config-modal .control-dropdown [class*="singleValue"],
+.theme-dark #app-config-modal .control-dropdown [class*="single-value"],
+.theme-dark #app-config-modal .control-dropdown [class*="placeholder"],
+.theme-dark #app-config-modal .control-dropdown [class*="input"],
+.theme-dark #app-config-modal .control-dropdown [class*="input"] input {
+    color: #e6edf3 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark #app-config-modal .control-dropdown [class*="dropdownIndicator"] svg,
+body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
+.theme-dark #app-config-modal .control-dropdown [class*="dropdownIndicator"] svg,
+.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg {
+    fill: #c9d4df !important;
+    color: #c9d4df !important;
 }
 
 /* ============================================

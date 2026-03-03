@@ -3,7 +3,7 @@
 from dash import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from app.utils.image_processing import create_spectrogram_figure, load_spectrogram_cached
+from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
 
 
 def register_modal_view_callbacks(
@@ -24,9 +24,10 @@ def register_modal_view_callbacks(
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
         State("mode-tabs", "data"),
+        State("config-store", "data"),
         prevent_initial_call=True,
     )
-    def update_modal_view(colormap, y_axis_scale, item_id, bbox_store, label_data, verify_data, explore_data, mode):
+    def update_modal_view(colormap, y_axis_scale, item_id, bbox_store, label_data, verify_data, explore_data, mode, cfg):
         # Select the appropriate data store based on mode
         data = _get_mode_data(mode, label_data, verify_data, explore_data)
         if not item_id or not data:
@@ -37,8 +38,7 @@ def register_modal_view_callbacks(
         if not active_item:
             raise PreventUpdate
 
-        mat_path = active_item.get("mat_path")
-        spectrogram = load_spectrogram_cached(mat_path)
+        spectrogram = resolve_item_spectrogram(active_item, cfg)
         fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
             boxes = bbox_store.get("boxes") or []

@@ -101,13 +101,14 @@ _persist_modal_item_before_exit = _build_persist_modal_item_before_exit(
 
 
 def register_callbacks(app, config):
-    def _build_grid(items, mode, colormap, y_axis_scale, items_per_page):
+    def _build_grid(items, mode, colormap, y_axis_scale, items_per_page, cfg):
         return _build_grid_helper(
             items,
             mode,
             colormap,
             y_axis_scale,
             items_per_page,
+            cfg,
             get_item_image_src=get_item_image_src,
             create_spectrogram_card=create_spectrogram_card,
         )

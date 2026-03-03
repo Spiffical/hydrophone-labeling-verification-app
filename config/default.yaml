@@ -31,3 +31,10 @@ display:
 
 cache:
   max_size: 400
+
+spectrogram_render:
+  source: existing          # existing or audio_generated
+  win_dur_s: 1.0            # window duration in seconds (audio_generated mode)
+  overlap: 0.9              # overlap ratio [0, 0.99] (audio_generated mode)
+  freq_min_hz: 5.0          # min displayed frequency for generated spectrograms
+  freq_max_hz: 100.0        # max displayed frequency for generated spectrograms

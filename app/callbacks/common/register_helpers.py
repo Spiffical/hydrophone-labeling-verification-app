@@ -25,6 +25,7 @@ def build_grid(
     colormap,
     y_axis_scale,
     items_per_page,
+    cfg=None,
     *,
     get_item_image_src,
     create_spectrogram_card,
@@ -35,7 +36,7 @@ def build_grid(
     grid = []
     limit = min(items_per_page, len(items))
     for item in items[:limit]:
-        image_src = get_item_image_src(item, colormap=colormap, y_axis_scale=y_axis_scale)
+        image_src = get_item_image_src(item, colormap=colormap, y_axis_scale=y_axis_scale, cfg=cfg)
         card = create_spectrogram_card(item, image_src=image_src, mode=mode)
         grid.append(dbc.Col(card, md=3, sm=6, xs=12, className="mb-3"))
 

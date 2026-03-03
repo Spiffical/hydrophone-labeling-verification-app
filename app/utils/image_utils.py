@@ -4,7 +4,12 @@ from typing import Optional
 
 from cachetools import LRUCache
 
-from app.utils.image_processing import generate_image_cached
+from app.utils.image_processing import (
+    SPECTROGRAM_SOURCE_EXISTING,
+    generate_image_cached,
+    generate_item_image_cached,
+    get_spectrogram_render_settings,
+)
 
 _file_image_cache = LRUCache(maxsize=256)
 
@@ -31,20 +36,37 @@ def image_file_to_base64(image_path: str) -> str:
     return data_uri
 
 
-def get_item_image_src(item: dict, colormap: str = "default", y_axis_scale: str = "linear") -> Optional[str]:
+def get_item_image_src(
+    item: dict,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    cfg: Optional[dict] = None,
+) -> Optional[str]:
     if not item:
         return None
 
     if item.get("image_src"):
         return item["image_src"]
 
-    spectrogram_path = item.get("spectrogram_path")
-    if spectrogram_path and os.path.splitext(spectrogram_path)[1].lower() in {".png", ".jpg", ".jpeg", ".webp"}:
-        return image_file_to_base64(spectrogram_path)
+    render_cfg = get_spectrogram_render_settings(cfg)
+    use_existing = render_cfg.get("source") == SPECTROGRAM_SOURCE_EXISTING
+
+    if use_existing:
+        spectrogram_path = item.get("spectrogram_path")
+        if spectrogram_path and os.path.splitext(spectrogram_path)[1].lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            return image_file_to_base64(spectrogram_path)
+
+    dynamic_src = generate_item_image_cached(
+        item,
+        cfg,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+    )
+    if dynamic_src:
+        return dynamic_src
 
     mat_path = item.get("mat_path")
-    if mat_path and os.path.exists(mat_path):
+    if use_existing and mat_path and os.path.exists(mat_path):
         return generate_image_cached(mat_path, colormap=colormap, y_axis_scale=y_axis_scale)
 
     return None
-

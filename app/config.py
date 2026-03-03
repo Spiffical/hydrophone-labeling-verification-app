@@ -97,6 +97,7 @@ def get_config() -> Dict[str, Any]:
 
     cache_cfg = config.get("cache", {})
     cache_max_size = cache_cfg.get("max_size", 400)
+    spec_render_cfg = config.get("spectrogram_render", {})
 
     return {
         "mode": mode,
@@ -123,6 +124,13 @@ def get_config() -> Dict[str, Any]:
         },
         "cache": {
             "max_size": cache_max_size,
+        },
+        "spectrogram_render": {
+            "source": spec_render_cfg.get("source", "existing"),
+            "win_dur_s": spec_render_cfg.get("win_dur_s", 1.0),
+            "overlap": spec_render_cfg.get("overlap", 0.9),
+            "freq_min_hz": spec_render_cfg.get("freq_min_hz", 5.0),
+            "freq_max_hz": spec_render_cfg.get("freq_max_hz", 100.0),
         },
         "server": {
             "host": args.host,

@@ -8,7 +8,7 @@ from app.components.audio_player import (
     EQ_LOW_FOCUS_MAX_HZ,
     create_modal_audio_player,
 )
-from app.utils.image_processing import create_spectrogram_figure, load_spectrogram_cached
+from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
 
 
 def register_modal_lifecycle_navigation_callbacks(
@@ -54,6 +54,7 @@ def register_modal_lifecycle_navigation_callbacks(
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
         State("modal-unsaved-store", "data"),
+        State("config-store", "data"),
         prevent_initial_call=True,
     )
     def handle_modal_trigger(
@@ -73,6 +74,7 @@ def register_modal_lifecycle_navigation_callbacks(
         colormap,
         y_axis_scale,
         unsaved_store,
+        cfg,
     ):
         _ = prev_clicks, next_clicks, close_clicks
         mode = mode or "label"
@@ -198,8 +200,7 @@ def register_modal_lifecycle_navigation_callbacks(
             active_item,
         )
 
-        mat_path = active_item.get("mat_path")
-        spectrogram = load_spectrogram_cached(mat_path)
+        spectrogram = resolve_item_spectrogram(source_item, cfg)
         fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
         modal_boxes = _build_modal_boxes_from_item(source_item)
         fig = _apply_modal_boxes_to_figure(fig, modal_boxes)

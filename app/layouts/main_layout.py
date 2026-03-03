@@ -260,6 +260,79 @@ def create_main_layout(config: dict) -> html.Div:
                             step=1,
                         ),
                         dbc.FormText("Higher values keep more spectrograms cached in memory."),
+                        dbc.Label("Spectrogram source", html_for="app-config-spectrogram-source", className="small fw-semibold mt-3"),
+                        dcc.Dropdown(
+                            id="app-config-spectrogram-source",
+                            options=[
+                                {"label": "Use existing spectrogram files", "value": "existing"},
+                                {"label": "Generate from audio (CPU PyTorch)", "value": "audio_generated"},
+                            ],
+                            value="existing",
+                            clearable=False,
+                            className="control-dropdown",
+                        ),
+                        dbc.FormText("Choose between loaded MAT/PNG spectrograms or on-the-fly spectrogram generation from audio."),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Window duration (s)", html_for="app-config-spec-win-dur", className="small fw-semibold mt-3"),
+                                        dbc.Input(
+                                            id="app-config-spec-win-dur",
+                                            type="number",
+                                            min=0.05,
+                                            max=30,
+                                            step=0.01,
+                                        ),
+                                    ],
+                                    width=6,
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Overlap ratio", html_for="app-config-spec-overlap", className="small fw-semibold mt-3"),
+                                        dbc.Input(
+                                            id="app-config-spec-overlap",
+                                            type="number",
+                                            min=0.0,
+                                            max=0.99,
+                                            step=0.01,
+                                        ),
+                                    ],
+                                    width=6,
+                                ),
+                            ],
+                            className="g-2",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Min frequency (Hz)", html_for="app-config-spec-freq-min", className="small fw-semibold mt-3"),
+                                        dbc.Input(
+                                            id="app-config-spec-freq-min",
+                                            type="number",
+                                            min=0.0,
+                                            step=0.1,
+                                        ),
+                                    ],
+                                    width=6,
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Max frequency (Hz)", html_for="app-config-spec-freq-max", className="small fw-semibold mt-3"),
+                                        dbc.Input(
+                                            id="app-config-spec-freq-max",
+                                            type="number",
+                                            min=0.1,
+                                            step=0.1,
+                                        ),
+                                    ],
+                                    width=6,
+                                ),
+                            ],
+                            className="g-2",
+                        ),
+                        dbc.FormText("These parameters are used when spectrogram source is set to audio generation."),
                     ])
                 ]),
                 dbc.ModalFooter([

@@ -2,6 +2,7 @@ import base64
 from io import BytesIO
 import logging
 import os
+from typing import Any, Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -10,14 +11,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import scipy.io as sio
+import soundfile as sf
 from cachetools import LRUCache, cached
+try:
+    import torch
+except Exception:  # pragma: no cover - optional dependency at runtime
+    torch = None
 
 from app.utils.colmap_hyd import colmap_hyd_py
 
 logger = logging.getLogger(__name__)
 
 spectrogram_cache = LRUCache(maxsize=400)
+audio_spectrogram_cache = LRUCache(maxsize=400)
 image_cache = LRUCache(maxsize=800)
+
+SPECTROGRAM_SOURCE_EXISTING = "existing"
+SPECTROGRAM_SOURCE_AUDIO_GENERATED = "audio_generated"
+DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
+    "source": SPECTROGRAM_SOURCE_EXISTING,
+    "win_dur_s": 1.0,
+    "overlap": 0.9,
+    "freq_min_hz": 5.0,
+    "freq_max_hz": 100.0,
+}
+_TORCH_MISSING_WARNED = False
 
 
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
@@ -41,7 +59,46 @@ def set_cache_sizes(maxsize: int) -> None:
         maxsize = 400
     maxsize = max(1, maxsize)
     _resize_cache(spectrogram_cache, maxsize)
+    _resize_cache(audio_spectrogram_cache, maxsize)
     _resize_cache(image_cache, maxsize * 2)
+
+
+def _coerce_float(value: Any, fallback: float, *, minimum: Optional[float] = None, maximum: Optional[float] = None) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        value = float(fallback)
+    if minimum is not None:
+        value = max(float(minimum), value)
+    if maximum is not None:
+        value = min(float(maximum), value)
+    return float(value)
+
+
+def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    base = dict(DEFAULT_SPECTROGRAM_RENDER_SETTINGS)
+    section = (cfg or {}).get("spectrogram_render", {})
+    if not isinstance(section, dict):
+        section = {}
+
+    source = str(section.get("source", base["source"])).strip().lower()
+    if source not in {SPECTROGRAM_SOURCE_EXISTING, SPECTROGRAM_SOURCE_AUDIO_GENERATED}:
+        source = base["source"]
+
+    win_dur_s = _coerce_float(section.get("win_dur_s"), base["win_dur_s"], minimum=0.05, maximum=30.0)
+    overlap = _coerce_float(section.get("overlap"), base["overlap"], minimum=0.0, maximum=0.99)
+    freq_min_hz = _coerce_float(section.get("freq_min_hz"), base["freq_min_hz"], minimum=0.0, maximum=200000.0)
+    freq_max_hz = _coerce_float(section.get("freq_max_hz"), base["freq_max_hz"], minimum=0.01, maximum=200000.0)
+    if freq_max_hz <= freq_min_hz:
+        freq_max_hz = max(freq_min_hz + 1.0, float(base["freq_max_hz"]))
+
+    return {
+        "source": source,
+        "win_dur_s": win_dur_s,
+        "overlap": overlap,
+        "freq_min_hz": freq_min_hz,
+        "freq_max_hz": freq_max_hz,
+    }
 
 
 def _load_mat(mat_path: str):
@@ -84,6 +141,137 @@ def _load_mat(mat_path: str):
     return None
 
 
+def _audio_cache_signature(audio_path: str) -> Tuple[str, int, int]:
+    st = os.stat(audio_path)
+    return (os.path.abspath(audio_path), int(st.st_mtime_ns), int(st.st_size))
+
+
+def _audio_spectrogram_cache_key(
+    audio_path: str,
+    *,
+    win_dur_s: float,
+    overlap: float,
+    freq_min_hz: float,
+    freq_max_hz: float,
+) -> Tuple[Any, ...]:
+    return (
+        _audio_cache_signature(audio_path),
+        float(win_dur_s),
+        float(overlap),
+        float(freq_min_hz),
+        float(freq_max_hz),
+        "torch_cpu_stft_v1",
+    )
+
+
+def _load_audio_spectrogram_torch(
+    audio_path: str,
+    *,
+    win_dur_s: float,
+    overlap: float,
+    freq_min_hz: float,
+    freq_max_hz: float,
+) -> Optional[Dict[str, np.ndarray]]:
+    global _TORCH_MISSING_WARNED
+    if torch is None:
+        if not _TORCH_MISSING_WARNED:
+            logger.warning(
+                "PyTorch is not available in this environment. "
+                "Install torch to enable on-the-fly audio spectrogram generation."
+            )
+            _TORCH_MISSING_WARNED = True
+        return None
+
+    try:
+        audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
+    except Exception as exc:
+        logger.error("Error reading audio %s: %s", audio_path, exc)
+        return None
+
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.ndim == 2:
+        audio = np.mean(audio, axis=1, dtype=np.float32)
+    if audio.size == 0 or sample_rate <= 0:
+        return None
+
+    sr = int(sample_rate)
+    win_len = max(8, int(round(float(win_dur_s) * float(sr))))
+    hop_len = int(round((1.0 - float(overlap)) * float(win_len)))
+    hop_len = max(1, hop_len)
+    if audio.size < win_len:
+        audio = np.pad(audio, (0, win_len - audio.size), mode="constant", constant_values=0.0)
+
+    audio_t = torch.from_numpy(audio).to(dtype=torch.float32, device="cpu")
+    window_t = torch.hann_window(win_len, periodic=True, dtype=torch.float32, device="cpu")
+
+    with torch.inference_mode():
+        spec_complex = torch.stft(
+            audio_t,
+            n_fft=win_len,
+            hop_length=hop_len,
+            win_length=win_len,
+            window=window_t,
+            center=False,
+            return_complex=True,
+        )
+        power = torch.abs(spec_complex).pow(2.0)
+        max_power = float(power.max().item()) if power.numel() else 0.0
+        if max_power > 0.0:
+            pdB = 10.0 * torch.log10(torch.clamp(power / max_power, min=1e-10))
+        else:
+            pdB = torch.full_like(power, -100.0)
+
+    freq = torch.fft.rfftfreq(win_len, d=1.0 / float(sr)).cpu().numpy().astype(np.float64)
+    frames = pdB.shape[1]
+    time = ((np.arange(frames, dtype=np.float64) * float(hop_len)) + (0.5 * float(win_len))) / float(sr)
+
+    freq_mask = (freq >= float(freq_min_hz)) & (freq <= float(freq_max_hz))
+    if not np.any(freq_mask):
+        logger.warning(
+            "No frequency bins in requested range [%.2f, %.2f] Hz for %s",
+            float(freq_min_hz),
+            float(freq_max_hz),
+            audio_path,
+        )
+        return None
+
+    return {
+        "psd": pdB.cpu().numpy()[freq_mask, :].astype(np.float32),
+        "freq": freq[freq_mask].astype(np.float64),
+        "time": time.astype(np.float64),
+    }
+
+
+def load_audio_spectrogram_cached(
+    audio_path: str,
+    *,
+    win_dur_s: float,
+    overlap: float,
+    freq_min_hz: float,
+    freq_max_hz: float,
+) -> Optional[Dict[str, np.ndarray]]:
+    if not audio_path or not os.path.exists(audio_path):
+        return None
+    key = _audio_spectrogram_cache_key(
+        audio_path,
+        win_dur_s=win_dur_s,
+        overlap=overlap,
+        freq_min_hz=freq_min_hz,
+        freq_max_hz=freq_max_hz,
+    )
+    if key in audio_spectrogram_cache:
+        return audio_spectrogram_cache[key]
+    result = _load_audio_spectrogram_torch(
+        audio_path,
+        win_dur_s=win_dur_s,
+        overlap=overlap,
+        freq_min_hz=freq_min_hz,
+        freq_max_hz=freq_max_hz,
+    )
+    audio_spectrogram_cache[key] = result
+    return result
+
+
 @cached(spectrogram_cache)
 def load_spectrogram_cached(mat_path: str):
     if not mat_path or not os.path.exists(mat_path):
@@ -91,8 +279,71 @@ def load_spectrogram_cached(mat_path: str):
     return _load_mat(mat_path)
 
 
+def resolve_item_spectrogram_with_key(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Tuple[Any, ...]]]:
+    if not isinstance(item, dict):
+        return None, None
+
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING)
+    mat_path = item.get("mat_path")
+    audio_path = item.get("audio_path")
+
+    if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        if audio_path and os.path.exists(audio_path):
+            key = _audio_spectrogram_cache_key(
+                audio_path,
+                win_dur_s=float(render_cfg["win_dur_s"]),
+                overlap=float(render_cfg["overlap"]),
+                freq_min_hz=float(render_cfg["freq_min_hz"]),
+                freq_max_hz=float(render_cfg["freq_max_hz"]),
+            )
+            spec = load_audio_spectrogram_cached(
+                audio_path,
+                win_dur_s=float(render_cfg["win_dur_s"]),
+                overlap=float(render_cfg["overlap"]),
+                freq_min_hz=float(render_cfg["freq_min_hz"]),
+                freq_max_hz=float(render_cfg["freq_max_hz"]),
+            )
+            if spec is not None:
+                return spec, ("audio", key)
+        if mat_path and os.path.exists(mat_path):
+            spec = load_spectrogram_cached(mat_path)
+            return spec, ("mat", os.path.abspath(mat_path))
+        return None, None
+
+    # Default: use existing spectrogram first.
+    if mat_path and os.path.exists(mat_path):
+        spec = load_spectrogram_cached(mat_path)
+        return spec, ("mat", os.path.abspath(mat_path))
+    if audio_path and os.path.exists(audio_path):
+        key = _audio_spectrogram_cache_key(
+            audio_path,
+            win_dur_s=float(render_cfg["win_dur_s"]),
+            overlap=float(render_cfg["overlap"]),
+            freq_min_hz=float(render_cfg["freq_min_hz"]),
+            freq_max_hz=float(render_cfg["freq_max_hz"]),
+        )
+        spec = load_audio_spectrogram_cached(
+            audio_path,
+            win_dur_s=float(render_cfg["win_dur_s"]),
+            overlap=float(render_cfg["overlap"]),
+            freq_min_hz=float(render_cfg["freq_min_hz"]),
+            freq_max_hz=float(render_cfg["freq_max_hz"]),
+        )
+        return spec, ("audio-fallback", key)
+    return None, None
+
+
+def resolve_item_spectrogram(item: Optional[Dict[str, Any]], cfg: Optional[Dict[str, Any]]) -> Optional[Dict[str, np.ndarray]]:
+    spec, _ = resolve_item_spectrogram_with_key(item, cfg)
+    return spec
+
+
 def generate_image_cached(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
-    cache_key = (mat_path, colormap, y_axis_scale)
+    cache_key = ("mat", mat_path, colormap, y_axis_scale)
     if cache_key in image_cache:
         return image_cache[cache_key]
 
@@ -103,6 +354,34 @@ def generate_image_cached(mat_path: str, colormap: str = "default", y_axis_scale
 
 def _generate_image(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
     spectrogram = load_spectrogram_cached(mat_path)
+    if spectrogram is None:
+        return None
+    return _generate_image_from_spectrogram_data(spectrogram, colormap=colormap, y_axis_scale=y_axis_scale)
+
+
+def generate_item_image_cached(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> Optional[str]:
+    spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
+    if spectrogram is None:
+        return None
+    cache_key = ("item", source_key, colormap, y_axis_scale)
+    if cache_key in image_cache:
+        return image_cache[cache_key]
+    result = _generate_image_from_spectrogram_data(spectrogram, colormap=colormap, y_axis_scale=y_axis_scale)
+    image_cache[cache_key] = result
+    return result
+
+
+def _generate_image_from_spectrogram_data(
+    spectrogram: Dict[str, np.ndarray],
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> Optional[str]:
     if spectrogram is None:
         return None
 
@@ -132,7 +411,10 @@ def _generate_image(mat_path: str, colormap: str = "default", y_axis_scale: str 
         freq_plot = freq
     else:
         # Frequency might be in kHz - convert to Hz for consistency
-        freq_plot = freq * 1000 if np.max(freq) < 1 else freq
+        if len(freq) == 0:
+            freq_plot = freq
+        else:
+            freq_plot = freq * 1000 if np.max(freq) < 1 else freq
     
     # Determine appropriate color limits based on data range
     psd_valid = psd[np.isfinite(psd)]

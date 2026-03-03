@@ -61,7 +61,7 @@ def register_render_callbacks(
         
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "label", colormap, y_axis_scale, items_per_page)
+        grid = _build_grid(page_items, "label", colormap, y_axis_scale, items_per_page, cfg)
         
         # Update folder displays with popover support for multiple folders
         data_root = summary.get("data_root", "")
@@ -185,7 +185,7 @@ def register_render_callbacks(
 
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "verify", colormap, y_axis_scale, items_per_page)
+        grid = _build_grid(page_items, "verify", colormap, y_axis_scale, items_per_page, cfg)
         
         data_root = summary.get("data_root") or "Not set"
 
@@ -253,7 +253,7 @@ def register_render_callbacks(
         page_items = items[start_idx:end_idx]
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page)
+        grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page, cfg)
         ui_ready = no_update
         if (data or {}).get("load_timestamp"):
             ui_ready = {"timestamp": data.get("load_timestamp")}
