@@ -72,6 +72,7 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="explore-page-specgen-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-badge-event-store", data={"last_key": ""}, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
+        dcc.Interval(id="specgen-overlay-poll", interval=400, n_intervals=0),
         dcc.Store(
             id="modal-audio-settings-store",
             data={

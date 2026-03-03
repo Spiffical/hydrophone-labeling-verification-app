@@ -88,65 +88,127 @@ def register_loading_overlay_callbacks(app):
         function(
             mode,
             cfg,
-            labelLoadingState,
-            verifyLoadingState,
-            exploreLoadingState,
+            pollTick,
             labelStatus,
             verifyStatus,
             exploreStatus,
+            labelReady,
+            verifyReady,
+            exploreReady,
             labelPage,
             verifyPage,
             explorePage
         ) {
             var dc = (window.dash_clientside || {});
             var noUpdate = dc.no_update;
+            var _ = pollTick, _ready1 = labelReady, _ready2 = verifyReady, _ready3 = exploreReady;
 
-            function isLoading(state) {
-                return !!(state && state.is_loading);
+            function asInt(v, fallback) {
+                var n = Number(v);
+                if (!Number.isFinite(n)) return fallback;
+                n = Math.floor(n);
+                return n < 0 ? 0 : n;
             }
-            function getCurrentLoading() {
-                if (mode === "verify") return isLoading(verifyLoadingState);
-                if (mode === "explore") return isLoading(exploreLoadingState);
-                return isLoading(labelLoadingState);
+
+            function asFloat(v, fallback) {
+                var n = Number(v);
+                return Number.isFinite(n) ? n : fallback;
             }
+
+            function nearlyEqual(a, b) {
+                return Math.abs(a - b) <= 1e-9;
+            }
+
+            function extractCfgParams(inputCfg) {
+                var spec = ((inputCfg || {}).spectrogram_render || {});
+                return {
+                    win_dur_s: asFloat(spec.win_dur_s, 1.0),
+                    overlap: asFloat(spec.overlap, 0.9),
+                    freq_min_hz: asFloat(spec.freq_min_hz, 5.0),
+                    freq_max_hz: asFloat(spec.freq_max_hz, 100.0)
+                };
+            }
+
+            function paramsMatch(statusParams, cfgParams) {
+                if (!statusParams || typeof statusParams !== "object") return false;
+                return (
+                    nearlyEqual(asFloat(statusParams.win_dur_s, NaN), cfgParams.win_dur_s) &&
+                    nearlyEqual(asFloat(statusParams.overlap, NaN), cfgParams.overlap) &&
+                    nearlyEqual(asFloat(statusParams.freq_min_hz, NaN), cfgParams.freq_min_hz) &&
+                    nearlyEqual(asFloat(statusParams.freq_max_hz, NaN), cfgParams.freq_max_hz)
+                );
+            }
+
             function getCurrentStatus() {
                 if (mode === "verify") return verifyStatus || null;
                 if (mode === "explore") return exploreStatus || null;
                 return labelStatus || null;
             }
+
             function getCurrentPage() {
-                if (mode === "verify") return Number(verifyPage || 0);
-                if (mode === "explore") return Number(explorePage || 0);
-                return Number(labelPage || 0);
-            }
-
-            if (!getCurrentLoading()) {
-                return [{display: "none"}, noUpdate, noUpdate];
-            }
-
-            var source = (((cfg || {}).display || {}).spectrogram_source) || "existing";
-            if (source !== "audio_generated") {
-                return [{display: "none"}, noUpdate, noUpdate];
+                if (mode === "verify") return asInt(verifyPage, 0);
+                if (mode === "explore") return asInt(explorePage, 0);
+                return asInt(labelPage, 0);
             }
 
             var status = getCurrentStatus();
+            var source =
+                (status && status.source) ||
+                (((cfg || {}).display || {}).spectrogram_source) ||
+                (((cfg || {}).spectrogram_render || {}).source) ||
+                "existing";
+
+            if (source !== "audio_generated") {
+                console.debug("[specgen-overlay] hidden: source-not-audio", {mode: mode, source: source});
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
             if (!status || typeof status !== "object") {
+                console.debug("[specgen-overlay] hidden: missing-status", {mode: mode});
                 return [{display: "none"}, noUpdate, noUpdate];
             }
 
-            var statusPage = Number(status.page_index);
-            var currentPage = getCurrentPage();
-            if (Number.isFinite(statusPage) && statusPage !== currentPage) {
-                return [{display: "none"}, noUpdate, noUpdate];
+            var activePage = getCurrentPage();
+            var statusPage = asInt(status.page_index, 0);
+            var cfgParams = extractCfgParams(cfg);
+            var statusParams = status.params || null;
+            var statusIsForActivePage = (statusPage === activePage);
+            var statusIsForCurrentParams = paramsMatch(statusParams, cfgParams);
+
+            if (!statusIsForActivePage || !statusIsForCurrentParams) {
+                var staleReason = !statusIsForActivePage ? "page-mismatch" : "params-mismatch";
+                var staleSubtitle =
+                    staleReason === "page-mismatch"
+                        ? "Preparing spectrograms for this page..."
+                        : "Applying new spectrogram settings to this page...";
+                console.debug("[specgen-overlay] showing: stale-status", {
+                    mode: mode,
+                    stale_reason: staleReason,
+                    active_page: activePage,
+                    status_page: statusPage,
+                    cfg_params: cfgParams,
+                    status_params: statusParams,
+                    pending: status.pending,
+                    eligible: status.eligible
+                });
+                return [{display: "flex"}, "Generating spectrograms...", staleSubtitle];
             }
 
-            var pending = Number(status.pending || 0);
+            var pending = asInt(status.pending, 0);
             if (!(pending > 0)) {
+                console.debug("[specgen-overlay] hidden: page-ready", {
+                    mode: mode,
+                    page: activePage,
+                    pending: pending,
+                    eligible: status.eligible,
+                    source: source,
+                    params: statusParams
+                });
                 return [{display: "none"}, noUpdate, noUpdate];
             }
 
-            var eligible = Number(status.eligible || status.total || pending);
-            if (!Number.isFinite(eligible) || eligible < pending) {
+            var eligible = asInt(status.eligible, asInt(status.total, pending));
+            if (eligible < pending) {
                 eligible = pending;
             }
             var done = Math.max(0, eligible - pending);
@@ -155,6 +217,15 @@ def register_loading_overlay_callbacks(app):
                 pending + " audio file" + (pending === 1 ? "" : "s") +
                 " remaining on this page (" + done + "/" + eligible + " ready)";
 
+            console.debug("[specgen-overlay] showing: pending", {
+                mode: mode,
+                page: activePage,
+                pending: pending,
+                eligible: eligible,
+                done: done,
+                source: source,
+                params: statusParams
+            });
             return [{display: "flex"}, title, subtitle];
         }
         """,
@@ -163,12 +234,13 @@ def register_loading_overlay_callbacks(app):
         Output("specgen-load-subtitle", "children"),
         Input("mode-tabs", "data"),
         Input("config-store", "data"),
-        Input("label-grid", "loading_state"),
-        Input("verify-grid", "loading_state"),
-        Input("explore-grid", "loading_state"),
+        Input("specgen-overlay-poll", "n_intervals"),
         Input("label-page-specgen-store", "data"),
         Input("verify-page-specgen-store", "data"),
         Input("explore-page-specgen-store", "data"),
+        Input("label-ui-ready-store", "data"),
+        Input("verify-ui-ready-store", "data"),
+        Input("explore-ui-ready-store", "data"),
         Input("label-current-page", "data"),
         Input("verify-current-page", "data"),
         Input("explore-current-page", "data"),

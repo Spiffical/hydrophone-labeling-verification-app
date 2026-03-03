@@ -1,6 +1,11 @@
 """Render callbacks for label/verify/explore grids and summaries."""
 
+import os
+import time
+
 from dash import Input, Output, State, html, no_update
+
+_SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def register_render_callbacks(
@@ -23,19 +28,17 @@ def register_render_callbacks(
         Output("label-audio-folder-display", "children", allow_duplicate=True),
         Output("label-output-input", "value", allow_duplicate=True),
         Output("label-ui-ready-store", "data"),
-        Input("label-page-specgen-store", "data"),
-        State("label-data-store", "data"),
-        State("label-colormap-toggle", "value"),
-        State("label-yaxis-toggle", "value"),
-        State("label-current-page", "data"),
-        State("config-store", "data"),
+        Input("label-data-store", "data"),
+        Input("label-colormap-toggle", "value"),
+        Input("label-yaxis-toggle", "value"),
+        Input("label-current-page", "data"),
+        Input("config-store", "data"),
         State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def render_label(specgen_status, data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
+    def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
         # Render even if not in label mode (to maintain state when switching back)
         pass
-        _ = specgen_status
 
         cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
@@ -80,9 +83,17 @@ def register_render_callbacks(
         )
         labels_file_display = summary.get("labels_file") or no_update
 
-        ui_ready = no_update
-        if (data or {}).get("load_timestamp"):
-            ui_ready = {"timestamp": data.get("load_timestamp")}
+        ui_ready = {
+            "load_timestamp": data.get("load_timestamp"),
+            "page": int(current_page),
+            "rendered_at": time.time(),
+        }
+        if _SPECGEN_DEBUG:
+            print(
+                f"[render-ready] mode=label page={current_page} total_pages={total_pages} "
+                f"items={len(page_items)} rendered_at={ui_ready['rendered_at']:.6f}",
+                flush=True,
+            )
 
         return (
             summary_block,
@@ -105,18 +116,16 @@ def register_render_callbacks(
         Output("verify-predictions-display", "children"),
         Output("verify-data-root-display", "children"),
         Output("verify-ui-ready-store", "data"),
-        Input("verify-page-specgen-store", "data"),
-        State("verify-data-store", "data"),
-        State("verify-thresholds-store", "data"),
-        State("verify-class-filter", "data"),
-        State("verify-current-page", "data"),
-        State("verify-colormap-toggle", "value"),
-        State("verify-yaxis-toggle", "value"),
-        State("config-store", "data"),
+        Input("verify-data-store", "data"),
+        Input("verify-thresholds-store", "data"),
+        Input("verify-class-filter", "data"),
+        Input("verify-current-page", "data"),
+        Input("verify-colormap-toggle", "value"),
+        Input("verify-yaxis-toggle", "value"),
+        Input("config-store", "data"),
         State("mode-tabs", "data"),
     )
     def render_verify(
-        specgen_status,
         data,
         thresholds,
         class_filter,
@@ -128,7 +137,6 @@ def register_render_callbacks(
     ):
         # Render even if not in verify mode (to maintain state when switching back)
         pass
-        _ = specgen_status
 
         cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
@@ -221,9 +229,17 @@ def register_render_callbacks(
             summary.get("data_root", ""), "pred-file-popover-trigger"
         )
 
-        ui_ready = no_update
-        if (data or {}).get("load_timestamp"):
-            ui_ready = {"timestamp": data.get("load_timestamp")}
+        ui_ready = {
+            "load_timestamp": data.get("load_timestamp"),
+            "page": int(current_page),
+            "rendered_at": time.time(),
+        }
+        if _SPECGEN_DEBUG:
+            print(
+                f"[render-ready] mode=verify page={current_page} total_pages={total_pages} "
+                f"items={len(page_items)} rendered_at={ui_ready['rendered_at']:.6f}",
+                flush=True,
+            )
 
         return (
             summary_block,
@@ -242,15 +258,13 @@ def register_render_callbacks(
         Output("explore-page-info", "children"),
         Output("explore-page-input", "max"),
         Output("explore-ui-ready-store", "data"),
-        Input("explore-page-specgen-store", "data"),
-        State("explore-data-store", "data"),
-        State("explore-current-page", "data"),
-        State("explore-colormap-toggle", "value"),
-        State("explore-yaxis-toggle", "value"),
-        State("config-store", "data"),
+        Input("explore-data-store", "data"),
+        Input("explore-current-page", "data"),
+        Input("explore-colormap-toggle", "value"),
+        Input("explore-yaxis-toggle", "value"),
+        Input("config-store", "data"),
     )
-    def render_explore(specgen_status, data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
-        _ = specgen_status
+    def render_explore(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
         cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
@@ -273,7 +287,15 @@ def register_render_callbacks(
         page_info = f"Page {current_page + 1} of {total_pages}"
 
         grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page, cfg)
-        ui_ready = no_update
-        if (data or {}).get("load_timestamp"):
-            ui_ready = {"timestamp": data.get("load_timestamp")}
+        ui_ready = {
+            "load_timestamp": data.get("load_timestamp"),
+            "page": int(current_page),
+            "rendered_at": time.time(),
+        }
+        if _SPECGEN_DEBUG:
+            print(
+                f"[render-ready] mode=explore page={current_page} total_pages={total_pages} "
+                f"items={len(page_items)} rendered_at={ui_ready['rendered_at']:.6f}",
+                flush=True,
+            )
         return summary_block, grid, page_info, total_pages, ui_ready

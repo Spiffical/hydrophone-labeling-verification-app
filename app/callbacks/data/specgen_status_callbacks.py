@@ -1,6 +1,12 @@
 """Track per-page spectrogram-generation workload for UI loading overlays."""
 
+import os
+import time
+
 from dash import Input, Output
+
+
+_SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _slice_page(items, current_page, items_per_page):
@@ -10,6 +16,24 @@ def _slice_page(items, current_page, items_per_page):
     start_idx = page_index * items_per_page
     end_idx = start_idx + items_per_page
     return items[start_idx:end_idx], page_index, total_pages
+
+
+def _debug_status(mode, status):
+    if not _SPECGEN_DEBUG:
+        return
+    if not isinstance(status, dict):
+        print(f"[specgen-status] mode={mode} status=<invalid>", flush=True)
+        return
+    params = status.get("params") or {}
+    print(
+        "[specgen-status] "
+        f"mode={mode} page={status.get('page_index')}/{status.get('total_pages')} "
+        f"source={status.get('source')} eligible={status.get('eligible')} pending={status.get('pending')} "
+        f"win={params.get('win_dur_s')} ov={params.get('overlap')} "
+        f"fmin={params.get('freq_min_hz')} fmax={params.get('freq_max_hz')} "
+        f"t={status.get('computed_at')}",
+        flush=True,
+    )
 
 
 def register_specgen_status_callbacks(
@@ -24,13 +48,15 @@ def register_specgen_status_callbacks(
 ):
     @app.callback(
         Output("label-page-specgen-store", "data"),
+        Input("specgen-overlay-poll", "n_intervals"),
         Input("label-data-store", "data"),
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
         Input("label-current-page", "data"),
         Input("config-store", "data"),
     )
-    def compute_label_status(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg):
+    def compute_label_status(poll_tick, data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg):
+        _ = poll_tick
         cfg = cfg or {}
         data = data or {"items": []}
         items = data.get("items", []) or []
@@ -51,12 +77,15 @@ def register_specgen_status_callbacks(
                 "page_index": int(page_index),
                 "total_pages": int(total_pages),
                 "items_per_page": int(items_per_page),
+                "computed_at": time.time(),
             }
         )
+        _debug_status("label", status)
         return status
 
     @app.callback(
         Output("verify-page-specgen-store", "data"),
+        Input("specgen-overlay-poll", "n_intervals"),
         Input("verify-data-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
@@ -66,6 +95,7 @@ def register_specgen_status_callbacks(
         Input("config-store", "data"),
     )
     def compute_verify_status(
+        poll_tick,
         data,
         thresholds,
         class_filter,
@@ -74,6 +104,7 @@ def register_specgen_status_callbacks(
         use_log_y_axis,
         cfg,
     ):
+        _ = poll_tick
         cfg = cfg or {}
         data = data or {"items": []}
         items = data.get("items", []) or []
@@ -119,19 +150,23 @@ def register_specgen_status_callbacks(
                 "page_index": int(page_index),
                 "total_pages": int(total_pages),
                 "items_per_page": int(items_per_page),
+                "computed_at": time.time(),
             }
         )
+        _debug_status("verify", status)
         return status
 
     @app.callback(
         Output("explore-page-specgen-store", "data"),
+        Input("specgen-overlay-poll", "n_intervals"),
         Input("explore-data-store", "data"),
         Input("explore-current-page", "data"),
         Input("explore-colormap-toggle", "value"),
         Input("explore-yaxis-toggle", "value"),
         Input("config-store", "data"),
     )
-    def compute_explore_status(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
+    def compute_explore_status(poll_tick, data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
+        _ = poll_tick
         cfg = cfg or {}
         data = data or {"items": []}
         items = data.get("items", []) or []
@@ -152,6 +187,8 @@ def register_specgen_status_callbacks(
                 "page_index": int(page_index),
                 "total_pages": int(total_pages),
                 "items_per_page": int(items_per_page),
+                "computed_at": time.time(),
             }
         )
+        _debug_status("explore", status)
         return status
