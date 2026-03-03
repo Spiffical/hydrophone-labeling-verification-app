@@ -76,7 +76,7 @@ from app.services.verify_filter_tree import (
     predicted_labels_match_filter as _predicted_labels_match_filter,
 )
 from app.utils.data_loading import load_dataset
-from app.utils.image_processing import set_cache_sizes
+from app.utils.image_processing import estimate_page_audio_generation_work, set_cache_sizes
 from app.utils.image_utils import get_item_image_src
 from app.utils.persistence import save_label_mode
 
@@ -115,6 +115,7 @@ def register_callbacks(app, config):
 
     deps = {
         "set_cache_sizes": set_cache_sizes,
+        "estimate_page_audio_generation_work": estimate_page_audio_generation_work,
         "reset_profile_on_start": _RESET_PROFILE_ON_START,
         "profile_required_message": _PROFILE_REQUIRED_MESSAGE,
         "profile_name_email": _profile_name_email,

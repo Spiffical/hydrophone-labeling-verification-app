@@ -11,6 +11,7 @@ from app.callbacks.data.load_callbacks import (
 from app.callbacks.data.loading_overlay_callbacks import register_loading_overlay_callbacks
 from app.callbacks.data.pagination_callbacks import register_pagination_callbacks
 from app.callbacks.data.render_callbacks import register_render_callbacks
+from app.callbacks.data.specgen_status_callbacks import register_specgen_status_callbacks
 from app.callbacks.label.editor_callbacks import register_label_editor_callbacks
 from app.callbacks.modal.audio_callbacks import register_modal_audio_callbacks
 from app.callbacks.modal.bbox_callbacks import register_modal_bbox_callbacks
@@ -59,6 +60,15 @@ def register_all_callback_sections(app, *, config, deps):
         _tab_data_snapshot=d["tab_data_snapshot"],
     )
 
+    register_specgen_status_callbacks(
+        app,
+        _estimate_page_audio_generation_work=d["estimate_page_audio_generation_work"],
+        _filter_predictions=d["filter_predictions"],
+        _predicted_labels_match_filter=d["predicted_labels_match_filter"],
+        _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
+        _build_verify_filter_paths=d["build_verify_filter_paths"],
+        _normalize_verify_class_filter=d["normalize_verify_class_filter"],
+    )
     register_render_callbacks(
         app,
         _build_grid=d["build_grid"],

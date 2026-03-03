@@ -67,6 +67,9 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="label-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-ui-ready-store", data=None, storage_type="memory"),
         dcc.Store(id="explore-ui-ready-store", data=None, storage_type="memory"),
+        dcc.Store(id="label-page-specgen-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-page-specgen-store", data=None, storage_type="memory"),
+        dcc.Store(id="explore-page-specgen-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-badge-event-store", data={"last_key": ""}, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
         dcc.Store(
@@ -360,6 +363,32 @@ def create_main_layout(config: dict) -> html.Div:
                 ],
                 id="data-config-loading-overlay",
                 className="data-load-overlay",
+                style={"display": "none"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Generating spectrograms...", id="specgen-load-title", className="specgen-load-title"),
+                            html.Div(
+                                "Preparing current page.",
+                                id="specgen-load-subtitle",
+                                className="specgen-load-subtitle",
+                            ),
+                            html.Div(
+                                html.Div(className="specgen-load-progress-fill"),
+                                className="specgen-load-progress-track",
+                                role="progressbar",
+                                **{"aria-valuemin": "0", "aria-valuemax": "100"},
+                            ),
+                        ],
+                        className="specgen-load-card",
+                        role="status",
+                        **{"aria-live": "polite"},
+                    )
+                ],
+                id="specgen-page-loading-overlay",
+                className="specgen-page-overlay",
                 style={"display": "none"},
             ),
         ], fluid=True, className="app-inner"),

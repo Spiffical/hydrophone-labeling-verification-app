@@ -23,18 +23,21 @@ def register_render_callbacks(
         Output("label-audio-folder-display", "children", allow_duplicate=True),
         Output("label-output-input", "value", allow_duplicate=True),
         Output("label-ui-ready-store", "data"),
-        Input("label-data-store", "data"),
-        Input("label-colormap-toggle", "value"),
-        Input("label-yaxis-toggle", "value"),
-        Input("label-current-page", "data"),
-        Input("config-store", "data"),
+        Input("label-page-specgen-store", "data"),
+        State("label-data-store", "data"),
+        State("label-colormap-toggle", "value"),
+        State("label-yaxis-toggle", "value"),
+        State("label-current-page", "data"),
+        State("config-store", "data"),
         State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
+    def render_label(specgen_status, data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
         # Render even if not in label mode (to maintain state when switching back)
         pass
+        _ = specgen_status
 
+        cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
@@ -102,19 +105,32 @@ def register_render_callbacks(
         Output("verify-predictions-display", "children"),
         Output("verify-data-root-display", "children"),
         Output("verify-ui-ready-store", "data"),
-        Input("verify-data-store", "data"),
-        Input("verify-thresholds-store", "data"),
-        Input("verify-class-filter", "data"),
-        Input("verify-current-page", "data"),
-        Input("verify-colormap-toggle", "value"),
-        Input("verify-yaxis-toggle", "value"),
-        Input("config-store", "data"),
+        Input("verify-page-specgen-store", "data"),
+        State("verify-data-store", "data"),
+        State("verify-thresholds-store", "data"),
+        State("verify-class-filter", "data"),
+        State("verify-current-page", "data"),
+        State("verify-colormap-toggle", "value"),
+        State("verify-yaxis-toggle", "value"),
+        State("config-store", "data"),
         State("mode-tabs", "data"),
     )
-    def render_verify(data, thresholds, class_filter, current_page, use_hydrophone_colormap, use_log_y_axis, cfg, mode):
+    def render_verify(
+        specgen_status,
+        data,
+        thresholds,
+        class_filter,
+        current_page,
+        use_hydrophone_colormap,
+        use_log_y_axis,
+        cfg,
+        mode,
+    ):
         # Render even if not in verify mode (to maintain state when switching back)
         pass
+        _ = specgen_status
 
+        cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
@@ -226,13 +242,16 @@ def register_render_callbacks(
         Output("explore-page-info", "children"),
         Output("explore-page-input", "max"),
         Output("explore-ui-ready-store", "data"),
-        Input("explore-data-store", "data"),
-        Input("explore-current-page", "data"),
-        Input("explore-colormap-toggle", "value"),
-        Input("explore-yaxis-toggle", "value"),
-        Input("config-store", "data"),
+        Input("explore-page-specgen-store", "data"),
+        State("explore-data-store", "data"),
+        State("explore-current-page", "data"),
+        State("explore-colormap-toggle", "value"),
+        State("explore-yaxis-toggle", "value"),
+        State("config-store", "data"),
     )
-    def render_explore(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
+    def render_explore(specgen_status, data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
+        _ = specgen_status
+        cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])

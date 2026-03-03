@@ -82,3 +82,95 @@ def register_loading_overlay_callbacks(app):
         State("explore-data-store", "data"),
         prevent_initial_call=True,
     )
+
+    app.clientside_callback(
+        """
+        function(
+            mode,
+            cfg,
+            labelLoadingState,
+            verifyLoadingState,
+            exploreLoadingState,
+            labelStatus,
+            verifyStatus,
+            exploreStatus,
+            labelPage,
+            verifyPage,
+            explorePage
+        ) {
+            var dc = (window.dash_clientside || {});
+            var noUpdate = dc.no_update;
+
+            function isLoading(state) {
+                return !!(state && state.is_loading);
+            }
+            function getCurrentLoading() {
+                if (mode === "verify") return isLoading(verifyLoadingState);
+                if (mode === "explore") return isLoading(exploreLoadingState);
+                return isLoading(labelLoadingState);
+            }
+            function getCurrentStatus() {
+                if (mode === "verify") return verifyStatus || null;
+                if (mode === "explore") return exploreStatus || null;
+                return labelStatus || null;
+            }
+            function getCurrentPage() {
+                if (mode === "verify") return Number(verifyPage || 0);
+                if (mode === "explore") return Number(explorePage || 0);
+                return Number(labelPage || 0);
+            }
+
+            if (!getCurrentLoading()) {
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
+            var source = (((cfg || {}).display || {}).spectrogram_source) || "existing";
+            if (source !== "audio_generated") {
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
+            var status = getCurrentStatus();
+            if (!status || typeof status !== "object") {
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
+            var statusPage = Number(status.page_index);
+            var currentPage = getCurrentPage();
+            if (Number.isFinite(statusPage) && statusPage !== currentPage) {
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
+            var pending = Number(status.pending || 0);
+            if (!(pending > 0)) {
+                return [{display: "none"}, noUpdate, noUpdate];
+            }
+
+            var eligible = Number(status.eligible || status.total || pending);
+            if (!Number.isFinite(eligible) || eligible < pending) {
+                eligible = pending;
+            }
+            var done = Math.max(0, eligible - pending);
+            var title = "Generating spectrograms...";
+            var subtitle =
+                pending + " audio file" + (pending === 1 ? "" : "s") +
+                " remaining on this page (" + done + "/" + eligible + " ready)";
+
+            return [{display: "flex"}, title, subtitle];
+        }
+        """,
+        Output("specgen-page-loading-overlay", "style"),
+        Output("specgen-load-title", "children"),
+        Output("specgen-load-subtitle", "children"),
+        Input("mode-tabs", "data"),
+        Input("config-store", "data"),
+        Input("label-grid", "loading_state"),
+        Input("verify-grid", "loading_state"),
+        Input("explore-grid", "loading_state"),
+        Input("label-page-specgen-store", "data"),
+        Input("verify-page-specgen-store", "data"),
+        Input("explore-page-specgen-store", "data"),
+        Input("label-current-page", "data"),
+        Input("verify-current-page", "data"),
+        Input("explore-current-page", "data"),
+        prevent_initial_call=True,
+    )

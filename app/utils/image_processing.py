@@ -36,6 +36,7 @@ DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
     "freq_max_hz": 100.0,
 }
 _TORCH_MISSING_WARNED = False
+_AUDIO_FALLBACK_WARNED = set()
 
 
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
@@ -242,6 +243,32 @@ def _load_audio_spectrogram_torch(
     }
 
 
+def _with_render_source(
+    spec: Optional[Dict[str, np.ndarray]],
+    *,
+    source: str,
+    reason: Optional[str] = None,
+) -> Optional[Dict[str, np.ndarray]]:
+    if spec is None:
+        return None
+    out = dict(spec)
+    out["_render_source"] = str(source)
+    if reason:
+        out["_render_reason"] = str(reason)
+    return out
+
+
+def _warn_audio_fallback_once(reason: str) -> None:
+    reason = str(reason or "unknown")
+    if reason in _AUDIO_FALLBACK_WARNED:
+        return
+    _AUDIO_FALLBACK_WARNED.add(reason)
+    logger.warning(
+        "Audio-generated spectrogram requested but falling back to existing spectrogram (%s).",
+        reason,
+    )
+
+
 def load_audio_spectrogram_cached(
     audio_path: str,
     *,
@@ -308,16 +335,22 @@ def resolve_item_spectrogram_with_key(
                 freq_max_hz=float(render_cfg["freq_max_hz"]),
             )
             if spec is not None:
-                return spec, ("audio", key)
+                return _with_render_source(spec, source="audio_generated"), ("audio", key)
         if mat_path and os.path.exists(mat_path):
             spec = load_spectrogram_cached(mat_path)
-            return spec, ("mat", os.path.abspath(mat_path))
+            fallback_reason = "audio_unavailable_or_torch_missing"
+            _warn_audio_fallback_once(fallback_reason)
+            return (
+                _with_render_source(spec, source="existing_fallback", reason=fallback_reason),
+                ("mat", os.path.abspath(mat_path), fallback_reason),
+            )
+        _warn_audio_fallback_once("no_audio_no_mat")
         return None, None
 
     # Default: use existing spectrogram first.
     if mat_path and os.path.exists(mat_path):
         spec = load_spectrogram_cached(mat_path)
-        return spec, ("mat", os.path.abspath(mat_path))
+        return _with_render_source(spec, source="existing"), ("mat", os.path.abspath(mat_path))
     if audio_path and os.path.exists(audio_path):
         key = _audio_spectrogram_cache_key(
             audio_path,
@@ -333,13 +366,89 @@ def resolve_item_spectrogram_with_key(
             freq_min_hz=float(render_cfg["freq_min_hz"]),
             freq_max_hz=float(render_cfg["freq_max_hz"]),
         )
-        return spec, ("audio-fallback", key)
+        return _with_render_source(spec, source="audio_fallback"), ("audio-fallback", key)
     return None, None
 
 
 def resolve_item_spectrogram(item: Optional[Dict[str, Any]], cfg: Optional[Dict[str, Any]]) -> Optional[Dict[str, np.ndarray]]:
     spec, _ = resolve_item_spectrogram_with_key(item, cfg)
     return spec
+
+
+def estimate_page_audio_generation_work(
+    items: Any,
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> Dict[str, Any]:
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    page_items = items if isinstance(items, list) else []
+    total = len(page_items)
+
+    status: Dict[str, Any] = {
+        "source": source,
+        "total": int(total),
+        "eligible": 0,
+        "pending": 0,
+        "params": {
+            "win_dur_s": float(render_cfg["win_dur_s"]),
+            "overlap": float(render_cfg["overlap"]),
+            "freq_min_hz": float(render_cfg["freq_min_hz"]),
+            "freq_max_hz": float(render_cfg["freq_max_hz"]),
+        },
+    }
+
+    if source != SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        return status
+    if torch is None:
+        return status
+
+    for item in page_items:
+        if not isinstance(item, dict):
+            continue
+        audio_path = item.get("audio_path")
+        mat_path = item.get("mat_path")
+        cache_keys = []
+
+        if audio_path and os.path.exists(audio_path):
+            try:
+                audio_key = (
+                    "item",
+                    (
+                        "audio",
+                        _audio_spectrogram_cache_key(
+                            audio_path,
+                            win_dur_s=float(render_cfg["win_dur_s"]),
+                            overlap=float(render_cfg["overlap"]),
+                            freq_min_hz=float(render_cfg["freq_min_hz"]),
+                            freq_max_hz=float(render_cfg["freq_max_hz"]),
+                        ),
+                    ),
+                    colormap,
+                    y_axis_scale,
+                )
+                cache_keys.append(audio_key)
+            except Exception:
+                cache_keys = []
+
+        if mat_path and os.path.exists(mat_path):
+            fallback_key = (
+                "item",
+                ("mat", os.path.abspath(mat_path), "audio_unavailable_or_torch_missing"),
+                colormap,
+                y_axis_scale,
+            )
+            cache_keys.append(fallback_key)
+
+        if not cache_keys:
+            continue
+        status["eligible"] += 1
+        if not any(k in image_cache for k in cache_keys):
+            status["pending"] += 1
+
+    return status
 
 
 def generate_image_cached(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
@@ -566,6 +675,31 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         )
     )
     
+    render_source = str(spectrogram_data.get("_render_source", "existing")) if isinstance(spectrogram_data, dict) else "existing"
+    render_reason = str(spectrogram_data.get("_render_reason", "")) if isinstance(spectrogram_data, dict) else ""
+    source_label = {
+        "existing": "Source: existing spectrogram",
+        "audio_generated": "Source: generated from audio",
+        "audio_fallback": "Source: generated from audio (fallback)",
+        "existing_fallback": "Source: existing spectrogram (fallback)",
+    }.get(render_source, f"Source: {render_source}")
+    if render_reason:
+        source_label = f"{source_label} [{render_reason}]"
+
+    if len(time_plot):
+        x_min = float(np.min(time_plot))
+        x_max = float(np.max(time_plot))
+    else:
+        x_min = 0.0
+        x_max = 1.0
+    if len(freq_plot):
+        y_min = float(np.min(freq_plot))
+        y_max = float(np.max(freq_plot))
+    else:
+        y_min = 0.0
+        y_max = 1.0
+    render_signature = f"{render_source}|{render_reason}|{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|{psd.shape[0]}x{psd.shape[1]}"
+
     fig.update_layout(
         title=dict(text=""),
         xaxis=dict(title=x_label, showgrid=True, tickformat=".2f"),
@@ -579,14 +713,32 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         meta={
             "x_to_seconds": x_to_seconds,
             "y_to_hz": y_to_hz,
-            "x_min": float(np.min(time_plot)) if len(time_plot) else 0.0,
-            "x_max": float(np.max(time_plot)) if len(time_plot) else 1.0,
-            "y_min": float(np.min(freq_plot)) if len(freq_plot) else 0.0,
-            "y_max": float(np.max(freq_plot)) if len(freq_plot) else 1.0,
+            "x_min": x_min,
+            "x_max": x_max,
+            "y_min": y_min,
+            "y_max": y_max,
             "x_unit": "minutes" if x_to_seconds == 60.0 else "seconds",
             "y_unit": y_unit,
+            "render_source": render_source,
+            "render_reason": render_reason,
         },
-        uirevision='constant'
+        uirevision=render_signature,
+    )
+
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.01,
+        y=0.99,
+        xanchor="left",
+        yanchor="top",
+        showarrow=False,
+        text=source_label,
+        font=dict(size=11, color="#8b949e"),
+        bgcolor="rgba(0,0,0,0.25)",
+        bordercolor="rgba(120,120,120,0.4)",
+        borderwidth=1,
+        borderpad=4,
     )
 
     return fig
