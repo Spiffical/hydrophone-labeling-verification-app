@@ -86,10 +86,12 @@ def register_all_callback_sections(app, *, config, deps):
         app,
         extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
         build_verify_filter_paths=d["build_verify_filter_paths"],
-        normalize_verify_class_filter=d["normalize_verify_class_filter"],
+        build_verify_leaf_paths=d["build_verify_leaf_paths"],
+        expand_verify_filter_selection=d["expand_verify_filter_selection"],
         ordered_unique_labels=d["ordered_unique_labels"],
         split_hierarchy_label=d["split_hierarchy_label"],
         build_verify_filter_tree_rows=d["build_verify_filter_tree_rows"],
+        toggle_verify_filter_selection=d["toggle_verify_filter_selection"],
     )
     register_verify_threshold_callbacks(app)
 

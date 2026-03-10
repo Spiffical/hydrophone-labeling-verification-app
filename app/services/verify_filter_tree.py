@@ -58,8 +58,72 @@ def build_verify_filter_paths(classes):
     return [" > ".join(path_parts) for path_parts in ordered_paths]
 
 
+def build_verify_leaf_paths(paths):
+    normalized_paths = ordered_unique_labels(paths or [])
+    leaf_paths = []
+    for path in normalized_paths:
+        prefix = f"{path} > "
+        has_descendants = any(
+            other_path != path and other_path.startswith(prefix)
+            for other_path in normalized_paths
+        )
+        if not has_descendants:
+            leaf_paths.append(path)
+    return leaf_paths
+
+
+def get_verify_filter_descendant_leaf_paths(paths, target_path):
+    normalized_target = (target_path or "").strip()
+    if not normalized_target:
+        return []
+
+    prefix = f"{normalized_target} > "
+    return [
+        leaf_path
+        for leaf_path in build_verify_leaf_paths(paths)
+        if leaf_path == normalized_target or leaf_path.startswith(prefix)
+    ]
+
+
+def expand_verify_filter_selection(paths, selected_paths):
+    leaf_paths = build_verify_leaf_paths(paths)
+    leaf_path_set = set(leaf_paths)
+    normalized_selected = normalize_verify_class_filter(selected_paths)
+    if normalized_selected is None:
+        return leaf_paths
+
+    expanded_paths = []
+    for path in normalized_selected:
+        normalized_path = path.strip() if isinstance(path, str) else ""
+        if not normalized_path:
+            continue
+        if normalized_path in leaf_path_set:
+            expanded_paths.append(normalized_path)
+            continue
+        expanded_paths.extend(get_verify_filter_descendant_leaf_paths(paths, normalized_path))
+    expanded_path_set = set(ordered_unique_labels(path for path in expanded_paths if path in leaf_path_set))
+    return [path for path in leaf_paths if path in expanded_path_set]
+
+
+def toggle_verify_filter_selection(paths, current_selected_paths, toggled_path, is_checked):
+    leaf_paths = build_verify_leaf_paths(paths)
+    selected_leaf_paths = expand_verify_filter_selection(paths, current_selected_paths)
+    descendant_leaf_paths = get_verify_filter_descendant_leaf_paths(paths, toggled_path)
+    if not descendant_leaf_paths:
+        return selected_leaf_paths
+
+    selected_leaf_set = set(selected_leaf_paths)
+    descendant_leaf_set = set(descendant_leaf_paths)
+    if bool(is_checked):
+        next_selected_set = selected_leaf_set | descendant_leaf_set
+    else:
+        next_selected_set = selected_leaf_set - descendant_leaf_set
+
+    return [path for path in leaf_paths if path in next_selected_set]
+
+
 def build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
-    selected_set = set(ordered_unique_labels(selected_paths or []))
+    selected_set = set(expand_verify_filter_selection(paths, selected_paths))
     expanded_set = set(ordered_unique_labels(expanded_paths or []))
 
     tree = {}
@@ -73,13 +137,22 @@ def build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
 
     def _walk(node, prefix, level):
         rows = []
+        descendant_leaf_paths = []
         for name in sorted(node.keys(), key=lambda text: text.lower()):
             path_parts = prefix + [name]
             path = " > ".join(path_parts)
             children = node[name]
             has_children = bool(children)
             is_expanded = path in expanded_set
-            is_selected = path in selected_set
+            child_rows = []
+            child_leaf_paths = []
+            if has_children:
+                child_rows, child_leaf_paths = _walk(children, path_parts, level + 1)
+                node_leaf_paths = child_leaf_paths
+            else:
+                node_leaf_paths = [path]
+            is_selected = bool(node_leaf_paths) and all(leaf_path in selected_set for leaf_path in node_leaf_paths)
+            descendant_leaf_paths.extend(node_leaf_paths)
 
             rows.append(
                 html.Div(
@@ -115,7 +188,7 @@ def build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
                             style={"paddingLeft": f"{level * 16}px"},
                         ),
                         html.Div(
-                            _walk(children, path_parts, level + 1),
+                            child_rows,
                             className="verify-filter-children",
                             style={"display": "block" if (has_children and is_expanded) else "none"},
                         ),
@@ -123,9 +196,10 @@ def build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
                     className="verify-filter-node-group",
                 )
             )
-        return rows
+        return rows, descendant_leaf_paths
 
-    return _walk(tree, [], 0)
+    rows, _ = _walk(tree, [], 0)
+    return rows
 
 
 def normalize_verify_class_filter(class_filter):

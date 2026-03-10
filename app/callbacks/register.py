@@ -69,11 +69,14 @@ from app.services.verification import (
     update_item_notes as _update_item_notes,
 )
 from app.services.verify_filter_tree import (
+    build_verify_leaf_paths as _build_verify_leaf_paths,
     build_verify_filter_paths as _build_verify_filter_paths,
     build_verify_filter_tree_rows as _build_verify_filter_tree_rows,
+    expand_verify_filter_selection as _expand_verify_filter_selection,
     extract_verify_leaf_classes as _extract_verify_leaf_classes,
     normalize_verify_class_filter as _normalize_verify_class_filter,
     predicted_labels_match_filter as _predicted_labels_match_filter,
+    toggle_verify_filter_selection as _toggle_verify_filter_selection,
 )
 from app.utils.data_loading import load_dataset
 from app.utils.image_processing import (
@@ -139,10 +142,13 @@ def register_callbacks(app, config):
         "predicted_labels_match_filter": _predicted_labels_match_filter,
         "extract_verify_leaf_classes": _extract_verify_leaf_classes,
         "build_verify_filter_paths": _build_verify_filter_paths,
+        "build_verify_leaf_paths": _build_verify_leaf_paths,
+        "expand_verify_filter_selection": _expand_verify_filter_selection,
         "normalize_verify_class_filter": _normalize_verify_class_filter,
         "ordered_unique_labels": _ordered_unique_labels,
         "split_hierarchy_label": _split_hierarchy_label,
         "build_verify_filter_tree_rows": _build_verify_filter_tree_rows,
+        "toggle_verify_filter_selection": _toggle_verify_filter_selection,
         "get_mode_data": _get_mode_data,
         "require_complete_profile": _require_complete_profile,
         "create_hierarchical_selector": create_hierarchical_selector,

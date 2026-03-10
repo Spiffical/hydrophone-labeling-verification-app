@@ -9,10 +9,12 @@ def register_verify_filter_callbacks(
     *,
     extract_verify_leaf_classes,
     build_verify_filter_paths,
-    normalize_verify_class_filter,
+    build_verify_leaf_paths,
+    expand_verify_filter_selection,
     ordered_unique_labels,
     split_hierarchy_label,
     build_verify_filter_tree_rows,
+    toggle_verify_filter_selection,
 ):
     """Register verify class-filter tree callbacks."""
 
@@ -29,17 +31,11 @@ def register_verify_filter_callbacks(
         items = (data or {}).get("items", [])
         classes = extract_verify_leaf_classes(items)
         option_values = build_verify_filter_paths(classes)
-        option_value_set = set(option_values)
-
-        normalized_current = normalize_verify_class_filter(current_value)
-        if normalized_current is None or not normalized_current:
-            selected_values = list(option_values)
-        else:
-            selected_values = [value for value in normalized_current if value in option_value_set]
+        selected_values = expand_verify_filter_selection(option_values, current_value)
 
         normalized_expanded = ordered_unique_labels(expanded_value or [])
         if not option_values:
-            return [], selected_values, []
+            return [], [], []
 
         valid_paths = set()
         for path in option_values:
@@ -85,14 +81,11 @@ def register_verify_filter_callbacks(
                 False,
             )
 
-        normalized_selected = normalize_verify_class_filter(selected_values)
-        if normalized_selected is None:
-            normalized_selected = list(option_values)
-        else:
-            normalized_selected = [value for value in normalized_selected if value in set(option_values)]
+        leaf_values = build_verify_leaf_paths(option_values)
+        normalized_selected = expand_verify_filter_selection(option_values, selected_values)
 
         tree_rows = build_verify_filter_tree_rows(option_values, normalized_selected, expanded_values or [])
-        if len(normalized_selected) == len(option_values):
+        if len(normalized_selected) == len(leaf_values):
             toggle_label = "All classes selected"
             select_all_value = True
         elif not normalized_selected:
@@ -198,41 +191,44 @@ def register_verify_filter_callbacks(
         current_values,
     ):
         option_values = ordered_unique_labels(option_values or [])
-        if not option_values:
+        leaf_values = build_verify_leaf_paths(option_values)
+        if not leaf_values:
             raise PreventUpdate
 
-        option_set = set(option_values)
-        normalized_current = normalize_verify_class_filter(current_values)
-        if normalized_current is None:
-            selected_values = list(option_values)
-        else:
-            selected_values = [value for value in normalized_current if value in option_set]
+        selected_values = expand_verify_filter_selection(option_values, current_values)
 
         triggered = ctx.triggered_id
 
         if triggered == "verify-class-filter-select-all":
-            is_all_selected = len(selected_values) == len(option_values)
+            is_all_selected = len(selected_values) == len(leaf_values)
             if bool(select_all_checked):
                 if is_all_selected:
                     raise PreventUpdate
-                return option_values
-            if is_all_selected:
+                return leaf_values
+            if selected_values:
                 return []
             raise PreventUpdate
 
         if not (isinstance(triggered, dict) and triggered.get("type") == "verify-filter-checkbox"):
             raise PreventUpdate
 
-        selected_from_checks = []
+        path = (triggered.get("path") or "").strip()
+        if not path:
+            raise PreventUpdate
+
+        is_checked = None
         for checkbox_value, checkbox_id in zip(checkbox_values or [], checkbox_ids or []):
             if not isinstance(checkbox_id, dict):
                 continue
-            path = (checkbox_id.get("path") or "").strip()
-            if not path or path not in option_set:
+            if (checkbox_id.get("path") or "").strip() != path:
                 continue
-            if bool(checkbox_value):
-                selected_from_checks.append(path)
-        selected_from_checks = ordered_unique_labels(selected_from_checks)
-        if selected_from_checks == selected_values:
+            is_checked = bool(checkbox_value)
+            break
+
+        if is_checked is None:
             raise PreventUpdate
-        return selected_from_checks
+
+        next_selected = toggle_verify_filter_selection(option_values, selected_values, path, is_checked)
+        if next_selected == selected_values:
+            raise PreventUpdate
+        return next_selected
