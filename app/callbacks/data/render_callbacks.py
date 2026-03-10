@@ -18,7 +18,26 @@ def register_render_callbacks(
     _extract_verify_leaf_classes,
     _build_verify_filter_paths,
     _normalize_verify_class_filter,
+    _schedule_specgen_prefetch_for_current_page_images,
+    _schedule_specgen_prefetch_for_future_pages,
 ):
+    def _compute_prefetch_pages_ahead(cfg, items_per_page):
+        cfg = cfg or {}
+        spec_cfg = cfg.get("spectrogram_render", {}) or {}
+        if str(spec_cfg.get("source", "existing")) != "audio_generated":
+            return 0
+        try:
+            cache_max = int((cfg.get("cache", {}) or {}).get("max_size", 400))
+        except (TypeError, ValueError):
+            cache_max = 400
+        cache_max = max(1, cache_max)
+        per_page = max(1, int(items_per_page or 1))
+        # keep at least one page warm and cap to avoid runaway prefetch
+        pages_by_capacity = (cache_max // per_page) - 1
+        if pages_by_capacity <= 0:
+            return 0
+        return min(6, pages_by_capacity)
+
     @app.callback(
         Output("label-summary", "children"),
         Output("label-grid", "children"),
@@ -68,6 +87,35 @@ def register_render_callbacks(
         page_info = f"Page {current_page + 1} of {total_pages}"
 
         grid = _build_grid(page_items, "label", colormap, y_axis_scale, items_per_page, cfg)
+        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+            page_items,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if _SPECGEN_DEBUG and current_page_submitted:
+            print(
+                f"[specgen-prefetch] mode=label current_page={current_page} "
+                f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        if prefetch_pages > 0:
+            submitted = _schedule_specgen_prefetch_for_future_pages(
+                items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and submitted:
+                print(
+                    f"[specgen-prefetch] mode=label from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
         
         # Update folder displays with popover support for multiple folders
         data_root = summary.get("data_root", "")
@@ -210,6 +258,35 @@ def register_render_callbacks(
         page_info = f"Page {current_page + 1} of {total_pages}"
 
         grid = _build_grid(page_items, "verify", colormap, y_axis_scale, items_per_page, cfg)
+        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+            page_items,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if _SPECGEN_DEBUG and current_page_submitted:
+            print(
+                f"[specgen-prefetch] mode=verify current_page={current_page} "
+                f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        if prefetch_pages > 0:
+            submitted = _schedule_specgen_prefetch_for_future_pages(
+                filtered_items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and submitted:
+                print(
+                    f"[specgen-prefetch] mode=verify from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
         
         data_root = summary.get("data_root") or "Not set"
 
@@ -287,6 +364,35 @@ def register_render_callbacks(
         page_info = f"Page {current_page + 1} of {total_pages}"
 
         grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page, cfg)
+        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+            page_items,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if _SPECGEN_DEBUG and current_page_submitted:
+            print(
+                f"[specgen-prefetch] mode=explore current_page={current_page} "
+                f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        if prefetch_pages > 0:
+            submitted = _schedule_specgen_prefetch_for_future_pages(
+                items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and submitted:
+                print(
+                    f"[specgen-prefetch] mode=explore from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
         ui_ready = {
             "load_timestamp": data.get("load_timestamp"),
             "page": int(current_page),

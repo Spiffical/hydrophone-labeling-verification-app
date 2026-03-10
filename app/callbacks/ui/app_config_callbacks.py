@@ -114,7 +114,9 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
             "freq_max_hz": float(new_freq_max),
         }
 
-        set_cache_sizes(new_cache_size)
+        previous_cache_size = _coerce_positive_int(cache_cfg.get("max_size", 400), 400)
+        if new_cache_size != previous_cache_size:
+            set_cache_sizes(new_cache_size)
 
         return (
             False,

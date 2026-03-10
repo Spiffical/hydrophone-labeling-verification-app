@@ -1,10 +1,14 @@
 import base64
+import json
 import os
+import time
 from typing import Optional
+from urllib.parse import urlencode
 
 from cachetools import LRUCache
 
 from app.utils.image_processing import (
+    SPECTROGRAM_SOURCE_AUDIO_GENERATED,
     SPECTROGRAM_SOURCE_EXISTING,
     generate_image_cached,
     generate_item_image_cached,
@@ -12,6 +16,57 @@ from app.utils.image_processing import (
 )
 
 _file_image_cache = LRUCache(maxsize=256)
+_ITEM_IMAGE_URL_VERSION = str(int(time.time() * 1000))
+
+
+def _urlsafe_b64encode_json(payload: dict) -> str:
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_item_image_request(token: str) -> Optional[dict]:
+    if not token:
+        return None
+    try:
+        padded = token + ("=" * ((4 - (len(token) % 4)) % 4))
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def build_item_image_request_src(
+    item: dict,
+    *,
+    cfg: Optional[dict] = None,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> str:
+    render_cfg = get_spectrogram_render_settings(cfg)
+    payload = {
+        "audio_path": item.get("audio_path"),
+        "mat_path": item.get("mat_path"),
+        "spectrogram_path": item.get("spectrogram_path"),
+        "colormap": str(colormap or "default"),
+        "y_axis_scale": str(y_axis_scale or "linear"),
+        "render_cfg": render_cfg,
+    }
+    token = _urlsafe_b64encode_json(payload)
+    # Include a compact query string so browser caches separate render settings independently.
+    cache_key = urlencode(
+        {
+            "src": render_cfg.get("source"),
+            "ov": render_cfg.get("overlap"),
+            "wd": render_cfg.get("win_dur_s"),
+            "fmin": render_cfg.get("freq_min_hz"),
+            "fmax": render_cfg.get("freq_max_hz"),
+            "cm": colormap,
+            "ys": y_axis_scale,
+            "rv": _ITEM_IMAGE_URL_VERSION,
+        }
+    )
+    return f"/item-image/{token}?{cache_key}"
 
 
 def image_file_to_base64(image_path: str) -> str:
@@ -45,11 +100,20 @@ def get_item_image_src(
     if not item:
         return None
 
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = render_cfg.get("source")
+    use_existing = source == SPECTROGRAM_SOURCE_EXISTING
+
+    if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        return build_item_image_request_src(
+            item,
+            cfg=cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+
     if item.get("image_src"):
         return item["image_src"]
-
-    render_cfg = get_spectrogram_render_settings(cfg)
-    use_existing = render_cfg.get("source") == SPECTROGRAM_SOURCE_EXISTING
 
     if use_existing:
         spectrogram_path = item.get("spectrogram_path")

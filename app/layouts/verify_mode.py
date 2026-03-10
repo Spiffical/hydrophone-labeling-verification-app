@@ -76,12 +76,21 @@ def create_verify_layout(config: dict) -> html.Div:
                                 ),
                                 dbc.Collapse(
                                     html.Div([
-                                        dbc.Checkbox(
-                                            id="verify-class-filter-select-all",
-                                            label="Select all / deselect all",
-                                            value=True,
-                                            className="verify-class-filter-select-all mb-2",
-                                        ),
+                                        html.Div([
+                                            dbc.Checkbox(
+                                                id="verify-class-filter-select-all",
+                                                label="Select all / deselect all",
+                                                value=True,
+                                                className="verify-class-filter-select-all mb-0",
+                                            ),
+                                            dbc.Button(
+                                                "Done",
+                                                id="verify-class-filter-done",
+                                                color="link",
+                                                size="sm",
+                                                className="verify-class-filter-done-btn",
+                                            ),
+                                        ], className="verify-class-filter-menu-header"),
                                         html.Div(
                                             id="verify-class-filter-tree",
                                             className="verify-class-filter-tree",

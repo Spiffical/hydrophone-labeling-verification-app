@@ -538,6 +538,14 @@ body {
     padding: 10px;
 }
 
+.verify-class-filter-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
 .verify-class-filter-select-all .form-check-input {
     margin-top: 0.2rem;
 }
@@ -546,6 +554,13 @@ body {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-secondary);
+}
+
+.verify-class-filter-done-btn {
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
 }
 
 .verify-class-filter-tree {
@@ -558,7 +573,7 @@ body {
 .verify-filter-node-row {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     min-height: 26px;
 }
 
@@ -595,24 +610,38 @@ body {
     margin: 0;
     display: flex;
     align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .verify-filter-node-check .form-check {
     margin: 0;
     display: flex;
     align-items: center;
+    gap: 8px;
+    width: 100%;
 }
 
 .verify-filter-node-check .form-check-input {
     margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.verify-filter-node-label-wrap {
+    margin: 0;
+    min-width: 0;
+    cursor: pointer;
 }
 
 .verify-filter-node-label {
+    display: block;
     font-size: 13px;
     color: var(--text);
     line-height: 1.25;
     word-break: break-word;
     margin-left: 0;
+    cursor: pointer;
 }
 
 .verify-filter-children {
@@ -1602,6 +1631,19 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     background: linear-gradient(90deg, #2f81f7 0%, #7cc3ff 55%, #2f81f7 100%);
     background-size: 200% 100%;
     animation: specgen-overlay-progress 1.0s linear infinite;
+}
+
+.specgen-load-progress-fill--determinate {
+    animation: none;
+    background-size: 100% 100%;
+    transform: none;
+}
+
+.specgen-load-progress-text {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
 }
 
 @keyframes specgen-overlay-progress {

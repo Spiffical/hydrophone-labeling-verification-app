@@ -1,12 +1,15 @@
 import os
 from typing import Dict
+import base64
 
 import dash
 import dash_bootstrap_components as dbc
-from flask import abort, send_file
+from flask import Response, abort, send_file
 
 from app.layouts.main_layout import create_main_layout
 from app.callbacks import register_callbacks
+from app.utils.image_processing import generate_item_image_cached
+from app.utils.image_utils import decode_item_image_request
 
 
 # Global audio search roots (updated on data load)
@@ -57,5 +60,46 @@ def create_app(config: Dict) -> dash.Dash:
                     return send_file(os.path.join(dirpath, filename), as_attachment=False)
 
         abort(404)
+
+    @app.server.route("/item-image/<token>")
+    def serve_item_image(token):
+        payload = decode_item_image_request(token)
+        if not payload:
+            abort(400)
+
+        item = {
+            "audio_path": payload.get("audio_path"),
+            "mat_path": payload.get("mat_path"),
+            "spectrogram_path": payload.get("spectrogram_path"),
+        }
+        cfg = {"spectrogram_render": payload.get("render_cfg") or {}}
+        colormap = str(payload.get("colormap") or "default")
+        y_axis_scale = str(payload.get("y_axis_scale") or "linear")
+
+        image_src = generate_item_image_cached(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if not image_src or not image_src.startswith("data:") or ";base64," not in image_src:
+            abort(404)
+
+        header, encoded = image_src.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0] or "image/png"
+        try:
+            image_bytes = base64.b64decode(encoded)
+        except Exception:
+            abort(500)
+
+        return Response(
+            image_bytes,
+            mimetype=mime_type,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     return app

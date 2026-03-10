@@ -78,6 +78,8 @@ def register_all_callback_sections(app, *, config, deps):
         _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
         _build_verify_filter_paths=d["build_verify_filter_paths"],
         _normalize_verify_class_filter=d["normalize_verify_class_filter"],
+        _schedule_specgen_prefetch_for_current_page_images=d["schedule_specgen_prefetch_for_current_page_images"],
+        _schedule_specgen_prefetch_for_future_pages=d["schedule_specgen_prefetch_for_future_pages"],
     )
 
     register_verify_filter_callbacks(

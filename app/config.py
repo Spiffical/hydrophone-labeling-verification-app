@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", type=str, choices=["label", "verify", "explore"], help="Initial mode")
     parser.add_argument("--host", type=str, help="Host to bind the web server")
     parser.add_argument("--port", type=int, help="Preferred port for the web server")
+    parser.add_argument(
+        "--spectrogram-source",
+        "--specgen-source",
+        dest="spectrogram_source",
+        choices=["existing", "audio_generated"],
+        help="Default spectrogram rendering source",
+    )
 
     # Label mode
     parser.add_argument("--label-folder", type=str, help="Folder with MAT spectrograms")
@@ -99,6 +106,10 @@ def get_config() -> Dict[str, Any]:
     cache_max_size = cache_cfg.get("max_size", 400)
     spec_render_cfg = config.get("spectrogram_render", {})
 
+    spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")
+    if spec_source not in {"existing", "audio_generated"}:
+        spec_source = "existing"
+
     return {
         "mode": mode,
         "reset_mock": args.reset_mock,
@@ -126,7 +137,7 @@ def get_config() -> Dict[str, Any]:
             "max_size": cache_max_size,
         },
         "spectrogram_render": {
-            "source": spec_render_cfg.get("source", "existing"),
+            "source": spec_source,
             "win_dur_s": spec_render_cfg.get("win_dur_s", 1.0),
             "overlap": spec_render_cfg.get("overlap", 0.9),
             "freq_min_hz": spec_render_cfg.get("freq_min_hz", 5.0),
@@ -137,6 +148,9 @@ def get_config() -> Dict[str, Any]:
             "port": args.port,
         },
         "data": {
+            "data_dir": resolve_path(config.get("data", {}).get("data_dir"), repo_root)
+            if config.get("data", {}).get("data_dir")
+            else None,
             "spectrogram_folder_names": config.get("data", {}).get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"]),
             "audio_folder_names": config.get("data", {}).get("audio_folder_names", ["audio"]),
         },

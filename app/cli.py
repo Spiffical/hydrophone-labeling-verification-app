@@ -42,6 +42,12 @@ def main():
         action='store_true',
         help='Run in debug mode'
     )
+    parser.add_argument(
+        '--spectrogram-source',
+        choices=['existing', 'audio_generated'],
+        default=None,
+        help='Default spectrogram source mode at startup'
+    )
     args = parser.parse_args()
 
     if args.data_dir:
@@ -95,6 +101,11 @@ def main():
         }
         startup_mode = "browse"
     
+    if args.spectrogram_source:
+        spec_cfg = dict(config.get("spectrogram_render", {}) or {})
+        spec_cfg["source"] = args.spectrogram_source
+        config["spectrogram_render"] = spec_cfg
+
     app = create_app(config)
     
     print("=" * 60)

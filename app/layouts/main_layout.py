@@ -70,9 +70,11 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="label-page-specgen-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-page-specgen-store", data=None, storage_type="memory"),
         dcc.Store(id="explore-page-specgen-store", data=None, storage_type="memory"),
+        dcc.Store(id="specgen-overlay-preview-store", data=None, storage_type="memory"),
+        dcc.Store(id="specgen-overlay-request-store", data=None, storage_type="memory"),
+        dcc.Interval(id="specgen-overlay-poll", interval=1000, n_intervals=0, disabled=True, max_intervals=-1),
         dcc.Store(id="verify-badge-event-store", data={"last_key": ""}, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
-        dcc.Interval(id="specgen-overlay-poll", interval=400, n_intervals=0),
         dcc.Store(
             id="modal-audio-settings-store",
             data={
@@ -377,10 +379,16 @@ def create_main_layout(config: dict) -> html.Div:
                                 className="specgen-load-subtitle",
                             ),
                             html.Div(
-                                html.Div(className="specgen-load-progress-fill"),
+                                html.Div(id="specgen-load-progress-fill", className="specgen-load-progress-fill"),
+                                id="specgen-load-progress-track",
                                 className="specgen-load-progress-track",
                                 role="progressbar",
-                                **{"aria-valuemin": "0", "aria-valuemax": "100"},
+                                **{"aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "0"},
+                            ),
+                            html.Div(
+                                "Preparing current page...",
+                                id="specgen-load-progress-text",
+                                className="specgen-load-progress-text",
                             ),
                         ],
                         className="specgen-load-card",

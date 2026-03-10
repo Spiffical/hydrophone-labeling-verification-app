@@ -162,10 +162,23 @@ def register_data_config_load_callbacks(app, *, tab_iso_debug):
         Input("label-ui-ready-store", "data"),
         Input("verify-ui-ready-store", "data"),
         Input("explore-ui-ready-store", "data"),
+        Input("data-load-trigger-store", "data"),
         prevent_initial_call=True,
     )
-    def hide_loading_overlay_on_data_load(label_ready, verify_ready, explore_ready):
-        if label_ready or verify_ready or explore_ready:
+    def hide_loading_overlay_on_data_load(label_ready, verify_ready, explore_ready, load_trigger):
+        trigger_ts = load_trigger.get("timestamp") if isinstance(load_trigger, dict) else None
+
+        def _is_ready_match(ready_payload):
+            if not isinstance(ready_payload, dict):
+                return False
+            if trigger_ts is None:
+                return True
+            payload_ts = ready_payload.get("load_timestamp")
+            if payload_ts is None:
+                payload_ts = ready_payload.get("timestamp")
+            return payload_ts == trigger_ts
+
+        if _is_ready_match(label_ready) or _is_ready_match(verify_ready) or _is_ready_match(explore_ready):
             return {"display": "none"}
         raise PreventUpdate
 
@@ -183,11 +196,16 @@ def register_data_config_load_callbacks(app, *, tab_iso_debug):
             raise PreventUpdate
 
         trigger_ts = load_trigger.get("timestamp")
-        if (label_ready or {}).get("timestamp") == trigger_ts:
+        if trigger_ts is None:
+            if label_ready or verify_ready or explore_ready:
+                return False
+            raise PreventUpdate
+
+        if (label_ready or {}).get("load_timestamp") == trigger_ts or (label_ready or {}).get("timestamp") == trigger_ts:
             return False
-        if (verify_ready or {}).get("timestamp") == trigger_ts:
+        if (verify_ready or {}).get("load_timestamp") == trigger_ts or (verify_ready or {}).get("timestamp") == trigger_ts:
             return False
-        if (explore_ready or {}).get("timestamp") == trigger_ts:
+        if (explore_ready or {}).get("load_timestamp") == trigger_ts or (explore_ready or {}).get("timestamp") == trigger_ts:
             return False
 
         raise PreventUpdate

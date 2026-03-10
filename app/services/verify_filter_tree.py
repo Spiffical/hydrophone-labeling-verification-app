@@ -102,11 +102,13 @@ def build_verify_filter_tree_rows(paths, selected_paths, expanded_paths):
                                     id={"type": "verify-filter-checkbox", "path": path},
                                     value=is_selected,
                                     className="verify-filter-node-check",
-                                ),
-                                html.Span(
-                                    name,
-                                    className="verify-filter-node-label",
-                                    title=path,
+                                    input_class_name="verify-filter-node-input",
+                                    label_class_name="verify-filter-node-label-wrap",
+                                    label=html.Span(
+                                        name,
+                                        className="verify-filter-node-label",
+                                        title=path,
+                                    ),
                                 ),
                             ],
                             className="verify-filter-node-row",

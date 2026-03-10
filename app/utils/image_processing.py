@@ -2,17 +2,20 @@ import base64
 from io import BytesIO
 import logging
 import os
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 import plotly.graph_objects as go
 import scipy.io as sio
 import soundfile as sf
-from cachetools import LRUCache, cached
+from cachetools import LRUCache
+from concurrent.futures import ThreadPoolExecutor
 try:
     import torch
 except Exception:  # pragma: no cover - optional dependency at runtime
@@ -37,6 +40,14 @@ DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
 }
 _TORCH_MISSING_WARNED = False
 _AUDIO_FALLBACK_WARNED = set()
+_PREFETCH_MAX_WORKERS = max(1, min(4, (os.cpu_count() or 2) // 2))
+_PREFETCH_EXECUTOR = ThreadPoolExecutor(max_workers=_PREFETCH_MAX_WORKERS, thread_name_prefix="specgen-prefetch")
+_PREFETCH_PENDING_KEYS = set()
+_PREFETCH_LOCK = threading.Lock()
+_AUDIO_SPECTROGRAM_CACHE_LOCK = threading.Lock()
+_SPECTROGRAM_CACHE_LOCK = threading.Lock()
+_IMAGE_CACHE_LOCK = threading.Lock()
+_MATPLOTLIB_RENDER_LOCK = threading.Lock()
 
 
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
@@ -286,8 +297,9 @@ def load_audio_spectrogram_cached(
         freq_min_hz=freq_min_hz,
         freq_max_hz=freq_max_hz,
     )
-    if key in audio_spectrogram_cache:
-        return audio_spectrogram_cache[key]
+    with _AUDIO_SPECTROGRAM_CACHE_LOCK:
+        if key in audio_spectrogram_cache:
+            return audio_spectrogram_cache[key]
     result = _load_audio_spectrogram_torch(
         audio_path,
         win_dur_s=win_dur_s,
@@ -295,15 +307,22 @@ def load_audio_spectrogram_cached(
         freq_min_hz=freq_min_hz,
         freq_max_hz=freq_max_hz,
     )
-    audio_spectrogram_cache[key] = result
+    with _AUDIO_SPECTROGRAM_CACHE_LOCK:
+        audio_spectrogram_cache[key] = result
     return result
 
 
-@cached(spectrogram_cache)
 def load_spectrogram_cached(mat_path: str):
     if not mat_path or not os.path.exists(mat_path):
         return None
-    return _load_mat(mat_path)
+    key = os.path.abspath(mat_path)
+    with _SPECTROGRAM_CACHE_LOCK:
+        if key in spectrogram_cache:
+            return spectrogram_cache[key]
+    result = _load_mat(mat_path)
+    with _SPECTROGRAM_CACHE_LOCK:
+        spectrogram_cache[key] = result
+    return result
 
 
 def resolve_item_spectrogram_with_key(
@@ -406,58 +425,275 @@ def estimate_page_audio_generation_work(
         return status
 
     for item in page_items:
-        if not isinstance(item, dict):
-            continue
-        audio_path = item.get("audio_path")
-        mat_path = item.get("mat_path")
-        cache_keys = []
-
-        if audio_path and os.path.exists(audio_path):
-            try:
-                audio_key = (
-                    "item",
-                    (
-                        "audio",
-                        _audio_spectrogram_cache_key(
-                            audio_path,
-                            win_dur_s=float(render_cfg["win_dur_s"]),
-                            overlap=float(render_cfg["overlap"]),
-                            freq_min_hz=float(render_cfg["freq_min_hz"]),
-                            freq_max_hz=float(render_cfg["freq_max_hz"]),
-                        ),
-                    ),
-                    colormap,
-                    y_axis_scale,
-                )
-                cache_keys.append(audio_key)
-            except Exception:
-                cache_keys = []
-
-        if mat_path and os.path.exists(mat_path):
-            fallback_key = (
-                "item",
-                ("mat", os.path.abspath(mat_path), "audio_unavailable_or_torch_missing"),
-                colormap,
-                y_axis_scale,
-            )
-            cache_keys.append(fallback_key)
-
-        if not cache_keys:
+        audio_key = _item_audio_generation_key(
+            item,
+            render_cfg=render_cfg,
+        )
+        if audio_key is None:
             continue
         status["eligible"] += 1
-        if not any(k in image_cache for k in cache_keys):
+        image_key = _item_image_generation_key(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if image_key is None or image_key not in image_cache:
             status["pending"] += 1
 
     return status
 
 
+def _item_audio_generation_key(
+    item: Any,
+    *,
+    render_cfg: Dict[str, Any],
+) -> Optional[Tuple[Any, ...]]:
+    if not isinstance(item, dict):
+        return None
+
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    audio_path = item.get("audio_path")
+    if source != SPECTROGRAM_SOURCE_AUDIO_GENERATED or torch is None:
+        return None
+    if not audio_path or not os.path.exists(audio_path):
+        return None
+    try:
+        return _audio_spectrogram_cache_key(
+            audio_path,
+            win_dur_s=float(render_cfg["win_dur_s"]),
+            overlap=float(render_cfg["overlap"]),
+            freq_min_hz=float(render_cfg["freq_min_hz"]),
+            freq_max_hz=float(render_cfg["freq_max_hz"]),
+        )
+    except Exception:
+        return None
+
+
+def _item_image_generation_key(
+    item: Any,
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> Optional[Tuple[Any, ...]]:
+    if not isinstance(item, dict):
+        return None
+
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    source_key: Optional[Tuple[Any, ...]] = None
+
+    if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        audio_key = _item_audio_generation_key(
+            item,
+            render_cfg=render_cfg,
+        )
+        if audio_key is not None:
+            source_key = ("audio", audio_key)
+    else:
+        mat_path = item.get("mat_path")
+        if mat_path and os.path.exists(mat_path):
+            source_key = ("mat", os.path.abspath(mat_path))
+
+    if source_key is None:
+        return None
+
+    return (
+        "item",
+        source_key,
+        str(colormap or "default"),
+        str(y_axis_scale or "linear"),
+    )
+
+
+def _prefetch_item_image(
+    item: dict,
+    *,
+    cfg: Optional[Dict[str, Any]],
+    colormap: str,
+    y_axis_scale: str,
+    dedupe_key: Tuple[Any, ...],
+) -> None:
+    try:
+        generate_item_image_cached(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+    except Exception:
+        logger.exception("Background image prefetch failed for item=%s", item.get("item_id"))
+    finally:
+        with _PREFETCH_LOCK:
+            _PREFETCH_PENDING_KEYS.discard(dedupe_key)
+
+
+def prefetch_page_images_in_background(
+    page_items: Any,
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> int:
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    if source != SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        return 0
+    if torch is None:
+        return 0
+
+    submitted = 0
+    items = page_items if isinstance(page_items, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        image_key = _item_image_generation_key(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+        if image_key is None:
+            continue
+        if image_key in image_cache:
+            continue
+
+        dedupe_key = ("item_image", image_key)
+        with _PREFETCH_LOCK:
+            if dedupe_key in _PREFETCH_PENDING_KEYS:
+                continue
+            _PREFETCH_PENDING_KEYS.add(dedupe_key)
+
+        _PREFETCH_EXECUTOR.submit(
+            _prefetch_item_image,
+            item,
+            cfg=cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            dedupe_key=dedupe_key,
+        )
+        submitted += 1
+
+    return submitted
+
+
+def _prefetch_item_audio_spectrogram(
+    item: dict,
+    *,
+    render_cfg: Dict[str, Any],
+    dedupe_key: Tuple[Any, ...],
+) -> None:
+    try:
+        audio_path = item.get("audio_path")
+        if not audio_path or not os.path.exists(audio_path):
+            return
+        load_audio_spectrogram_cached(
+            audio_path,
+            win_dur_s=float(render_cfg["win_dur_s"]),
+            overlap=float(render_cfg["overlap"]),
+            freq_min_hz=float(render_cfg["freq_min_hz"]),
+            freq_max_hz=float(render_cfg["freq_max_hz"]),
+        )
+    except Exception:
+        logger.exception("Background spectrogram prefetch failed for item=%s", item.get("item_id"))
+    finally:
+        with _PREFETCH_LOCK:
+            _PREFETCH_PENDING_KEYS.discard(dedupe_key)
+
+
+def prefetch_page_items_in_background(
+    page_items: Any,
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+) -> int:
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    if source != SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        return 0
+    if torch is None:
+        return 0
+
+    submitted = 0
+    items = page_items if isinstance(page_items, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        audio_key = _item_audio_generation_key(
+            item,
+            render_cfg=render_cfg,
+        )
+        if audio_key is None:
+            continue
+        if audio_key in audio_spectrogram_cache:
+            continue
+
+        dedupe_key = ("audio_spec", audio_key)
+        with _PREFETCH_LOCK:
+            if dedupe_key in _PREFETCH_PENDING_KEYS:
+                continue
+            _PREFETCH_PENDING_KEYS.add(dedupe_key)
+
+        _PREFETCH_EXECUTOR.submit(
+            _prefetch_item_audio_spectrogram,
+            item,
+            render_cfg=render_cfg,
+            dedupe_key=dedupe_key,
+        )
+        submitted += 1
+
+    return submitted
+
+
+def schedule_prefetch_for_future_pages(
+    all_items: Any,
+    *,
+    current_page: int,
+    items_per_page: int,
+    cfg: Optional[Dict[str, Any]],
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    pages_ahead: int = 1,
+) -> int:
+    items = all_items if isinstance(all_items, list) else []
+    if not items:
+        return 0
+    if items_per_page <= 0:
+        return 0
+    if pages_ahead <= 0:
+        return 0
+
+    total_items = len(items)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    page_index = max(0, min(int(current_page or 0), total_pages - 1))
+    last_page = min(total_pages - 1, page_index + int(pages_ahead))
+    submitted = 0
+
+    for idx in range(page_index + 1, last_page + 1):
+        start_idx = idx * items_per_page
+        end_idx = start_idx + items_per_page
+        submitted += prefetch_page_items_in_background(
+            items[start_idx:end_idx],
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+        )
+    return submitted
+
+
 def generate_image_cached(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
     cache_key = ("mat", mat_path, colormap, y_axis_scale)
-    if cache_key in image_cache:
-        return image_cache[cache_key]
+    with _IMAGE_CACHE_LOCK:
+        if cache_key in image_cache:
+            return image_cache[cache_key]
 
     result = _generate_image(mat_path, colormap, y_axis_scale)
-    image_cache[cache_key] = result
+    with _IMAGE_CACHE_LOCK:
+        image_cache[cache_key] = result
     return result
 
 
@@ -479,10 +715,12 @@ def generate_item_image_cached(
     if spectrogram is None:
         return None
     cache_key = ("item", source_key, colormap, y_axis_scale)
-    if cache_key in image_cache:
-        return image_cache[cache_key]
+    with _IMAGE_CACHE_LOCK:
+        if cache_key in image_cache:
+            return image_cache[cache_key]
     result = _generate_image_from_spectrogram_data(spectrogram, colormap=colormap, y_axis_scale=y_axis_scale)
-    image_cache[cache_key] = result
+    with _IMAGE_CACHE_LOCK:
+        image_cache[cache_key] = result
     return result
 
 
@@ -494,86 +732,104 @@ def _generate_image_from_spectrogram_data(
     if spectrogram is None:
         return None
 
-    fig, ax = plt.subplots(figsize=(1.5, 1.5), facecolor="none")
-    if colormap == "hydrophone":
-        cmap_array = colmap_hyd_py(36, 3)
-        cmap = mcolors.ListedColormap(cmap_array)
-    else:
-        cmap = "viridis"
+    with _MATPLOTLIB_RENDER_LOCK:
+        fig = Figure(figsize=(1.5, 1.5), facecolor="none")
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
 
-    psd = spectrogram["psd"]
-    freq = spectrogram["freq"]
-    time = spectrogram["time"]
-    
-    # Normalize time to start from 0 for proper display
-    if len(time) > 0 and time[0] > 1000:
-        # Julian days - convert to minutes relative to start
-        time_plot = (time - time[0]) * 24 * 60
-    else:
-        # Seconds - normalize to start from 0
-        time_plot = time - time[0] if len(time) > 0 else time
-    
-    # Detect if frequency needs scaling (already in Hz vs kHz)
-    # If max freq > 1000, it's likely Hz; otherwise might already be kHz
-    if len(freq) > 0 and freq[-1] > 500:
-        # Frequency is in Hz - keep as is for display
-        freq_plot = freq
-    else:
-        # Frequency might be in kHz - convert to Hz for consistency
-        if len(freq) == 0:
+        if colormap == "hydrophone":
+            cmap_array = colmap_hyd_py(36, 3)
+            cmap = mcolors.ListedColormap(cmap_array)
+        else:
+            cmap = "viridis"
+
+        psd = spectrogram["psd"]
+        freq = spectrogram["freq"]
+        time = spectrogram["time"]
+
+        if len(time) > 0 and time[0] > 1000:
+            time_plot = (time - time[0]) * 24 * 60
+        else:
+            time_plot = time - time[0] if len(time) > 0 else time
+
+        if len(freq) > 0 and freq[-1] > 500:
             freq_plot = freq
         else:
-            freq_plot = freq * 1000 if np.max(freq) < 1 else freq
-    
-    # Determine appropriate color limits based on data range
-    psd_valid = psd[np.isfinite(psd)]
-    if len(psd_valid) > 0:
-        # Use percentile-based limits for better visualization
-        vmin = np.percentile(psd_valid, 2)
-        vmax = np.percentile(psd_valid, 98)
-        # Ensure some contrast
-        if vmax - vmin < 0.1:
-            vmin = np.min(psd_valid)
-            vmax = np.max(psd_valid)
-    else:
-        vmin, vmax = -60, 0  # Default dB range
+            if len(freq) == 0:
+                freq_plot = freq
+            else:
+                freq_plot = freq * 1000 if np.max(freq) < 1 else freq
 
-    if y_axis_scale == "log":
-        valid_freq_mask = freq_plot > 0
-        if not np.any(valid_freq_mask):
-            ax.imshow(psd,
-                      extent=[time_plot[0], time_plot[-1], freq_plot[0], freq_plot[-1]],
-                      aspect="auto", origin="lower", cmap=cmap, vmin=vmin, vmax=vmax)
+        psd_valid = psd[np.isfinite(psd)]
+        if len(psd_valid) > 0:
+            vmin = np.percentile(psd_valid, 2)
+            vmax = np.percentile(psd_valid, 98)
+            if vmax - vmin < 0.1:
+                vmin = np.min(psd_valid)
+                vmax = np.max(psd_valid)
         else:
-            freq_for_plot = freq_plot[valid_freq_mask]
-            psd_for_plot = psd[valid_freq_mask, :]
-            min_freq = max(freq_for_plot[0], 0.1)
-            max_freq = freq_for_plot[-1]
-            ax.imshow(psd_for_plot,
-                      extent=[time_plot[0], time_plot[-1], min_freq, max_freq],
-                      aspect="auto", origin="lower", cmap=cmap, vmin=vmin, vmax=vmax)
-            ax.set_yscale("log")
-            ax.set_ylim(min_freq, max_freq)
-    else:
-        extent = [
-            time_plot[0] if len(time_plot) > 0 else 0,
-            time_plot[-1] if len(time_plot) > 0 else 1,
-            freq_plot[0] if len(freq_plot) > 0 else 0,
-            freq_plot[-1] if len(freq_plot) > 0 else 1
-        ]
-        ax.imshow(psd,
-                  extent=extent,
-                  aspect="auto", origin="lower", cmap=cmap, vmin=vmin, vmax=vmax)
+            vmin, vmax = -60, 0
 
-    ax.axis("off")
-    ax.set_position([0, 0, 1, 1])
+        if y_axis_scale == "log":
+            valid_freq_mask = freq_plot > 0
+            if not np.any(valid_freq_mask):
+                ax.imshow(
+                    psd,
+                    extent=[time_plot[0], time_plot[-1], freq_plot[0], freq_plot[-1]],
+                    aspect="auto",
+                    origin="lower",
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                )
+            else:
+                freq_for_plot = freq_plot[valid_freq_mask]
+                psd_for_plot = psd[valid_freq_mask, :]
+                min_freq = max(freq_for_plot[0], 0.1)
+                max_freq = freq_for_plot[-1]
+                ax.imshow(
+                    psd_for_plot,
+                    extent=[time_plot[0], time_plot[-1], min_freq, max_freq],
+                    aspect="auto",
+                    origin="lower",
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                )
+                ax.set_yscale("log")
+                ax.set_ylim(min_freq, max_freq)
+        else:
+            extent = [
+                time_plot[0] if len(time_plot) > 0 else 0,
+                time_plot[-1] if len(time_plot) > 0 else 1,
+                freq_plot[0] if len(freq_plot) > 0 else 0,
+                freq_plot[-1] if len(freq_plot) > 0 else 1,
+            ]
+            ax.imshow(
+                psd,
+                extent=extent,
+                aspect="auto",
+                origin="lower",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
 
-    buf = BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0,
-                facecolor="none", edgecolor="none", dpi=72)
-    plt.close(fig)
-    data = base64.b64encode(buf.getbuffer()).decode("utf8")
-    return f"data:image/png;base64,{data}"
+        ax.axis("off")
+        ax.set_position([0, 0, 1, 1])
+
+        buf = BytesIO()
+        fig.savefig(
+            buf,
+            format="png",
+            bbox_inches="tight",
+            pad_inches=0,
+            facecolor="none",
+            edgecolor="none",
+            dpi=72,
+        )
+        data = base64.b64encode(buf.getbuffer()).decode("utf8")
+        return f"data:image/png;base64,{data}"
 
 
 def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="linear"):
