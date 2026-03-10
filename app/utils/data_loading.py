@@ -963,6 +963,10 @@ def load_verify_mode(
     spec_folder_override = data_cfg.get("spectrogram_folder")
     audio_folder_override = data_cfg.get("audio_folder")
     predictions_file_override = data_cfg.get("predictions_file")
+    if not isinstance(predictions_file_override, str) or not predictions_file_override.strip():
+        predictions_file_override = None
+    elif not os.path.exists(predictions_file_override):
+        predictions_file_override = None
     predictions_overrides = data_cfg.get("predictions_overrides")
     override_index = _build_predictions_override_index(predictions_overrides)
     override_cache = {}

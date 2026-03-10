@@ -238,6 +238,10 @@ def register_data_config_load_callbacks(app, *, tab_iso_debug):
             discovery = detect_data_structure(data_dir)
             if discovery.get("predictions_file"):
                 return False
+            if discovery.get("root_predictions_file"):
+                return False
+            if int(discovery.get("subfolder_predictions_count") or 0) > 0:
+                return False
 
         return True
 

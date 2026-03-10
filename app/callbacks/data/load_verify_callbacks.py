@@ -105,27 +105,9 @@ def register_verify_data_loading_callback(
                 if active_data_dir:
                     data_cfg["data_dir"] = active_data_dir
 
-                explicit_verify_config_load = (
-                    "data-load-trigger-store" in triggered_props
-                    and trigger_source == "data-config-load"
-                    and trigger_mode == "verify"
-                )
-                if not explicit_verify_config_load and isinstance(current_verify_data, dict):
-                    current_pred_file = (
-                        (current_verify_data.get("summary") or {}).get("predictions_file")
-                        if isinstance(current_verify_data.get("summary"), dict)
-                        else None
-                    )
-                    if current_pred_file and isinstance(current_pred_file, str):
-                        data_cfg["predictions_file"] = current_pred_file
                 effective_cfg["data"] = data_cfg
 
                 data = load_dataset(effective_cfg, "verify", date_str=requested_date, hydrophone=requested_device)
-
-                if current_verify_data and isinstance(current_verify_data, dict):
-                    old_summary = current_verify_data.get("summary", {})
-                    if old_summary.get("predictions_file"):
-                        data["summary"]["predictions_file"] = old_summary["predictions_file"]
 
                 if "data-load-trigger-store" in triggered_props and isinstance(config_load_trigger, dict):
                     data["load_timestamp"] = config_load_trigger.get("timestamp")
@@ -156,4 +138,3 @@ def register_verify_data_loading_callback(
                 }
 
         raise PreventUpdate
-
