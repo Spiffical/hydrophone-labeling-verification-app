@@ -3118,13 +3118,16 @@ body.theme-dark .dash-range-slider-input,
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    width: 100%;
 }
 
 .verify-label-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
     max-width: 100%;
+    box-sizing: border-box;
     background: var(--accent-subtle);
     border: 1px solid rgba(13, 110, 253, 0.35);
     border-radius: 6px;
@@ -3135,6 +3138,7 @@ body.theme-dark .dash-range-slider-input,
 }
 
 .verify-label-badge--row {
+    flex: 1 1 100%;
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -3149,6 +3153,7 @@ body.theme-dark .dash-range-slider-input,
     justify-content: space-between;
     gap: 8px;
     min-width: 0;
+    width: 100%;
 }
 
 .verify-label-row-meta {
@@ -3172,6 +3177,7 @@ body.theme-dark .dash-range-slider-input,
     display: block;
     width: 100%;
     line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 
 .verify-label-state {
@@ -3222,6 +3228,8 @@ body.theme-dark .dash-range-slider-input,
     display: inline-flex;
     align-items: center;
     gap: 3px;
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .verify-inline-action {

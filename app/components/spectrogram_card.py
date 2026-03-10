@@ -44,21 +44,27 @@ def _render_label_badges_with_delete(item_id, labels):
         badges.append(
             html.Div(
                 [
-                    html.Span(label, className="verify-label-text"),
                     html.Div(
                         [
-                            html.Button(
-                                "×",
-                                id={"type": "label-label-delete", "target": target},
-                                className="verify-inline-action verify-inline-action--reject",
-                                title=f"Delete: {label}",
-                                n_clicks=0,
+                            html.Div([], className="verify-label-row-meta"),
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "×",
+                                        id={"type": "label-label-delete", "target": target},
+                                        className="verify-inline-action verify-inline-action--reject",
+                                        title=f"Delete: {label}",
+                                        n_clicks=0,
+                                    ),
+                                ],
+                                className="verify-inline-actions",
                             ),
                         ],
-                        className="verify-inline-actions",
+                        className="verify-label-row-header",
                     ),
+                    html.Span(label, className="verify-label-text verify-label-text--multiline"),
                 ],
-                className="verify-label-badge verify-label-badge--human-added",
+                className="verify-label-badge verify-label-badge--human-added verify-label-badge--row",
             )
         )
     return html.Div(badges, className="verify-badge-list")
@@ -187,12 +193,24 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
         badges.append(
             html.Div(
                 [
-                    icon,
-                    html.Span(label, className="verify-label-text"),
-                    html.Span(state_text, className="verify-label-state") if state_text else None,
-                    action_controls,
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    icon,
+                                    html.Span(state_text, className="verify-label-state")
+                                    if state_text
+                                    else None,
+                                ],
+                                className="verify-label-row-meta",
+                            ),
+                            action_controls,
+                        ],
+                        className="verify-label-row-header",
+                    ),
+                    html.Span(label, className="verify-label-text verify-label-text--multiline"),
                 ],
-                className=f"verify-label-badge verify-label-badge--{state}",
+                className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
             )
         )
     return html.Div(badges, className="verify-badge-list")
