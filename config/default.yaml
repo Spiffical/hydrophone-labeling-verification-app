@@ -30,7 +30,7 @@ display:
   colormap: default      # default or hydrophone
 
 cache:
-  max_size: 400
+  max_size: 75
 
 spectrogram_render:
   source: existing          # existing or audio_generated

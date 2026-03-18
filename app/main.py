@@ -96,9 +96,7 @@ def create_app(config: Dict) -> dash.Dash:
             image_bytes,
             mimetype=mime_type,
             headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0",
+                "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
             },
         )
 

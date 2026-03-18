@@ -1,5 +1,6 @@
 """Grouped callback-registration wiring for the app."""
 
+from app.defaults import DEFAULT_CACHE_MAX_SIZE
 from app.callbacks.data.config_callbacks import register_data_config_callbacks
 from app.callbacks.data.discovery_callbacks import register_tab_state_callbacks
 from app.callbacks.data.filter_state_callbacks import register_filter_state_callbacks
@@ -29,7 +30,7 @@ from app.callbacks.verify.threshold_callbacks import register_verify_threshold_c
 
 def register_all_callback_sections(app, *, config, deps):
     d = deps
-    d["set_cache_sizes"]((config or {}).get("cache", {}).get("max_size", 400))
+    d["set_cache_sizes"]((config or {}).get("cache", {}).get("max_size", DEFAULT_CACHE_MAX_SIZE))
     register_mode_tab_callbacks(app)
     register_pagination_callbacks(app)
     register_folder_browser_callbacks(app)
@@ -80,6 +81,8 @@ def register_all_callback_sections(app, *, config, deps):
         _normalize_verify_class_filter=d["normalize_verify_class_filter"],
         _schedule_specgen_prefetch_for_current_page_images=d["schedule_specgen_prefetch_for_current_page_images"],
         _schedule_specgen_prefetch_for_future_pages=d["schedule_specgen_prefetch_for_future_pages"],
+        _schedule_modal_prefetch_for_current_page_spectrograms=d["schedule_modal_prefetch_for_current_page_spectrograms"],
+        _schedule_modal_prefetch_for_future_pages=d["schedule_modal_prefetch_for_future_pages"],
     )
 
     register_verify_filter_callbacks(

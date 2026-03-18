@@ -36,7 +36,7 @@ def register_modal_view_callbacks(
 
         start = time.perf_counter()
         spectrogram = resolve_item_spectrogram(modal_item, cfg)
-        fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
+        fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale, cfg=cfg)
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
             boxes = bbox_store.get("boxes") or []
         else:

@@ -5,6 +5,7 @@ import time
 
 from dash import Input, Output, State, html, no_update
 
+from app.defaults import DEFAULT_CACHE_MAX_SIZE
 from app.services.verify_modal_cache import register_verify_modal_items
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -22,23 +23,33 @@ def register_render_callbacks(
     _normalize_verify_class_filter,
     _schedule_specgen_prefetch_for_current_page_images,
     _schedule_specgen_prefetch_for_future_pages,
+    _schedule_modal_prefetch_for_current_page_spectrograms,
+    _schedule_modal_prefetch_for_future_pages,
 ):
     def _compute_prefetch_pages_ahead(cfg, items_per_page):
         cfg = cfg or {}
-        spec_cfg = cfg.get("spectrogram_render", {}) or {}
-        if str(spec_cfg.get("source", "existing")) != "audio_generated":
-            return 0
+        cache_cfg = cfg.get("cache", {}) or {}
         try:
-            cache_max = int((cfg.get("cache", {}) or {}).get("max_size", 400))
+            cache_max = int(cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE))
         except (TypeError, ValueError):
-            cache_max = 400
+            cache_max = DEFAULT_CACHE_MAX_SIZE
         cache_max = max(1, cache_max)
         per_page = max(1, int(items_per_page or 1))
-        # keep at least one page warm and cap to avoid runaway prefetch
         pages_by_capacity = (cache_max // per_page) - 1
         if pages_by_capacity <= 0:
             return 0
-        return min(6, pages_by_capacity)
+
+        # Advanced configs may still provide an explicit prefetch window, but the
+        # default behavior should scale directly with the cache size setting.
+        explicit_pages = cache_cfg.get("prefetch_pages")
+        if explicit_pages is not None:
+            try:
+                desired_pages = max(0, int(explicit_pages))
+            except (TypeError, ValueError):
+                desired_pages = pages_by_capacity
+            return min(desired_pages, pages_by_capacity)
+
+        return pages_by_capacity
 
     @app.callback(
         Output("label-summary", "children"),
@@ -95,10 +106,20 @@ def register_render_callbacks(
             colormap=colormap,
             y_axis_scale=y_axis_scale,
         )
+        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+            page_items,
+            cfg,
+        )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=label current_page={current_page} "
                 f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        if _SPECGEN_DEBUG and current_page_modal_submitted:
+            print(
+                f"[modal-prefetch] mode=label current_page={current_page} "
+                f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
         prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
@@ -116,6 +137,19 @@ def register_render_callbacks(
                 print(
                     f"[specgen-prefetch] mode=label from_page={current_page} "
                     f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
+            modal_submitted = _schedule_modal_prefetch_for_future_pages(
+                items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and modal_submitted:
+                print(
+                    f"[modal-prefetch] mode=label from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={modal_submitted}",
                     flush=True,
                 )
         
@@ -275,10 +309,20 @@ def register_render_callbacks(
             colormap=colormap,
             y_axis_scale=y_axis_scale,
         )
+        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+            page_items,
+            cfg,
+        )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=verify current_page={current_page} "
                 f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        if _SPECGEN_DEBUG and current_page_modal_submitted:
+            print(
+                f"[modal-prefetch] mode=verify current_page={current_page} "
+                f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
         prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
@@ -296,6 +340,19 @@ def register_render_callbacks(
                 print(
                     f"[specgen-prefetch] mode=verify from_page={current_page} "
                     f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
+            modal_submitted = _schedule_modal_prefetch_for_future_pages(
+                filtered_items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and modal_submitted:
+                print(
+                    f"[modal-prefetch] mode=verify from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={modal_submitted}",
                     flush=True,
                 )
         
@@ -383,10 +440,20 @@ def register_render_callbacks(
             colormap=colormap,
             y_axis_scale=y_axis_scale,
         )
+        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+            page_items,
+            cfg,
+        )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=explore current_page={current_page} "
                 f"current_submitted={current_page_submitted}",
+                flush=True,
+            )
+        if _SPECGEN_DEBUG and current_page_modal_submitted:
+            print(
+                f"[modal-prefetch] mode=explore current_page={current_page} "
+                f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
         prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
@@ -404,6 +471,19 @@ def register_render_callbacks(
                 print(
                     f"[specgen-prefetch] mode=explore from_page={current_page} "
                     f"pages_ahead={prefetch_pages} submitted={submitted}",
+                    flush=True,
+                )
+            modal_submitted = _schedule_modal_prefetch_for_future_pages(
+                items,
+                current_page=current_page,
+                items_per_page=items_per_page,
+                cfg=cfg,
+                pages_ahead=prefetch_pages,
+            )
+            if _SPECGEN_DEBUG and modal_submitted:
+                print(
+                    f"[modal-prefetch] mode=explore from_page={current_page} "
+                    f"pages_ahead={prefetch_pages} submitted={modal_submitted}",
                     flush=True,
                 )
         ui_ready = {

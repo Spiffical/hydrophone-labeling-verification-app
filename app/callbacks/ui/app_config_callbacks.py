@@ -3,6 +3,8 @@
 from dash import Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
+from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
+
 
 def _coerce_positive_int(value, fallback):
     try:
@@ -73,8 +75,8 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
         if triggered == "app-config-btn":
             return (
                 True,
-                display_cfg.get("items_per_page", 25),
-                cache_cfg.get("max_size", 400),
+                display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE),
+                cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE),
                 spec_cfg.get("source", "existing"),
                 spec_cfg.get("win_dur_s", 1.0),
                 spec_cfg.get("overlap", 0.9),
@@ -89,8 +91,8 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
         if triggered != "app-config-save":
             raise PreventUpdate
 
-        new_items_per_page = _coerce_positive_int(items_per_page, display_cfg.get("items_per_page", 25))
-        new_cache_size = _coerce_positive_int(cache_size, cache_cfg.get("max_size", 400))
+        new_items_per_page = _coerce_positive_int(items_per_page, display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE))
+        new_cache_size = _coerce_positive_int(cache_size, cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE))
         new_source = str(spectrogram_source or spec_cfg.get("source", "existing")).strip().lower()
         if new_source not in {"existing", "audio_generated"}:
             new_source = "existing"
@@ -114,7 +116,10 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
             "freq_max_hz": float(new_freq_max),
         }
 
-        previous_cache_size = _coerce_positive_int(cache_cfg.get("max_size", 400), 400)
+        previous_cache_size = _coerce_positive_int(
+            cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE),
+            DEFAULT_CACHE_MAX_SIZE,
+        )
         if new_cache_size != previous_cache_size:
             set_cache_sizes(new_cache_size)
 

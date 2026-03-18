@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from app.config import get_config
+from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
 from app.main import create_app
 
 
@@ -73,12 +74,12 @@ def main():
                 'data_dir': args.data_dir
             },
             'display': {
-                'items_per_page': 25,
+                'items_per_page': DEFAULT_ITEMS_PER_PAGE,
                 'y_axis_scale': 'linear',
                 'colormap': 'default'
             },
             'cache': {
-                'max_size': 400
+                'max_size': DEFAULT_CACHE_MAX_SIZE
             }
         }
         startup_mode = "data_dir"
@@ -91,12 +92,12 @@ def main():
                 'data_dir': None  # Will be set via folder browser
             },
             'display': {
-                'items_per_page': 25,
+                'items_per_page': DEFAULT_ITEMS_PER_PAGE,
                 'y_axis_scale': 'linear',
                 'colormap': 'default'
             },
             'cache': {
-                'max_size': 400
+                'max_size': DEFAULT_CACHE_MAX_SIZE
             }
         }
         startup_mode = "browse"

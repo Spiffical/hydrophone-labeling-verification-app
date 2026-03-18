@@ -22,15 +22,19 @@ except Exception:  # pragma: no cover - optional dependency at runtime
     torch = None
 
 from app.utils.colmap_hyd import colmap_hyd_py
+from app.defaults import DEFAULT_CACHE_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
-spectrogram_cache = LRUCache(maxsize=400)
-audio_spectrogram_cache = LRUCache(maxsize=400)
-image_cache = LRUCache(maxsize=800)
+spectrogram_cache = LRUCache(maxsize=DEFAULT_CACHE_MAX_SIZE)
+audio_spectrogram_cache = LRUCache(maxsize=DEFAULT_CACHE_MAX_SIZE)
+image_cache = LRUCache(maxsize=DEFAULT_CACHE_MAX_SIZE * 2)
 
 SPECTROGRAM_SOURCE_EXISTING = "existing"
 SPECTROGRAM_SOURCE_AUDIO_GENERATED = "audio_generated"
+MODAL_TRANSPORT_FLOAT64 = "float64"
+MODAL_TRANSPORT_FLOAT32 = "float32"
+MODAL_TRANSPORT_UINT16 = "uint16"
 DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
     "source": SPECTROGRAM_SOURCE_EXISTING,
     "win_dur_s": 1.0,
@@ -48,18 +52,6 @@ _AUDIO_SPECTROGRAM_CACHE_LOCK = threading.Lock()
 _SPECTROGRAM_CACHE_LOCK = threading.Lock()
 _IMAGE_CACHE_LOCK = threading.Lock()
 _MATPLOTLIB_RENDER_LOCK = threading.Lock()
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)) or str(default))
-    except (TypeError, ValueError):
-        return int(default)
-
-
-_DISPLAY_MAX_TIME_BINS = max(1, _env_int("HYDRO_MODAL_MAX_TIME_BINS", 360))
-_DISPLAY_MAX_FREQ_BINS = max(1, _env_int("HYDRO_MODAL_MAX_FREQ_BINS", 320))
-_MODAL_HEATMAP_LEVELS = _env_int("HYDRO_MODAL_HEATMAP_LEVELS", 256)
 
 
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
@@ -80,7 +72,7 @@ def set_cache_sizes(maxsize: int) -> None:
     try:
         maxsize = int(maxsize)
     except (TypeError, ValueError):
-        maxsize = 400
+        maxsize = DEFAULT_CACHE_MAX_SIZE
     maxsize = max(1, maxsize)
     _resize_cache(spectrogram_cache, maxsize)
     _resize_cache(audio_spectrogram_cache, maxsize)
@@ -99,78 +91,29 @@ def _coerce_float(value: Any, fallback: float, *, minimum: Optional[float] = Non
     return float(value)
 
 
-def _downsample_indices(length: int, max_points: int) -> np.ndarray:
-    if length <= 0:
-        return np.array([], dtype=np.int64)
-    if max_points <= 0 or length <= max_points:
-        return np.arange(length, dtype=np.int64)
-    return np.linspace(0, length - 1, num=max_points, dtype=np.int64)
+def _normalize_modal_transport_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {MODAL_TRANSPORT_FLOAT64, MODAL_TRANSPORT_FLOAT32, MODAL_TRANSPORT_UINT16}:
+        return normalized
+    if normalized in {"f32", "heatmap-f32", "heatmap_float32"}:
+        return MODAL_TRANSPORT_FLOAT32
+    if normalized in {"f64", "heatmap-f64", "heatmap_float64"}:
+        return MODAL_TRANSPORT_FLOAT64
+    if normalized in {"u16", "heatmap-u16", "heatmap_uint16"}:
+        return MODAL_TRANSPORT_UINT16
+    return MODAL_TRANSPORT_FLOAT32
 
 
-def _downsample_for_modal_display(
-    psd: np.ndarray,
-    freq: np.ndarray,
-    time: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if psd is None:
-        return psd, freq, time
-    if getattr(psd, "ndim", 0) != 2:
-        return psd, freq, time
-
-    freq_len, time_len = psd.shape
-    if freq_len <= 0 or time_len <= 0:
-        return psd, freq, time
-
-    freq_idx = _downsample_indices(freq_len, _DISPLAY_MAX_FREQ_BINS)
-    time_idx = _downsample_indices(time_len, _DISPLAY_MAX_TIME_BINS)
-    reduced_psd = psd[np.ix_(freq_idx, time_idx)]
-
-    reduced_freq = freq
-    if isinstance(freq, np.ndarray) and len(freq) == freq_len:
-        reduced_freq = freq[freq_idx]
-
-    reduced_time = time
-    if isinstance(time, np.ndarray) and len(time) == time_len:
-        reduced_time = time[time_idx]
-
-    return reduced_psd, reduced_freq, reduced_time
-
-
-def _quantize_modal_heatmap(
-    psd: np.ndarray,
-    zmin: float,
-    zmax: float,
-) -> Tuple[np.ndarray, float, float, Dict[str, Any]]:
-    if _MODAL_HEATMAP_LEVELS <= 1:
-        return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {}
-
-    level_count = max(2, int(_MODAL_HEATMAP_LEVELS))
-    max_level = level_count - 1
-    if max_level <= np.iinfo(np.uint8).max:
-        dtype = np.uint8
-    elif max_level <= np.iinfo(np.uint16).max:
-        dtype = np.uint16
-    else:
-        return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {}
-
-    span = max(1e-9, float(zmax) - float(zmin))
-    normalized = (np.asarray(psd, dtype=np.float32) - float(zmin)) / span
-    normalized = np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=0.0)
-    normalized = np.clip(normalized, 0.0, 1.0)
-    quantized = np.rint(normalized * max_level).astype(dtype)
-
-    tick_count = min(6, level_count)
-    tickvals = np.linspace(0, max_level, num=tick_count, dtype=np.float32)
-    ticktext = [
-        f"{(float(zmin) + (float(val) / max_level) * span):.1f}"
-        for val in tickvals
-    ]
-    colorbar = {
-        "title": "dB/Hz",
-        "tickvals": tickvals,
-        "ticktext": ticktext,
-    }
-    return quantized, 0.0, float(max_level), colorbar
+def get_modal_transport_mode(cfg: Optional[Dict[str, Any]]) -> str:
+    display_cfg = (cfg or {}).get("display", {})
+    if not isinstance(display_cfg, dict):
+        display_cfg = {}
+    configured = display_cfg.get("modal_transport")
+    if configured:
+        return _normalize_modal_transport_mode(configured)
+    return _normalize_modal_transport_mode(
+        os.getenv("HYDRO_MODAL_TRANSPORT_MODE", MODAL_TRANSPORT_FLOAT32)
+    )
 
 
 def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -530,6 +473,41 @@ def estimate_page_audio_generation_work(
     return status
 
 
+def _item_spectrogram_generation_key(
+    item: Any,
+    cfg: Optional[Dict[str, Any]],
+) -> Optional[Tuple[Any, ...]]:
+    if not isinstance(item, dict):
+        return None
+
+    render_cfg = get_spectrogram_render_settings(cfg)
+    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
+    if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        audio_key = _item_audio_generation_key(item, render_cfg=render_cfg)
+        if audio_key is not None:
+            return ("audio", audio_key)
+
+    mat_path = item.get("mat_path")
+    if mat_path and os.path.exists(mat_path):
+        return ("mat", os.path.abspath(mat_path))
+
+    audio_path = item.get("audio_path")
+    if audio_path and os.path.exists(audio_path):
+        try:
+            audio_key = _audio_spectrogram_cache_key(
+                audio_path,
+                win_dur_s=float(render_cfg["win_dur_s"]),
+                overlap=float(render_cfg["overlap"]),
+                freq_min_hz=float(render_cfg["freq_min_hz"]),
+                freq_max_hz=float(render_cfg["freq_max_hz"]),
+            )
+        except Exception:
+            return None
+        return ("audio-fallback", audio_key)
+
+    return None
+
+
 def _item_audio_generation_key(
     item: Any,
     *,
@@ -622,13 +600,6 @@ def prefetch_page_images_in_background(
     colormap: str = "default",
     y_axis_scale: str = "linear",
 ) -> int:
-    render_cfg = get_spectrogram_render_settings(cfg)
-    source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
-    if source != SPECTROGRAM_SOURCE_AUDIO_GENERATED:
-        return 0
-    if torch is None:
-        return 0
-
     submitted = 0
     items = page_items if isinstance(page_items, list) else []
     for item in items:
@@ -658,6 +629,52 @@ def prefetch_page_images_in_background(
             cfg=cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            dedupe_key=dedupe_key,
+        )
+        submitted += 1
+
+    return submitted
+
+
+def _prefetch_item_modal_spectrogram(
+    item: dict,
+    *,
+    cfg: Optional[Dict[str, Any]],
+    dedupe_key: Tuple[Any, ...],
+) -> None:
+    try:
+        resolve_item_spectrogram(item, cfg)
+    except Exception:
+        logger.exception("Background modal spectrogram prefetch failed for item=%s", item.get("item_id"))
+    finally:
+        with _PREFETCH_LOCK:
+            _PREFETCH_PENDING_KEYS.discard(dedupe_key)
+
+
+def prefetch_page_modal_spectrograms_in_background(
+    page_items: Any,
+    cfg: Optional[Dict[str, Any]],
+) -> int:
+    submitted = 0
+    items = page_items if isinstance(page_items, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        spectrogram_key = _item_spectrogram_generation_key(item, cfg)
+        if spectrogram_key is None:
+            continue
+
+        dedupe_key = ("modal_spectrogram", spectrogram_key)
+        with _PREFETCH_LOCK:
+            if dedupe_key in _PREFETCH_PENDING_KEYS:
+                continue
+            _PREFETCH_PENDING_KEYS.add(dedupe_key)
+
+        _PREFETCH_EXECUTOR.submit(
+            _prefetch_item_modal_spectrogram,
+            item,
+            cfg=cfg,
             dedupe_key=dedupe_key,
         )
         submitted += 1
@@ -762,12 +779,45 @@ def schedule_prefetch_for_future_pages(
     for idx in range(page_index + 1, last_page + 1):
         start_idx = idx * items_per_page
         end_idx = start_idx + items_per_page
-        submitted += prefetch_page_items_in_background(
+        submitted += prefetch_page_images_in_background(
             items[start_idx:end_idx],
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
         )
+    return submitted
+
+
+def schedule_modal_prefetch_for_future_pages(
+    all_items: Any,
+    *,
+    current_page: int,
+    items_per_page: int,
+    cfg: Optional[Dict[str, Any]],
+    pages_ahead: int = 1,
+) -> int:
+    items = all_items if isinstance(all_items, list) else []
+    if not items:
+        return 0
+    if items_per_page <= 0:
+        return 0
+    if pages_ahead <= 0:
+        return 0
+
+    total_items = len(items)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    page_index = max(0, min(int(current_page or 0), total_pages - 1))
+    last_page = min(total_pages - 1, page_index + int(pages_ahead))
+    submitted = 0
+
+    for idx in range(page_index + 1, last_page + 1):
+        start_idx = idx * items_per_page
+        end_idx = start_idx + items_per_page
+        submitted += prefetch_page_modal_spectrograms_in_background(
+            items[start_idx:end_idx],
+            cfg,
+        )
+
     return submitted
 
 
@@ -918,14 +968,57 @@ def _generate_image_from_spectrogram_data(
         return f"data:image/png;base64,{data}"
 
 
-def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="linear"):
+def _build_modal_heatmap_transport(
+    psd: np.ndarray,
+    zmin: float,
+    zmax: float,
+    transport_mode: str,
+) -> Tuple[np.ndarray, float, float, Dict[str, Any]]:
+    mode = _normalize_modal_transport_mode(transport_mode)
+    if mode == MODAL_TRANSPORT_UINT16:
+        max_level = np.iinfo(np.uint16).max
+        span = max(1e-9, float(zmax) - float(zmin))
+        normalized = (np.asarray(psd, dtype=np.float32) - float(zmin)) / span
+        normalized = np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=0.0)
+        normalized = np.clip(normalized, 0.0, 1.0)
+        quantized = np.rint(normalized * max_level).astype(np.uint16)
+        tickvals = np.linspace(0, max_level, num=6, dtype=np.float32)
+        ticktext = [
+            f"{(float(zmin) + (float(val) / max_level) * span):.1f}"
+            for val in tickvals
+        ]
+        return (
+            quantized,
+            0.0,
+            float(max_level),
+            {
+                "title": "dB/Hz",
+                "tickvals": tickvals,
+                "ticktext": ticktext,
+            },
+        )
+    if mode == MODAL_TRANSPORT_FLOAT32:
+        return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {"title": "dB/Hz"}
+    return np.asarray(psd), float(zmin), float(zmax), {"title": "dB/Hz"}
+
+
+def create_spectrogram_figure(
+    spectrogram_data,
+    colormap_value,
+    y_axis_scale="linear",
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+    transport_mode: Optional[str] = None,
+):
     if spectrogram_data is None:
         return go.Figure()
 
     psd = spectrogram_data["psd"]
     freq = spectrogram_data["freq"]
     time = spectrogram_data["time"]
-    psd, freq, time = _downsample_for_modal_display(psd, freq, time)
+    resolved_transport_mode = _normalize_modal_transport_mode(
+        transport_mode if transport_mode is not None else get_modal_transport_mode(cfg)
+    )
 
     # Normalize time to start from 0 for better visualization.
     # This shows clip-relative duration on x-axis, which aligns with annotation_extent seconds.
@@ -967,8 +1060,13 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         y_unit = "Hz"
         y_to_hz = 1.0
 
-    time_plot = np.asarray(time_plot, dtype=np.float32)
-    freq_plot = np.asarray(freq_plot, dtype=np.float32)
+    axis_dtype = np.float32 if resolved_transport_mode in {MODAL_TRANSPORT_FLOAT32, MODAL_TRANSPORT_UINT16} else None
+    if axis_dtype is not None:
+        time_plot = np.asarray(time_plot, dtype=axis_dtype)
+        freq_plot = np.asarray(freq_plot, dtype=axis_dtype)
+    else:
+        time_plot = np.asarray(time_plot)
+        freq_plot = np.asarray(freq_plot)
 
     # Determine appropriate color limits
     psd_valid = psd[np.isfinite(psd)]
@@ -990,12 +1088,17 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         y_axis_type = "log"
         y_axis_title = f"Frequency ({y_unit}) - Log Scale"
         # Ensure values for log scale are positive
-        freq_plot = np.maximum(freq_plot, 0.001 if y_unit == "kHz" else 0.1).astype(np.float32)
+        freq_plot = np.maximum(freq_plot, 0.001 if y_unit == "kHz" else 0.1)
     else:
         y_axis_type = "linear"
         y_axis_title = f"Frequency ({y_unit})"
 
-    heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _quantize_modal_heatmap(psd, zmin, zmax)
+    heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _build_modal_heatmap_transport(
+        psd,
+        zmin,
+        zmax,
+        resolved_transport_mode,
+    )
 
     fig = go.Figure()
     fig.add_trace(go.Heatmap(
@@ -1046,7 +1149,10 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     else:
         y_min = 0.0
         y_max = 1.0
-    render_signature = f"{render_source}|{render_reason}|{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|{psd.shape[0]}x{psd.shape[1]}"
+    render_signature = (
+        f"{render_source}|{render_reason}|{resolved_transport_mode}|"
+        f"{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|{psd.shape[0]}x{psd.shape[1]}"
+    )
 
     fig.update_layout(
         title=dict(text=""),
@@ -1067,6 +1173,7 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
             "y_max": y_max,
             "x_unit": "minutes" if x_to_seconds == 60.0 else "seconds",
             "y_unit": y_unit,
+            "transport_mode": resolved_transport_mode,
             "render_source": render_source,
             "render_reason": render_reason,
         },

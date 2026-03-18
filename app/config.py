@@ -4,6 +4,8 @@ from typing import Any, Dict
 
 import yaml
 
+from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
+
 
 def get_repo_root() -> str:
     """Find repository root by walking up until README.md or .git is found."""
@@ -98,12 +100,12 @@ def get_config() -> Dict[str, Any]:
     predictions_json = args.predictions_json  # CLI arg only, no config fallback
 
     display_cfg = config.get("display", {})
-    items_per_page = args.items_per_page or display_cfg.get("items_per_page", 25)
+    items_per_page = args.items_per_page or display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE)
     colormap = args.colormap or display_cfg.get("colormap", "default")
     y_axis_scale = args.y_axis_scale or display_cfg.get("y_axis_scale", "linear")
 
     cache_cfg = config.get("cache", {})
-    cache_max_size = cache_cfg.get("max_size", 400)
+    cache_max_size = cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE)
     spec_render_cfg = config.get("spectrogram_render", {})
 
     spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")

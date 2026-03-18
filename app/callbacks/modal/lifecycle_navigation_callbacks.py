@@ -228,7 +228,7 @@ def register_modal_lifecycle_navigation_callbacks(
             raise PreventUpdate
 
         spectrogram = resolve_item_spectrogram(source_item, cfg)
-        fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
+        fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale, cfg=cfg)
         modal_boxes = _build_modal_boxes_from_item(source_item)
         fig = _apply_modal_boxes_to_figure(fig, modal_boxes)
         default_box_label = None
