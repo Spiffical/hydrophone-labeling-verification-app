@@ -69,6 +69,7 @@ def filter_predictions(predictions, thresholds):
 def update_item_labels(data, item_id, labels, mode, user_name=None, is_reverification=False, label_extents=None):
     if not data or not item_id:
         return data
+    normalized_labels = ordered_unique_labels(labels or [])
     items = data.get("items", [])
     for item in items:
         if not item:
@@ -81,7 +82,7 @@ def update_item_labels(data, item_id, labels, mode, user_name=None, is_reverific
                 "verified": False,
                 "notes": "",
             }
-            annotations["labels"] = labels
+            annotations["labels"] = normalized_labels
             if isinstance(label_extents, dict):
                 annotations["label_extents"] = label_extents
             annotations["annotated_at"] = datetime.now().isoformat()

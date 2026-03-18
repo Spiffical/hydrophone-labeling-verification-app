@@ -126,6 +126,7 @@ def register_label_save_callbacks(
         Output("label-data-store", "data", allow_duplicate=True),
         Output("modal-unsaved-store", "data", allow_duplicate=True),
         Output("modal-snapshot-store", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
         Input({"type": "label-save-btn", "item_id": ALL}, "n_clicks"),
         Input({"type": "modal-label-save", "scope": ALL}, "n_clicks"),
         State("current-filename", "data"),
@@ -235,6 +236,7 @@ def register_label_save_callbacks(
 
         dirty_update = no_update
         snapshot_update = no_update
+        modal_item_update = no_update
         if item_id == (modal_item_id or ""):
             dirty_update = {"dirty": False, "item_id": item_id}
             updated_item = next(
@@ -246,10 +248,11 @@ def register_label_save_callbacks(
                 None,
             )
             if isinstance(updated_item, dict):
+                modal_item_update = updated_item
                 if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
                     snapshot_boxes = modal_bbox_store.get("boxes") or []
                 else:
                     snapshot_boxes = _build_modal_boxes_from_item(updated_item)
                 snapshot_update = _modal_snapshot_payload("label", item_id, updated_item, snapshot_boxes)
 
-        return updated, dirty_update, snapshot_update
+        return updated, dirty_update, snapshot_update, modal_item_update

@@ -35,7 +35,9 @@ def register_verify_filter_callbacks(
 
         normalized_expanded = ordered_unique_labels(expanded_value or [])
         if not option_values:
-            return [], [], []
+            # Preserve the "no filter yet" state before data is loaded so the
+            # first real dataset defaults to all classes selected.
+            return [], None, []
 
         valid_paths = set()
         for path in option_values:

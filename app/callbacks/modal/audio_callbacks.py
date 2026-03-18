@@ -1,6 +1,6 @@
 """Modal audio display and persistence callbacks."""
 
-from dash import Input, Output, State
+from dash import ALL, Input, Output, State
 from dash.exceptions import PreventUpdate
 
 
@@ -23,6 +23,61 @@ def register_modal_audio_callbacks(app):
          Input("verify-grid", "children"),
          Input("modal-audio-player", "children")],
         prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
+        function(prevClicks, nextClicks, confirmClicks, editClicks, isOpen, modalItem) {
+            if (!isOpen) {
+                return false;
+            }
+            if (!modalItem || !modalItem.item_id) {
+                return false;
+            }
+            var dc = (window.dash_clientside || {});
+            var ctx = dc.callback_context || {};
+            var triggered = Array.isArray(ctx.triggered) && ctx.triggered.length ? ctx.triggered[0] : null;
+            var propId = triggered && triggered.prop_id ? triggered.prop_id : '';
+            if (!propId) {
+                return false;
+            }
+            if (propId === 'modal-nav-prev.n_clicks') {
+                return typeof prevClicks === 'number' && prevClicks > 0;
+            }
+            if (propId === 'modal-nav-next.n_clicks') {
+                return typeof nextClicks === 'number' && nextClicks > 0;
+            }
+            if (propId.indexOf('modal-action-confirm') !== -1) {
+                return Array.isArray(confirmClicks) && confirmClicks.some(function(value) {
+                    return typeof value === 'number' && value > 0;
+                });
+            }
+            if (propId.indexOf('modal-action-edit') !== -1) {
+                return Array.isArray(editClicks) && editClicks.some(function(value) {
+                    return typeof value === 'number' && value > 0;
+                });
+            }
+            return false;
+        }
+        """,
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Input("modal-nav-prev", "n_clicks"),
+        Input("modal-nav-next", "n_clicks"),
+        Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
+        Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
+        State("image-modal", "is_open"),
+        State("modal-item-store", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
+        function(isBusy) {
+            return isBusy ? {display: 'flex'} : {display: 'none'};
+        }
+        """,
+        Output("modal-busy-overlay", "style"),
+        Input("modal-busy-store", "data"),
     )
 
     @app.callback(
@@ -194,4 +249,3 @@ def register_modal_audio_callbacks(app):
         Input("image-modal", "is_open"),
         prevent_initial_call=True,
     )
-

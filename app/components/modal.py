@@ -132,12 +132,14 @@ def create_spectrogram_modal():
 
                 # Current filename store
                 dcc.Store(id='current-filename', data=None),
+                dcc.Store(id='modal-item-store', data=None),
                 dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
                 dcc.Store(id='modal-active-box-label', data=None),
                 dcc.Store(id='modal-unsaved-store', data={"dirty": False}),
                 dcc.Store(id='modal-snapshot-store', data=None),
                 dcc.Store(id='modal-pending-action-store', data=None),
                 dcc.Store(id='modal-force-action-store', data=None),
+                dcc.Store(id='modal-busy-store', data=False, storage_type='memory'),
             ], className="p-4"),
 
             dbc.ModalFooter([
@@ -148,6 +150,12 @@ def create_spectrogram_modal():
                     className="px-4"
                 )
             ]),
+            html.Div(
+                html.Div("Updating modal...", className="modal-busy-indicator"),
+                id="modal-busy-overlay",
+                className="modal-busy-overlay",
+                style={"display": "none"},
+            ),
         ],
         id='image-modal',
         size='xl',

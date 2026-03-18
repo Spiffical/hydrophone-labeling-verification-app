@@ -1,13 +1,17 @@
 """Modal lifecycle callback for open/close/navigation actions."""
 
+import time
+
 from dash import ALL, Input, Output, State, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 
+from app.callbacks.common.debug import perf_debug
 from app.components.audio_player import (
     EQ_BAND_FREQUENCIES,
     EQ_LOW_FOCUS_MAX_HZ,
     create_modal_audio_player,
 )
+from app.services.verify_modal_cache import get_verify_modal_item
 from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
 
 
@@ -25,6 +29,7 @@ def register_modal_lifecycle_navigation_callbacks(
     @app.callback(
         Output("image-modal", "is_open"),
         Output("current-filename", "data"),
+        Output("modal-item-store", "data"),
         Output("modal-image-graph", "figure"),
         Output("modal-bbox-store", "data"),
         Output("modal-active-box-label", "data"),
@@ -38,17 +43,18 @@ def register_modal_lifecycle_navigation_callbacks(
         Output("modal-unsaved-store", "data"),
         Output("unsaved-changes-modal", "is_open"),
         Output("modal-pending-action-store", "data"),
+        Output("modal-busy-store", "data", allow_duplicate=True),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
         Input("close-modal", "n_clicks"),
         Input("modal-force-action-store", "data"),
         State("label-data-store", "data"),
-        State("verify-data-store", "data"),
         State("explore-data-store", "data"),
+        State("verify-visible-item-ids-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         State("mode-tabs", "data"),
         State("verify-thresholds-store", "data"),
-        State("verify-class-filter", "data"),
         State("modal-audio-settings-store", "data"),
         State("current-filename", "data"),
         State("modal-colormap-toggle", "value"),
@@ -64,11 +70,11 @@ def register_modal_lifecycle_navigation_callbacks(
         close_clicks,
         force_action,
         label_data,
-        verify_data,
         explore_data,
+        verify_visible_item_ids,
+        verify_data_cache_key,
         mode,
         thresholds,
-        class_filter,
         audio_settings,
         current_item_id,
         colormap,
@@ -76,20 +82,29 @@ def register_modal_lifecycle_navigation_callbacks(
         unsaved_store,
         cfg,
     ):
+        start = time.perf_counter()
         _ = prev_clicks, next_clicks, close_clicks
         mode = mode or "label"
-        data = _get_mode_data(mode, label_data, verify_data, explore_data)
+        data = _get_mode_data(mode, label_data, None, explore_data)
         triggered = ctx.triggered_id
 
-        page_items = _get_modal_navigation_items(
-            mode,
-            label_data,
-            verify_data,
-            explore_data,
-            thresholds,
-            class_filter,
-        )
-        page_item_ids = [item.get("item_id") for item in page_items if item and item.get("item_id")]
+        page_items = []
+        if mode == "verify":
+            page_item_ids = [
+                item_id.strip()
+                for item_id in (verify_visible_item_ids or [])
+                if isinstance(item_id, str) and item_id.strip()
+            ]
+        else:
+            page_items = _get_modal_navigation_items(
+                mode,
+                label_data,
+                None,
+                explore_data,
+                thresholds,
+                None,
+            )
+            page_item_ids = [item.get("item_id") for item in page_items if item and item.get("item_id")]
 
         is_forced = triggered == "modal-force-action-store"
         action = None
@@ -139,8 +154,10 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
+                    no_update,
                     True,
                     action,
+                    False,
                 )
             pending_item_id = (action.get("item_id") or "").strip() if action.get("kind") == "open" else ""
             if pending_item_id and pending_item_id != current_item_id:
@@ -158,13 +175,16 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
+                    no_update,
                     True,
                     action,
+                    False,
                 )
 
         if action.get("kind") == "close":
             return (
                 False,
+                None,
                 None,
                 no_update,
                 {"item_id": None, "boxes": []},
@@ -179,6 +199,7 @@ def register_modal_lifecycle_navigation_callbacks(
                 {"dirty": False, "item_id": None},
                 False,
                 None,
+                False,
             )
 
         item_id = (action.get("item_id") or "").strip()
@@ -188,17 +209,23 @@ def register_modal_lifecycle_navigation_callbacks(
         if item_id == current_item_id and not is_forced:
             raise PreventUpdate
 
-        active_item = next((i for i in page_items if i.get("item_id") == item_id), None)
-        if not active_item:
-            items = (data or {}).get("items", [])
-            active_item = next((i for i in items if i.get("item_id") == item_id), None)
-        if not active_item:
+        if mode == "verify":
+            source_item = get_verify_modal_item(verify_data_cache_key, item_id)
+            active_item = source_item
+        else:
+            active_item = next((i for i in page_items if i.get("item_id") == item_id), None)
+            if not active_item:
+                items = (data or {}).get("items", [])
+                active_item = next((i for i in items if i.get("item_id") == item_id), None)
+            if not active_item:
+                raise PreventUpdate
+            source_items = (data or {}).get("items", [])
+            source_item = next(
+                (item for item in source_items if isinstance(item, dict) and item.get("item_id") == item_id),
+                active_item,
+            )
+        if not isinstance(source_item, dict):
             raise PreventUpdate
-        source_items = (data or {}).get("items", [])
-        source_item = next(
-            (item for item in source_items if isinstance(item, dict) and item.get("item_id") == item_id),
-            active_item,
-        )
 
         spectrogram = resolve_item_spectrogram(source_item, cfg)
         fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale)
@@ -257,10 +284,19 @@ def register_modal_lifecycle_navigation_callbacks(
             position = f"{current_index + 1} / {len(page_item_ids)}"
 
         snapshot_payload = _modal_snapshot_payload(mode, item_id, source_item, modal_boxes)
+        perf_debug(
+            "modal_nav",
+            triggered=str(triggered),
+            mode=mode,
+            item_id=item_id,
+            visible_items=len(page_item_ids),
+            duration_ms=round((time.perf_counter() - start) * 1000, 2),
+        )
 
         return (
             True,
             item_id,
+            source_item,
             fig,
             {"item_id": item_id, "boxes": modal_boxes},
             default_box_label,
@@ -274,4 +310,5 @@ def register_modal_lifecycle_navigation_callbacks(
             {"dirty": False, "item_id": item_id},
             False,
             None,
+            False,
         )

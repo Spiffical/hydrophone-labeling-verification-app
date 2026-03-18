@@ -5,6 +5,8 @@ import time
 
 from dash import Input, Output, State, html, no_update
 
+from app.services.verify_modal_cache import register_verify_modal_items
+
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -164,6 +166,8 @@ def register_render_callbacks(
         Output("verify-predictions-display", "children"),
         Output("verify-data-root-display", "children"),
         Output("verify-ui-ready-store", "data"),
+        Output("verify-visible-item-ids-store", "data"),
+        Output("verify-data-cache-key-store", "data"),
         Input("verify-data-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
@@ -190,8 +194,10 @@ def register_render_callbacks(
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
+        verify_cache_key = register_verify_modal_items(data)
         thresholds = thresholds or {"__global__": 0.5}
-        available_values = _build_verify_filter_paths(_extract_verify_leaf_classes(items))
+        leaf_class_values = _extract_verify_leaf_classes(items)
+        available_values = _build_verify_filter_paths(leaf_class_values)
         available_value_set = set(available_values)
         selected_filters = _normalize_verify_class_filter(class_filter)
         if not available_values:
@@ -230,7 +236,7 @@ def register_render_callbacks(
             filter_text = "All selected"
         elif not selected_filters:
             filter_text = "None selected"
-        elif available_values and len(selected_filters) == len(available_values):
+        elif leaf_class_values and len(selected_filters) == len(leaf_class_values):
             filter_text = "All selected"
         else:
             filter_text = f"{len(selected_filters)} selected"
@@ -247,6 +253,11 @@ def register_render_callbacks(
         ], className="summary-info")
 
         total_items = len(filtered_items)
+        visible_item_ids = [
+            item.get("item_id")
+            for item in filtered_items
+            if isinstance(item, dict) and item.get("item_id")
+        ]
         total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
         current_page = current_page or 0
         current_page = max(0, min(current_page, total_pages - 1))
@@ -328,6 +339,8 @@ def register_render_callbacks(
             pred_file_display,
             data_root,
             ui_ready,
+            visible_item_ids,
+            verify_cache_key,
         )
     @app.callback(
         Output("explore-summary", "children"),

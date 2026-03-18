@@ -18,6 +18,7 @@ def register_modal_lifecycle_unsaved_callbacks(
         Output("modal-pending-action-store", "data", allow_duplicate=True),
         Output("modal-force-action-store", "data", allow_duplicate=True),
         Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
         Output("label-data-store", "data", allow_duplicate=True),
         Output("verify-data-store", "data", allow_duplicate=True),
         Output("explore-data-store", "data", allow_duplicate=True),
@@ -60,7 +61,7 @@ def register_modal_lifecycle_unsaved_callbacks(
         if triggered == "unsaved-stay-btn":
             if not stay_clicks:
                 raise PreventUpdate
-            return False, None, no_update, no_update, no_update, no_update, no_update, no_update
+            return False, None, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         force_payload = no_update
         if isinstance(pending_action, dict) and pending_action.get("kind") in {"close", "open"}:
@@ -90,6 +91,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                 None,
                 force_payload,
                 dirty_update,
+                no_update,
                 next_label_data,
                 next_verify_data,
                 next_explore_data,
@@ -102,6 +104,7 @@ def register_modal_lifecycle_unsaved_callbacks(
         restored_label_data = no_update
         restored_verify_data = no_update
         restored_explore_data = no_update
+        restored_modal_item = no_update
         restored_bbox_store = no_update
         dirty_update = {"dirty": False, "item_id": current_item_id}
 
@@ -122,6 +125,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                 "item_id": snap_item_id,
                 "boxes": deepcopy(snap_boxes) if isinstance(snap_boxes, list) else [],
             }
+            restored_modal_item = snap_item
             dirty_update = {"dirty": False, "item_id": snap_item_id}
 
         return (
@@ -129,6 +133,7 @@ def register_modal_lifecycle_unsaved_callbacks(
             None,
             force_payload,
             dirty_update,
+            restored_modal_item,
             restored_label_data,
             restored_verify_data,
             restored_explore_data,

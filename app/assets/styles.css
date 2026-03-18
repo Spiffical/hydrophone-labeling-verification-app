@@ -2857,6 +2857,10 @@ body.theme-dark .dash-range-slider-input,
     border-bottom: 1px solid var(--border) !important;
 }
 
+.spectrogram-zoom-modal .modal-content {
+    position: relative;
+}
+
 .modal-title-text {
     color: var(--text) !important;
     font-weight: 600;
@@ -2903,6 +2907,28 @@ body.theme-dark .dash-range-slider-input,
     font-size: 12px;
     font-weight: 600;
     color: var(--muted);
+}
+
+.modal-busy-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1080;
+    align-items: center;
+    justify-content: center;
+    background: rgba(250, 251, 252, 0.42);
+    backdrop-filter: blur(1.5px);
+    pointer-events: all;
+}
+
+.modal-busy-indicator {
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: var(--shadow);
 }
 
 .modal-bottom-layout {
@@ -3301,6 +3327,11 @@ body.theme-dark .modal-nav-btn,
 body.theme-dark .modal-nav-position,
 .theme-dark .modal-nav-position {
     color: #c9d1d9 !important;
+}
+
+body.theme-dark .modal-busy-overlay,
+.theme-dark .modal-busy-overlay {
+    background: rgba(13, 17, 23, 0.48);
 }
 
 body.theme-dark .spectrogram-zoom-modal .modal-body,

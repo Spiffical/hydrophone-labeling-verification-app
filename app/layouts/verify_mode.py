@@ -194,6 +194,9 @@ def create_verify_layout(config: dict) -> html.Div:
         ),
         dcc.Store(id="verify-current-page", data=0, storage_type="session"),
         dcc.Store(id="verify-pending-page-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-visible-item-ids-store", data=[], storage_type="memory"),
+        dcc.Store(id="verify-data-cache-key-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-modal-synced-item-ids-store", data=[], storage_type="memory"),
         dcc.Loading(
             children=html.Div(id="verify-grid", className="grid-shell"),
             id="verify-grid-loading",

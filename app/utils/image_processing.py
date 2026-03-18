@@ -50,6 +50,18 @@ _IMAGE_CACHE_LOCK = threading.Lock()
 _MATPLOTLIB_RENDER_LOCK = threading.Lock()
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)) or str(default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+_DISPLAY_MAX_TIME_BINS = max(1, _env_int("HYDRO_MODAL_MAX_TIME_BINS", 360))
+_DISPLAY_MAX_FREQ_BINS = max(1, _env_int("HYDRO_MODAL_MAX_FREQ_BINS", 320))
+_MODAL_HEATMAP_LEVELS = _env_int("HYDRO_MODAL_HEATMAP_LEVELS", 256)
+
+
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
     cache.clear()
     if hasattr(cache, "_Cache__maxsize"):
@@ -85,6 +97,80 @@ def _coerce_float(value: Any, fallback: float, *, minimum: Optional[float] = Non
     if maximum is not None:
         value = min(float(maximum), value)
     return float(value)
+
+
+def _downsample_indices(length: int, max_points: int) -> np.ndarray:
+    if length <= 0:
+        return np.array([], dtype=np.int64)
+    if max_points <= 0 or length <= max_points:
+        return np.arange(length, dtype=np.int64)
+    return np.linspace(0, length - 1, num=max_points, dtype=np.int64)
+
+
+def _downsample_for_modal_display(
+    psd: np.ndarray,
+    freq: np.ndarray,
+    time: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if psd is None:
+        return psd, freq, time
+    if getattr(psd, "ndim", 0) != 2:
+        return psd, freq, time
+
+    freq_len, time_len = psd.shape
+    if freq_len <= 0 or time_len <= 0:
+        return psd, freq, time
+
+    freq_idx = _downsample_indices(freq_len, _DISPLAY_MAX_FREQ_BINS)
+    time_idx = _downsample_indices(time_len, _DISPLAY_MAX_TIME_BINS)
+    reduced_psd = psd[np.ix_(freq_idx, time_idx)]
+
+    reduced_freq = freq
+    if isinstance(freq, np.ndarray) and len(freq) == freq_len:
+        reduced_freq = freq[freq_idx]
+
+    reduced_time = time
+    if isinstance(time, np.ndarray) and len(time) == time_len:
+        reduced_time = time[time_idx]
+
+    return reduced_psd, reduced_freq, reduced_time
+
+
+def _quantize_modal_heatmap(
+    psd: np.ndarray,
+    zmin: float,
+    zmax: float,
+) -> Tuple[np.ndarray, float, float, Dict[str, Any]]:
+    if _MODAL_HEATMAP_LEVELS <= 1:
+        return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {}
+
+    level_count = max(2, int(_MODAL_HEATMAP_LEVELS))
+    max_level = level_count - 1
+    if max_level <= np.iinfo(np.uint8).max:
+        dtype = np.uint8
+    elif max_level <= np.iinfo(np.uint16).max:
+        dtype = np.uint16
+    else:
+        return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {}
+
+    span = max(1e-9, float(zmax) - float(zmin))
+    normalized = (np.asarray(psd, dtype=np.float32) - float(zmin)) / span
+    normalized = np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=0.0)
+    normalized = np.clip(normalized, 0.0, 1.0)
+    quantized = np.rint(normalized * max_level).astype(dtype)
+
+    tick_count = min(6, level_count)
+    tickvals = np.linspace(0, max_level, num=tick_count, dtype=np.float32)
+    ticktext = [
+        f"{(float(zmin) + (float(val) / max_level) * span):.1f}"
+        for val in tickvals
+    ]
+    colorbar = {
+        "title": "dB/Hz",
+        "tickvals": tickvals,
+        "ticktext": ticktext,
+    }
+    return quantized, 0.0, float(max_level), colorbar
 
 
 def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -839,6 +925,7 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
     psd = spectrogram_data["psd"]
     freq = spectrogram_data["freq"]
     time = spectrogram_data["time"]
+    psd, freq, time = _downsample_for_modal_display(psd, freq, time)
 
     # Normalize time to start from 0 for better visualization.
     # This shows clip-relative duration on x-axis, which aligns with annotation_extent seconds.
@@ -880,6 +967,9 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         y_unit = "Hz"
         y_to_hz = 1.0
 
+    time_plot = np.asarray(time_plot, dtype=np.float32)
+    freq_plot = np.asarray(freq_plot, dtype=np.float32)
+
     # Determine appropriate color limits
     psd_valid = psd[np.isfinite(psd)]
     if len(psd_valid) > 0:
@@ -900,20 +990,22 @@ def create_spectrogram_figure(spectrogram_data, colormap_value, y_axis_scale="li
         y_axis_type = "log"
         y_axis_title = f"Frequency ({y_unit}) - Log Scale"
         # Ensure values for log scale are positive
-        freq_plot = np.maximum(freq_plot, 0.001 if y_unit == "kHz" else 0.1)
+        freq_plot = np.maximum(freq_plot, 0.001 if y_unit == "kHz" else 0.1).astype(np.float32)
     else:
         y_axis_type = "linear"
         y_axis_title = f"Frequency ({y_unit})"
 
+    heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _quantize_modal_heatmap(psd, zmin, zmax)
+
     fig = go.Figure()
     fig.add_trace(go.Heatmap(
-        z=psd,
+        z=heatmap_z,
         x=time_plot,
         y=freq_plot,
         colorscale=colorscale,
-        zmin=zmin,
-        zmax=zmax,
-        colorbar=dict(title="dB/Hz")
+        zmin=heatmap_zmin,
+        zmax=heatmap_zmax,
+        colorbar=colorbar,
     ))
 
     # Add invisible playback position marker (will be controlled via JavaScript)

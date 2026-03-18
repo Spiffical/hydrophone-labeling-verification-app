@@ -56,6 +56,7 @@ def register_modal_label_callbacks(
         Output("label-data-store", "data", allow_duplicate=True),
         Output("verify-data-store", "data", allow_duplicate=True),
         Output("explore-data-store", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("modal-active-box-label", "data", allow_duplicate=True),
@@ -155,9 +156,19 @@ def register_modal_label_callbacks(
         updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, filtered_boxes)
         next_active_label = None
         unsaved_update = {"dirty": True, "item_id": current_item_id}
+        updated_modal_item = None
+        if isinstance(updated_data, dict):
+            updated_modal_item = next(
+                (
+                    item
+                    for item in (updated_data.get("items") or [])
+                    if isinstance(item, dict) and item.get("item_id") == current_item_id
+                ),
+                None,
+            )
 
         if mode == "label":
-            return updated_data, no_update, no_update, store, updated_fig, next_active_label, unsaved_update
+            return updated_data, no_update, no_update, updated_modal_item, store, updated_fig, next_active_label, unsaved_update
         if mode == "verify":
-            return no_update, updated_data, no_update, store, updated_fig, next_active_label, unsaved_update
-        return no_update, no_update, updated_data, store, updated_fig, next_active_label, unsaved_update
+            return no_update, updated_data, no_update, updated_modal_item, store, updated_fig, next_active_label, unsaved_update
+        return no_update, no_update, updated_data, updated_modal_item, store, updated_fig, next_active_label, unsaved_update

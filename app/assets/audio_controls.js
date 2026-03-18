@@ -4,10 +4,13 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
     // Initialize audio players when page loads
     initializeAudioPlayers: function () {
         // Optimized initialization - minimal logging, fast DOM queries
+        cleanupDetachedAudioPlayers();
         const audioElements = document.querySelectorAll('audio[id$="-audio"]');
 
         audioElements.forEach(function (audio) {
             const playerId = audio.id.replace('-audio', '');
+            const playerEntry = ensureAudioPlayerEntry(playerId, audio);
+            const cleanupFns = playerEntry.cleanupFns;
             const playBtn = document.getElementById(playerId + '-play-btn');
             const playIcon = document.getElementById(playerId + '-play-icon');
             const timeSlider = document.getElementById(playerId + '-time-slider');
@@ -147,6 +150,53 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     chainTail.connect(audio.gainNode);
                     audio.gainNode.connect(audio.audioContext.destination);
 
+                    registerPlayerCleanup(cleanupFns, function () {
+                        try {
+                            if (!audio.paused) {
+                                audio.pause();
+                            }
+                        } catch (pauseError) {
+                            console.debug('Error pausing audio during cleanup:', pauseError);
+                        }
+                        try {
+                            if (audio.sourceNode) {
+                                audio.sourceNode.disconnect();
+                            }
+                        } catch (disconnectError) {
+                            console.debug('Error disconnecting audio source:', disconnectError);
+                        }
+                        try {
+                            if (audio.gainNode) {
+                                audio.gainNode.disconnect();
+                            }
+                        } catch (disconnectError) {
+                            console.debug('Error disconnecting gain node:', disconnectError);
+                        }
+                        try {
+                            if (audio.lowEqFilters) {
+                                Object.keys(audio.lowEqFilters).forEach(function (key) {
+                                    const filter = audio.lowEqFilters[key];
+                                    if (filter && typeof filter.disconnect === 'function') {
+                                        filter.disconnect();
+                                    }
+                                });
+                            }
+                        } catch (disconnectError) {
+                            console.debug('Error disconnecting EQ filters:', disconnectError);
+                        }
+                        try {
+                            if (audio.audioContext && audio.audioContext.state !== 'closed') {
+                                audio.audioContext.close().catch(function () { });
+                            }
+                        } catch (closeError) {
+                            console.debug('Error closing audio context:', closeError);
+                        }
+                        audio.audioContext = null;
+                        audio.sourceNode = null;
+                        audio.gainNode = null;
+                        audio.lowEqFilters = null;
+                    });
+
                     console.log('Web Audio API initialized for:', playerId);
                 } catch (e) {
                     console.warn('Web Audio API not available:', e);
@@ -159,7 +209,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     if (pitchDisplay) {
                         pitchDisplay.textContent = rate.toFixed(2) + 'x';
                     }
-                });
+                }, cleanupFns);
             }
 
             const getSliderRoundedDb = function (slider) {
@@ -193,7 +243,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     const roundedGain = Math.round(dbGain);
                     applyEqBandGain(band, roundedGain);
                     updateLowEqDisplay();
-                });
+                }, cleanupFns);
             });
 
             refreshEqFilterGains();
@@ -211,7 +261,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     if (gainDisplay) {
                         gainDisplay.textContent = normalized.toFixed(1) + 'x';
                     }
-                });
+                }, cleanupFns);
             }
 
             // Play/pause button click handler
@@ -255,7 +305,11 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             // Set up slider event listeners with better handling
             if (timeSlider && !timeSlider.hasSliderListeners) {
                 timeSlider.hasSliderListeners = true;
-                setupSliderInteraction(timeSlider, audio);
+                if (playerId.startsWith('modal-')) {
+                    setupSliderInteraction(timeSlider, audio, cleanupFns);
+                } else {
+                    attachSliderValueSeekSync(timeSlider, audio, cleanupFns);
+                }
             }
 
             // Keep audio currentTime synchronized with timeline slider value.
@@ -267,6 +321,100 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
         return '';
     }
 });
+
+function getAudioControlState() {
+    if (!window.__hydroAudioControlState) {
+        window.__hydroAudioControlState = {
+            players: new Map(),
+            reinitTimer: null,
+            rootObserver: null,
+        };
+    }
+    return window.__hydroAudioControlState;
+}
+
+function registerPlayerCleanup(cleanupFns, cleanupFn) {
+    if (!Array.isArray(cleanupFns) || typeof cleanupFn !== 'function') return;
+    cleanupFns.push(cleanupFn);
+}
+
+function addTrackedEventListener(target, eventName, handler, options, cleanupFns) {
+    if (!target || typeof target.addEventListener !== 'function' || typeof handler !== 'function') return;
+    target.addEventListener(eventName, handler, options);
+    registerPlayerCleanup(cleanupFns, function () {
+        if (target && typeof target.removeEventListener === 'function') {
+            target.removeEventListener(eventName, handler, options);
+        }
+    });
+}
+
+function ensureAudioPlayerEntry(playerId, audio) {
+    const state = getAudioControlState();
+    const existing = state.players.get(playerId);
+    if (existing && existing.audio !== audio) {
+        cleanupAudioPlayer(playerId);
+    }
+    if (!state.players.has(playerId)) {
+        state.players.set(playerId, {
+            audio: audio,
+            cleanupFns: [],
+        });
+    }
+    const entry = state.players.get(playerId);
+    entry.audio = audio;
+    return entry;
+}
+
+function cleanupAudioPlayer(playerId) {
+    const state = getAudioControlState();
+    const entry = state.players.get(playerId);
+    if (!entry) return;
+    state.players.delete(playerId);
+    const cleanupFns = Array.isArray(entry.cleanupFns) ? entry.cleanupFns.slice().reverse() : [];
+    cleanupFns.forEach(function (cleanupFn) {
+        try {
+            cleanupFn();
+        } catch (e) {
+            console.debug('Error cleaning up audio player:', playerId, e);
+        }
+    });
+}
+
+function cleanupDetachedAudioPlayers() {
+    const state = getAudioControlState();
+    Array.from(state.players.entries()).forEach(function (entryTuple) {
+        const playerId = entryTuple[0];
+        const entry = entryTuple[1];
+        if (!entry || !entry.audio || !entry.audio.isConnected) {
+            cleanupAudioPlayer(playerId);
+        }
+    });
+}
+
+function scheduleAudioPlayerInitialization(delayMs) {
+    const state = getAudioControlState();
+    if (state.reinitTimer) {
+        clearTimeout(state.reinitTimer);
+    }
+    state.reinitTimer = setTimeout(function () {
+        state.reinitTimer = null;
+        if (window.dash_clientside && window.dash_clientside.namespace) {
+            window.dash_clientside.namespace.initializeAudioPlayers();
+        }
+    }, delayMs);
+}
+
+function trackMutationObserver(observer, target, options, cleanupFns) {
+    if (!observer || !target || typeof observer.observe !== 'function') return;
+    observer.observe(target, options);
+    registerPlayerCleanup(cleanupFns, function () {
+        try {
+            observer.disconnect();
+        } catch (e) {
+            console.debug('Error disconnecting mutation observer:', e);
+        }
+    });
+}
 
 // Helper function to safely update slider position (avoid conflicts)
 function updateSliderPositionSafely(slider, progress) {
@@ -352,7 +500,7 @@ function getClientXFromEvent(e) {
 }
 
 // Improved slider interaction setup - better click/drag detection
-function setupSliderInteraction(slider, audio) {
+function setupSliderInteraction(slider, audio, cleanupFns) {
     const sliderContainer = getSliderRoot(slider);
     if (!sliderContainer) return;
 
@@ -483,100 +631,169 @@ function setupSliderInteraction(slider, audio) {
     const startInteraction = function (e) { beginInteraction(e); };
     const interactionTargets = [sliderContainer, slider].filter(Boolean);
     interactionTargets.forEach(function (target) {
-        target.addEventListener('mousedown', startInteraction);
-        target.addEventListener('touchstart', startInteraction, { passive: false });
-        target.addEventListener('pointerdown', startInteraction);
+        addTrackedEventListener(target, 'mousedown', startInteraction, undefined, cleanupFns);
+        addTrackedEventListener(target, 'touchstart', startInteraction, { passive: false }, cleanupFns);
+        addTrackedEventListener(target, 'pointerdown', startInteraction, undefined, cleanupFns);
     });
 
     // Handle mouse move while potentially dragging
-    document.addEventListener('mousemove', function (e) {
+    const onMouseMove = function (e) {
         continueInteraction(e);
-    });
+    };
+    addTrackedEventListener(document, 'mousemove', onMouseMove, undefined, cleanupFns);
 
-    document.addEventListener('touchmove', function (e) {
+    const onTouchMove = function (e) {
         continueInteraction(e);
-    }, { passive: false });
+    };
+    addTrackedEventListener(document, 'touchmove', onTouchMove, { passive: false }, cleanupFns);
 
-    document.addEventListener('pointermove', function (e) {
+    const onPointerMove = function (e) {
         continueInteraction(e);
-    });
+    };
+    addTrackedEventListener(document, 'pointermove', onPointerMove, undefined, cleanupFns);
 
     // Handle mouse up (end of interaction)
-    document.addEventListener('mouseup', function (e) {
+    const onMouseUp = function (e) {
         endInteraction(e, 200);
         endFallbackSeek();
-    });
+    };
+    addTrackedEventListener(document, 'mouseup', onMouseUp, undefined, cleanupFns);
 
-    document.addEventListener('touchend', function (e) {
+    const onTouchEnd = function (e) {
         endInteraction(e, 250);
         endFallbackSeek();
-    }, { passive: false });
+    };
+    addTrackedEventListener(document, 'touchend', onTouchEnd, { passive: false }, cleanupFns);
 
-    document.addEventListener('pointerup', function (e) {
+    const onPointerUp = function (e) {
         endInteraction(e, 200);
         endFallbackSeek();
-    });
+    };
+    addTrackedEventListener(document, 'pointerup', onPointerUp, undefined, cleanupFns);
 
-    document.addEventListener('pointercancel', function () {
+    const onPointerCancel = function () {
         endFallbackSeek();
-    });
+    };
+    addTrackedEventListener(document, 'pointercancel', onPointerCancel, undefined, cleanupFns);
 
     // Disable Dash's default click handling on the slider
-    sliderContainer.addEventListener('click', function (e) {
+    const suppressSliderClick = function (e) {
         e.preventDefault();
         e.stopPropagation();
-    });
+    };
+    addTrackedEventListener(sliderContainer, 'click', suppressSliderClick, undefined, cleanupFns);
 
-    // Fallback synchronization path for Dash slider variants where direct pointer
-    // interception can miss: keep audio currentTime in sync with slider value.
-    if (!slider.hasFallbackSeekListeners) {
-        slider.hasFallbackSeekListeners = true;
-        const onInputLike = function () {
-            beginFallbackSeek();
-            syncAudioTimeFromSliderValue();
-            scheduleFallbackRelease();
+    attachSliderValueSeekSync(
+        slider,
+        audio,
+        cleanupFns,
+        beginFallbackSeek,
+        syncAudioTimeFromSliderValue,
+        scheduleFallbackRelease,
+        endFallbackSeek,
+        clearFallbackTimer
+    );
+}
+
+function attachSliderValueSeekSync(
+    slider,
+    audio,
+    cleanupFns,
+    beginFallbackSeek,
+    syncAudioTimeFromSliderValue,
+    scheduleFallbackRelease,
+    endFallbackSeek,
+    clearFallbackTimer
+) {
+    if (!slider || slider.hasFallbackSeekListeners) return;
+    slider.hasFallbackSeekListeners = true;
+
+    const startFallbackSeek = typeof beginFallbackSeek === 'function'
+        ? beginFallbackSeek
+        : function () {
+            slider.isUserInteracting = true;
         };
-        slider.addEventListener('input', onInputLike, { passive: true });
-        slider.addEventListener('change', function () {
-            beginFallbackSeek();
-            syncAudioTimeFromSliderValue();
-            endFallbackSeek();
-        }, { passive: true });
-        slider.addEventListener('keydown', function (e) {
-            const key = e && e.key;
-            if (!key) return;
-            if (
-                key === 'ArrowLeft' ||
-                key === 'ArrowRight' ||
-                key === 'Home' ||
-                key === 'End' ||
-                key === 'PageUp' ||
-                key === 'PageDown'
-            ) {
-                beginFallbackSeek();
-                requestAnimationFrame(syncAudioTimeFromSliderValue);
-                scheduleFallbackRelease();
+    const syncAudioTime = typeof syncAudioTimeFromSliderValue === 'function'
+        ? syncAudioTimeFromSliderValue
+        : function () {
+            if (!isFinite(audio.duration) || audio.duration <= 0) return;
+            const progress = readSliderValue(slider, 0, 100);
+            if (progress === null) return;
+            const targetTime = (progress / 100) * audio.duration;
+            const safeMax = Math.max(0, audio.duration - 0.01);
+            const newTime = clamp(targetTime, 0, safeMax);
+            if (!isFinite(newTime)) return;
+            if (Math.abs((audio.currentTime || 0) - newTime) > 0.01) {
+                audio.currentTime = newTime;
             }
-        });
-        slider.addEventListener('keyup', function (e) {
-            const key = e && e.key;
-            if (!key) return;
-            if (
-                key === 'ArrowLeft' ||
-                key === 'ArrowRight' ||
-                key === 'Home' ||
-                key === 'End' ||
-                key === 'PageUp' ||
-                key === 'PageDown'
-            ) {
-                requestAnimationFrame(syncAudioTimeFromSliderValue);
-                endFallbackSeek();
-            }
-        });
-        slider.addEventListener('blur', function () {
-            endFallbackSeek();
-        });
-    }
+            updateSliderPositionImmediately(slider, progress);
+        };
+    const scheduleFallbackEnd = typeof scheduleFallbackRelease === 'function'
+        ? scheduleFallbackRelease
+        : function () { };
+    const finishFallbackSeek = typeof endFallbackSeek === 'function'
+        ? endFallbackSeek
+        : function () {
+            slider.isUserInteracting = false;
+        };
+    const clearFallback = typeof clearFallbackTimer === 'function'
+        ? clearFallbackTimer
+        : function () { };
+
+    const onInputLike = function () {
+        startFallbackSeek();
+        syncAudioTime();
+        scheduleFallbackEnd();
+    };
+    addTrackedEventListener(slider, 'input', onInputLike, { passive: true }, cleanupFns);
+    const onChange = function () {
+        startFallbackSeek();
+        syncAudioTime();
+        finishFallbackSeek();
+    };
+    addTrackedEventListener(slider, 'change', onChange, { passive: true }, cleanupFns);
+    const onKeyDown = function (e) {
+        const key = e && e.key;
+        if (!key) return;
+        if (
+            key === 'ArrowLeft' ||
+            key === 'ArrowRight' ||
+            key === 'Home' ||
+            key === 'End' ||
+            key === 'PageUp' ||
+            key === 'PageDown'
+        ) {
+            startFallbackSeek();
+            requestAnimationFrame(syncAudioTime);
+            scheduleFallbackEnd();
+        }
+    };
+    addTrackedEventListener(slider, 'keydown', onKeyDown, undefined, cleanupFns);
+    const onKeyUp = function (e) {
+        const key = e && e.key;
+        if (!key) return;
+        if (
+            key === 'ArrowLeft' ||
+            key === 'ArrowRight' ||
+            key === 'Home' ||
+            key === 'End' ||
+            key === 'PageUp' ||
+            key === 'PageDown'
+        ) {
+            requestAnimationFrame(syncAudioTime);
+            finishFallbackSeek();
+        }
+    };
+    addTrackedEventListener(slider, 'keyup', onKeyUp, undefined, cleanupFns);
+    const onBlur = function () {
+        finishFallbackSeek();
+    };
+    addTrackedEventListener(slider, 'blur', onBlur, undefined, cleanupFns);
+    registerPlayerCleanup(cleanupFns, function () {
+        clearFallback();
+        slider.isUserInteracting = false;
+        slider.hasFallbackSeekListeners = false;
+    });
 }
 
 // Improved slider seeking function
@@ -646,7 +863,7 @@ function readSliderValue(slider, min, max) {
 
 // Robust slider value sync for Dash 4 DOM changes:
 // events + mutation observer + initial delayed sync.
-function bindSliderValueSync(slider, min, max, applyValue) {
+function bindSliderValueSync(slider, min, max, applyValue, cleanupFns) {
     if (!slider || slider.hasValueSyncBinding) return;
     slider.hasValueSyncBinding = true;
 
@@ -663,18 +880,18 @@ function bindSliderValueSync(slider, min, max, applyValue) {
 
     ['input', 'change', 'mousedown', 'mousemove', 'mouseup', 'click', 'touchstart', 'touchmove', 'touchend', 'keydown']
         .forEach(function (eventName) {
-            slider.addEventListener(eventName, scheduleSync, { passive: true });
+            addTrackedEventListener(slider, eventName, scheduleSync, { passive: true }, cleanupFns);
         });
 
     const observer = new MutationObserver(function () {
         scheduleSync();
     });
-    observer.observe(slider, {
+    trackMutationObserver(observer, slider, {
         attributes: true,
         childList: true,
         subtree: true,
         characterData: true
-    });
+    }, cleanupFns);
 
     // Initial and delayed sync so first render and async hydration are covered.
     syncNow();
@@ -685,6 +902,13 @@ function bindSliderValueSync(slider, min, max, applyValue) {
     // This keeps readouts (e.g., 1.00x / +12 dB) in sync with the actual handle value.
     if (!slider.valueSyncInterval) {
         slider.valueSyncInterval = setInterval(syncNow, 200);
+        registerPlayerCleanup(cleanupFns, function () {
+            if (slider.valueSyncInterval) {
+                clearInterval(slider.valueSyncInterval);
+                slider.valueSyncInterval = null;
+            }
+            slider.hasValueSyncBinding = false;
+        });
     }
 }
 
@@ -693,18 +917,22 @@ document.addEventListener('DOMContentLoaded', function () {
     console.log('DOM loaded, setting up audio controls...');
 
     // Initial setup with delay to ensure DOM is fully ready
-    setTimeout(function () {
-        if (window.dash_clientside && window.dash_clientside.namespace) {
-            window.dash_clientside.namespace.initializeAudioPlayers();
-        }
-    }, 500);
+    scheduleAudioPlayerInitialization(500);
 
     // Set up a mutation observer to handle dynamically added audio players
+    const state = getAudioControlState();
+    if (state.rootObserver) {
+        state.rootObserver.disconnect();
+    }
+
     const observer = new MutationObserver(function (mutations) {
         let shouldReinitialize = false;
 
         mutations.forEach(function (mutation) {
             if (mutation.type === 'childList') {
+                if (mutation.removedNodes && mutation.removedNodes.length > 0) {
+                    cleanupDetachedAudioPlayers();
+                }
                 mutation.addedNodes.forEach(function (node) {
                     if (node.nodeType === 1) { // Element node
                         const audioElements = node.querySelectorAll ? node.querySelectorAll('audio[id$="-audio"]') : [];
@@ -717,14 +945,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         if (shouldReinitialize) {
-            setTimeout(function () {
-                if (window.dash_clientside && window.dash_clientside.namespace) {
-                    window.dash_clientside.namespace.initializeAudioPlayers();
-                }
-            }, 100);
+            scheduleAudioPlayerInitialization(100);
         }
     });
 
+    state.rootObserver = observer;
     observer.observe(document.body, {
         childList: true,
         subtree: true

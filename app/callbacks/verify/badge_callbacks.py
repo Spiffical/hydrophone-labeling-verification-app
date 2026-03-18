@@ -41,18 +41,13 @@ def register_verify_badge_callbacks(
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-unsaved-store", "data", allow_duplicate=True),
         Output("verify-badge-event-store", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
         Input({"type": "verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
         Input({"type": "verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
         Input({"type": "verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
         Input({"type": "verify-label-accept", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
         Input({"type": "verify-label-reject", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
         Input({"type": "verify-label-delete", "item_id": ALL, "label": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-accept", "label": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-reject", "label": ALL}, "n_clicks_timestamp"),
-        Input({"type": "modal-verify-label-delete", "label": ALL}, "n_clicks_timestamp"),
         State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
         State("current-filename", "data"),
@@ -68,12 +63,6 @@ def register_verify_badge_callbacks(
         card_accept_ts_legacy,
         card_reject_ts_legacy,
         card_delete_ts_legacy,
-        modal_accept_ts,
-        modal_reject_ts,
-        modal_delete_ts,
-        modal_accept_ts_legacy,
-        modal_reject_ts_legacy,
-        modal_delete_ts_legacy,
         verify_data,
         thresholds,
         modal_item_id,
@@ -96,12 +85,12 @@ def register_verify_badge_callbacks(
                 card_accept_ts_legacy=card_accept_ts_legacy,
                 card_reject_ts_legacy=card_reject_ts_legacy,
                 card_delete_ts_legacy=card_delete_ts_legacy,
-                modal_accept_ts=modal_accept_ts,
-                modal_reject_ts=modal_reject_ts,
-                modal_delete_ts=modal_delete_ts,
-                modal_accept_ts_legacy=modal_accept_ts_legacy,
-                modal_reject_ts_legacy=modal_reject_ts_legacy,
-                modal_delete_ts_legacy=modal_delete_ts_legacy,
+                modal_accept_ts=[],
+                modal_reject_ts=[],
+                modal_delete_ts=[],
+                modal_accept_ts_legacy=[],
+                modal_reject_ts_legacy=[],
+                modal_delete_ts_legacy=[],
             ),
             last_event_store=badge_event_store,
         )
@@ -274,4 +263,164 @@ def register_verify_badge_callbacks(
             unsaved_update=unsaved_update,
             event_key=selected_key,
         )
-        return updated_data, next_bbox_store, unsaved_update, {"last_key": selected_key}
+        updated_modal_item = active_item if item_id == (modal_item_id or "") else no_update
+        return updated_data, next_bbox_store, unsaved_update, {"last_key": selected_key}, updated_modal_item
+
+    @app.callback(
+        Output("modal-bbox-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("verify-badge-event-store", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
+        Input({"type": "modal-verify-label-accept", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "target": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-accept", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-reject", "label": ALL}, "n_clicks_timestamp"),
+        Input({"type": "modal-verify-label-delete", "label": ALL}, "n_clicks_timestamp"),
+        State("modal-item-store", "data"),
+        State("verify-thresholds-store", "data"),
+        State("modal-bbox-store", "data"),
+        State("user-profile-store", "data"),
+        State("verify-badge-event-store", "data"),
+        prevent_initial_call=True,
+    )
+    def quick_update_modal_verify_labels(
+        modal_accept_ts,
+        modal_reject_ts,
+        modal_delete_ts,
+        modal_accept_ts_legacy,
+        modal_reject_ts_legacy,
+        modal_delete_ts_legacy,
+        modal_item,
+        thresholds,
+        modal_bbox_store,
+        profile,
+        badge_event_store,
+    ):
+        _require_complete_profile(profile, "quick_update_verify_labels")
+        _verify_badge_debug(
+            "modal_start",
+            triggered_id=ctx.triggered_id,
+            triggered=ctx.triggered,
+            modal_item_id=(modal_item or {}).get("item_id") if isinstance(modal_item, dict) else None,
+            modal_bbox_item_id=(modal_bbox_store or {}).get("item_id") if isinstance(modal_bbox_store, dict) else None,
+            timestamp_summary=timestamp_summary(
+                card_accept_ts=[],
+                card_reject_ts=[],
+                card_delete_ts=[],
+                card_accept_ts_legacy=[],
+                card_reject_ts_legacy=[],
+                card_delete_ts_legacy=[],
+                modal_accept_ts=modal_accept_ts,
+                modal_reject_ts=modal_reject_ts,
+                modal_delete_ts=modal_delete_ts,
+                modal_accept_ts_legacy=modal_accept_ts_legacy,
+                modal_reject_ts_legacy=modal_reject_ts_legacy,
+                modal_delete_ts_legacy=modal_delete_ts_legacy,
+            ),
+            last_event_store=badge_event_store,
+        )
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict):
+            raise PreventUpdate
+
+        action_type = (triggered.get("type") or "").strip()
+        if action_type not in {
+            "modal-verify-label-accept",
+            "modal-verify-label-reject",
+            "modal-verify-label-delete",
+        }:
+            raise PreventUpdate
+
+        if not isinstance(modal_item, dict):
+            raise PreventUpdate
+        item_id = (modal_item.get("item_id") or "").strip()
+        if not item_id:
+            raise PreventUpdate
+
+        input_entries = flatten_callback_inputs(ctx.inputs_list)
+        triggered_key_json = json.dumps(triggered, sort_keys=True, ensure_ascii=True)
+        triggered_value = resolve_trigger_timestamp(
+            input_entries=input_entries,
+            triggered=triggered,
+        )
+        if triggered_value is None:
+            raise PreventUpdate
+
+        selected_key = f"{triggered_value}|{triggered_key_json}"
+        last_key = (badge_event_store or {}).get("last_key") if isinstance(badge_event_store, dict) else ""
+        if selected_key == last_key:
+            raise PreventUpdate
+
+        _, _, label, target = resolve_trigger_payload(
+            triggered=triggered,
+            action_type=action_type,
+            modal_item_id=item_id,
+            parse_verify_target=_parse_verify_target,
+        )
+        if not label:
+            _verify_badge_debug("modal_prevent_missing_label", action_type=action_type, target=target, triggered=triggered)
+            raise PreventUpdate
+
+        active_item = deepcopy(modal_item)
+        thresholds = thresholds or {"__global__": 0.5}
+        predicted_set = set(_filter_predictions(active_item.get("predictions") or {}, thresholds))
+        _, _, active_labels = _get_modal_label_sets(active_item, "verify", thresholds)
+        updated_labels = _ordered_unique_labels(active_labels)
+        rejected_set = set(_get_item_rejected_labels(active_item))
+        action = action_from_action_type(action_type)
+        updated_labels, rejected_set = apply_action_to_labels(
+            action=action,
+            label=label,
+            updated_labels=updated_labels,
+            predicted_set=predicted_set,
+            rejected_set=rejected_set,
+        )
+
+        annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
+        label_extents = clean_label_extents_from_annotations(
+            annotations_obj=annotations_obj,
+            clean_annotation_extent=_clean_annotation_extent,
+        )
+        next_bbox_store, label_extents = update_boxes_and_extents_for_action(
+            action=action,
+            label=label,
+            item_id=item_id,
+            modal_item_id=item_id,
+            modal_bbox_store=modal_bbox_store,
+            active_item=active_item,
+            build_modal_boxes_from_item=_build_modal_boxes_from_item,
+            extract_label_extent_map_from_boxes=_extract_label_extent_map_from_boxes,
+            label_extents=label_extents,
+        )
+
+        profile_name = _profile_actor(profile)
+        annotations_update = deepcopy(annotations_obj) if isinstance(annotations_obj, dict) else {}
+        annotations_update["labels"] = updated_labels
+        annotations_update["label_extents"] = label_extents
+        annotations_update["rejected_labels"] = sorted(rejected_set)
+        annotations_update["annotated_at"] = datetime.now().isoformat()
+        annotations_update["has_manual_review"] = True
+        annotations_update["pending_save"] = True
+        if annotations_update.get("verified"):
+            annotations_update["needs_reverify"] = True
+        if profile_name:
+            annotations_update["annotated_by"] = profile_name
+        active_item["annotations"] = annotations_update
+
+        _verify_badge_debug(
+            "modal_return_update",
+            item_id=item_id,
+            label=label,
+            action=action,
+            labels_after=updated_labels,
+            rejected_after=sorted(rejected_set),
+            next_bbox_store_item=(next_bbox_store or {}).get("item_id") if isinstance(next_bbox_store, dict) else None,
+            event_key=selected_key,
+        )
+        return (
+            next_bbox_store,
+            {"dirty": True, "item_id": item_id},
+            {"last_key": selected_key},
+            active_item,
+        )
