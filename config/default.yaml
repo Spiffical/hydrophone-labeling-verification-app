@@ -32,6 +32,10 @@ display:
 cache:
   max_size: 75
 
+audio:
+  transport: mp3_cached
+  mp3_bitrate: 128k
+
 spectrogram_render:
   source: existing          # existing or audio_generated
   win_dur_s: 1.0            # window duration in seconds (audio_generated mode)

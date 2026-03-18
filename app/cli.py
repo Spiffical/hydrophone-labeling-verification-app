@@ -5,7 +5,13 @@ import os
 from pathlib import Path
 
 from app.config import get_config
-from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
+from app.defaults import (
+    DEFAULT_AUDIO_MP3_BITRATE,
+    DEFAULT_AUDIO_TRANSPORT,
+    DEFAULT_CACHE_MAX_SIZE,
+    DEFAULT_ITEMS_PER_PAGE,
+)
+from app.utils.audio_transport import normalize_audio_transport
 from app.main import create_app
 
 
@@ -48,6 +54,18 @@ def main():
         choices=['existing', 'audio_generated'],
         default=None,
         help='Default spectrogram source mode at startup'
+    )
+    parser.add_argument(
+        '--audio-transport',
+        choices=['direct', 'mp3_cached'],
+        default=None,
+        help='Playback transport for audio players'
+    )
+    parser.add_argument(
+        '--audio-mp3-bitrate',
+        type=str,
+        default=None,
+        help='Bitrate for cached MP3 playback transport'
     )
     args = parser.parse_args()
 
@@ -106,6 +124,15 @@ def main():
         spec_cfg = dict(config.get("spectrogram_render", {}) or {})
         spec_cfg["source"] = args.spectrogram_source
         config["spectrogram_render"] = spec_cfg
+
+    audio_cfg = dict(config.get("audio", {}) or {})
+    audio_cfg["transport"] = normalize_audio_transport(
+        args.audio_transport or audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
+    )
+    audio_cfg["mp3_bitrate"] = str(
+        args.audio_mp3_bitrate or audio_cfg.get("mp3_bitrate", DEFAULT_AUDIO_MP3_BITRATE)
+    )
+    config["audio"] = audio_cfg
 
     app = create_app(config)
     

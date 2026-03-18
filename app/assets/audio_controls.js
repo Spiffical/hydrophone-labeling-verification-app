@@ -121,6 +121,13 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 setTimeout(updateDurationLabel, 120);
             }
 
+            const preloadMode = String(
+                audio.getAttribute('data-audio-preload-mode') || audio.getAttribute('preload') || ''
+            ).toLowerCase();
+            if (preloadMode === 'auto') {
+                ensureAudioSourceLoaded(audio, true);
+            }
+
             // Set up Web Audio API only for modal players that expose tone controls.
             if (!audio.audioContext && (pitchSlider || hasLowEqSliders || gainSlider)) {
                 try {
@@ -272,6 +279,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     e.stopPropagation();
 
                     if (audio.paused) {
+                        ensureAudioSourceLoaded(audio, true);
                         if (audio.audioContext && audio.audioContext.state === 'suspended') {
                             audio.audioContext.resume().catch(function () { });
                         }
@@ -414,6 +422,19 @@ function trackMutationObserver(observer, target, options, cleanupFns) {
             console.debug('Error disconnecting mutation observer:', e);
         }
     });
+}
+
+function ensureAudioSourceLoaded(audio, shouldLoad) {
+    if (!audio) return false;
+    const datasetSrc = audio.getAttribute('data-audio-src') || '';
+    const currentSrc = audio.getAttribute('src') || '';
+    if (!currentSrc && datasetSrc) {
+        audio.setAttribute('src', datasetSrc);
+    }
+    if (shouldLoad && typeof audio.load === 'function' && (datasetSrc || currentSrc)) {
+        audio.load();
+    }
+    return !!(audio.getAttribute('src') || audio.currentSrc);
 }
 
 // Helper function to safely update slider position (avoid conflicts)

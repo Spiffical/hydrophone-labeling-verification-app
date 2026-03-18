@@ -250,6 +250,9 @@ def register_modal_lifecycle_navigation_callbacks(
             except (TypeError, ValueError):
                 eq_values[eq_key] = 0.0
         gain_value = settings.get("gain", 1.0)
+        audio_cfg = (cfg or {}).get("audio", {}) if isinstance(cfg, dict) else {}
+        audio_transport = audio_cfg.get("transport", "direct")
+        audio_mp3_bitrate = audio_cfg.get("mp3_bitrate")
 
         audio_path = source_item.get("audio_path")
         modal_audio = (
@@ -260,6 +263,8 @@ def register_modal_lifecycle_navigation_callbacks(
                 pitch_value=pitch_value,
                 eq_values=eq_values,
                 gain_value=gain_value,
+                transport=audio_transport,
+                mp3_bitrate=audio_mp3_bitrate,
             )
             if audio_path
             else html.P("No audio available for this item.", className="text-muted italic")

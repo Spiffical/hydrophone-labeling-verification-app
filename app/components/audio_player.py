@@ -4,6 +4,9 @@ import base64
 import os
 from typing import Optional
 
+from app.utils.audio_request import encode_audio_request
+from app.utils.audio_transport import build_audio_transport_query
+
 
 EQ_BAND_FREQUENCIES = (20, 40, 80, 160, 315, 630, 1250, 2500, 5000, 10000, 16000)
 EQ_LOW_FOCUS_MAX_HZ = 200
@@ -29,7 +32,27 @@ def _format_frequency_label(frequency: int) -> str:
     return str(frequency)
 
 
-def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:
+def _build_audio_src(
+    audio_file_path: Optional[str],
+    *,
+    transport: str = "direct",
+    mp3_bitrate: Optional[str] = None,
+) -> Optional[str]:
+    token = encode_audio_request(audio_file_path)
+    if not token:
+        return None
+    query = build_audio_transport_query(transport=transport, mp3_bitrate=mp3_bitrate)
+    return f"/audio-file/{token}{query}"
+
+
+def create_audio_player(
+    audio_file_path: Optional[str],
+    spectrogram_filename: str,
+    player_id: str = None,
+    *,
+    transport: str = "direct",
+    mp3_bitrate: Optional[str] = None,
+) -> html.Div:
     """
     Create an enhanced audio player component with beautiful styling and time slider.
     
@@ -72,6 +95,7 @@ def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: st
         player_id = f"audio-{hash(spectrogram_filename) % 10000}"
     
     audio_filename = os.path.basename(audio_file_path)
+    audio_src = _build_audio_src(audio_file_path, transport=transport, mp3_bitrate=mp3_bitrate)
     
     return html.Div([
         # Audio icon and filename
@@ -176,9 +200,13 @@ def create_audio_player(audio_file_path: Optional[str], spectrogram_filename: st
         # Hidden HTML5 audio element for actual playback
         html.Audio(
             id=f'{player_id}-audio',
-            src=f'/audio/{audio_filename}',  # Direct src instead of lazy loading
-            preload='metadata',  # Load metadata immediately
-            style={'display': 'none'}
+            src='',
+            preload='none',
+            style={'display': 'none'},
+            **{
+                'data-audio-src': audio_src or '',
+                'data-audio-preload-mode': 'none',
+            }
         ),
         
         # Hidden dummy element for slider callback
@@ -199,6 +227,8 @@ def create_modal_audio_player(
     pitch_value: float = 1.0,
     eq_values: Optional[dict] = None,
     gain_value: float = 1.0,
+    transport: str = "direct",
+    mp3_bitrate: Optional[str] = None,
 ) -> html.Div:
     """
     Create an enhanced audio player for the modal with pitch shift controls.
@@ -241,6 +271,7 @@ def create_modal_audio_player(
         player_id = f"audio-{hash(spectrogram_filename) % 10000}"
     
     audio_filename = os.path.basename(audio_file_path)
+    audio_src = _build_audio_src(audio_file_path, transport=transport, mp3_bitrate=mp3_bitrate)
     try:
         pitch_value = max(0.1, min(4.0, float(pitch_value)))
     except (TypeError, ValueError):
@@ -439,9 +470,13 @@ def create_modal_audio_player(
         # Hidden HTML5 audio element
         html.Audio(
             id=f'{player_id}-audio',
-            src=f'/audio/{audio_filename}',
-            preload='metadata',
-            style={'display': 'none'}
+            src=audio_src,
+            preload='auto',
+            style={'display': 'none'},
+            **{
+                'data-audio-src': audio_src or '',
+                'data-audio-preload-mode': 'auto',
+            }
         ),
         
         # Hidden dummy elements for callbacks
@@ -451,7 +486,14 @@ def create_modal_audio_player(
         html.Div(id=f'{player_id}-gain-output', style={'display': 'none'})
     ], className="modal-audio-container")
 
-def create_audio_player_with_controls(audio_file_path: Optional[str], spectrogram_filename: str, player_id: str = None) -> html.Div:
+def create_audio_player_with_controls(
+    audio_file_path: Optional[str],
+    spectrogram_filename: str,
+    player_id: str = None,
+    *,
+    transport: str = "direct",
+    mp3_bitrate: Optional[str] = None,
+) -> html.Div:
     """
     Create an enhanced audio player with additional controls and beautiful styling.
     """
@@ -486,6 +528,7 @@ def create_audio_player_with_controls(audio_file_path: Optional[str], spectrogra
         player_id = f"audio-{hash(spectrogram_filename) % 10000}"
     
     audio_filename = os.path.basename(audio_file_path)
+    audio_src = _build_audio_src(audio_file_path, transport=transport, mp3_bitrate=mp3_bitrate)
     
     return html.Div([
         # Header with audio info
@@ -518,9 +561,13 @@ def create_audio_player_with_controls(audio_file_path: Optional[str], spectrogra
         # Audio element (hidden, controlled via JavaScript)
         html.Audio(
             id=f'{player_id}-audio',
-            src=f'/audio/{audio_filename}',  # Direct src instead of lazy loading
-            preload='metadata',  # Load metadata immediately
-            style={'display': 'none'}
+            src='',
+            preload='none',
+            style={'display': 'none'},
+            **{
+                'data-audio-src': audio_src or '',
+                'data-audio-preload-mode': 'none',
+            }
         ),
         
         # Custom controls with better styling
@@ -622,7 +669,8 @@ def create_simple_audio_link(audio_file_path: Optional[str], spectrogram_filenam
         })
     
     audio_filename = os.path.basename(audio_file_path)
-    
+    audio_src = _build_audio_src(audio_file_path)
+
     return html.Div([
         html.A([
             html.Div([
@@ -646,6 +694,6 @@ def create_simple_audio_link(audio_file_path: Optional[str], spectrogram_filenam
                 'border': '1px solid rgba(102, 126, 234, 0.3)',
                 'transition': 'all 0.3s ease'
             })
-        ], href=f'/audio/{audio_filename}', download=audio_filename, target='_blank',
+        ], href=audio_src or '#', download=audio_filename, target='_blank',
         style={'text-decoration': 'none'})
     ], style={'text-align': 'center', 'padding': '5px'}) 

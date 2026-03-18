@@ -4,7 +4,13 @@ from typing import Any, Dict
 
 import yaml
 
-from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
+from app.defaults import (
+    DEFAULT_AUDIO_MP3_BITRATE,
+    DEFAULT_AUDIO_TRANSPORT,
+    DEFAULT_CACHE_MAX_SIZE,
+    DEFAULT_ITEMS_PER_PAGE,
+)
+from app.utils.audio_transport import normalize_audio_transport
 
 
 def get_repo_root() -> str:
@@ -74,6 +80,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--items-per-page", type=int, help="Items per page")
     parser.add_argument("--colormap", type=str, choices=["default", "hydrophone"], help="Default colormap")
     parser.add_argument("--y-axis-scale", type=str, choices=["linear", "log"], help="Y axis scale")
+    parser.add_argument(
+        "--audio-transport",
+        type=str,
+        choices=["direct", "mp3_cached"],
+        help="Playback transport for audio players",
+    )
+    parser.add_argument(
+        "--audio-mp3-bitrate",
+        type=str,
+        help="Bitrate to use for cached MP3 playback transport",
+    )
     parser.add_argument("--reset-mock", action="store_true", help="Regenerate mock data before launch")
 
     return parser.parse_args()
@@ -106,6 +123,11 @@ def get_config() -> Dict[str, Any]:
 
     cache_cfg = config.get("cache", {})
     cache_max_size = cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE)
+    audio_cfg = config.get("audio", {})
+    audio_transport = normalize_audio_transport(
+        args.audio_transport or audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
+    )
+    audio_mp3_bitrate = str(args.audio_mp3_bitrate or audio_cfg.get("mp3_bitrate", DEFAULT_AUDIO_MP3_BITRATE))
     spec_render_cfg = config.get("spectrogram_render", {})
 
     spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")
@@ -137,6 +159,10 @@ def get_config() -> Dict[str, Any]:
         },
         "cache": {
             "max_size": cache_max_size,
+        },
+        "audio": {
+            "transport": audio_transport,
+            "mp3_bitrate": audio_mp3_bitrate,
         },
         "spectrogram_render": {
             "source": spec_source,
