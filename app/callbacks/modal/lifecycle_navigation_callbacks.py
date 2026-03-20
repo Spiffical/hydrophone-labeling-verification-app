@@ -12,6 +12,7 @@ from app.components.audio_player import (
     create_modal_audio_player,
 )
 from app.services.verify_modal_cache import get_verify_modal_item
+from app.utils.audio_transport import prewarm_audio_delivery_paths
 from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
 
 
@@ -86,6 +87,7 @@ def register_modal_lifecycle_navigation_callbacks(
         _ = prev_clicks, next_clicks, close_clicks
         mode = mode or "label"
         data = _get_mode_data(mode, label_data, None, explore_data)
+        source_items = (data or {}).get("items", []) if isinstance(data, dict) else []
         triggered = ctx.triggered_id
 
         page_items = []
@@ -213,13 +215,17 @@ def register_modal_lifecycle_navigation_callbacks(
             source_item = get_verify_modal_item(verify_data_cache_key, item_id)
             active_item = source_item
         else:
-            active_item = next((i for i in page_items if i.get("item_id") == item_id), None)
+            active_item = next(
+                (i for i in page_items if isinstance(i, dict) and i.get("item_id") == item_id),
+                None,
+            )
             if not active_item:
-                items = (data or {}).get("items", [])
-                active_item = next((i for i in items if i.get("item_id") == item_id), None)
+                active_item = next(
+                    (i for i in source_items if isinstance(i, dict) and i.get("item_id") == item_id),
+                    None,
+                )
             if not active_item:
                 raise PreventUpdate
-            source_items = (data or {}).get("items", [])
             source_item = next(
                 (item for item in source_items if isinstance(item, dict) and item.get("item_id") == item_id),
                 active_item,
@@ -253,6 +259,7 @@ def register_modal_lifecycle_navigation_callbacks(
         audio_cfg = (cfg or {}).get("audio", {}) if isinstance(cfg, dict) else {}
         audio_transport = audio_cfg.get("transport", "direct")
         audio_mp3_bitrate = audio_cfg.get("mp3_bitrate")
+        audio_cache_dir = audio_cfg.get("cache_dir")
 
         audio_path = source_item.get("audio_path")
         modal_audio = (
@@ -268,6 +275,43 @@ def register_modal_lifecycle_navigation_callbacks(
             )
             if audio_path
             else html.P("No audio available for this item.", className="text-muted italic")
+        )
+
+        # Warm the current item plus one neighbor on each side without slowing the modal render.
+        candidate_items = []
+        if item_id in page_item_ids:
+            current_index = page_item_ids.index(item_id)
+            nearby_ids = page_item_ids[max(0, current_index - 1) : min(len(page_item_ids), current_index + 2)]
+        else:
+            nearby_ids = [item_id]
+
+        for candidate_id in nearby_ids:
+            if candidate_id == item_id:
+                candidate_item = source_item
+            elif mode == "verify":
+                candidate_item = get_verify_modal_item(verify_data_cache_key, candidate_id)
+            else:
+                candidate_item = next(
+                    (i for i in page_items if isinstance(i, dict) and i.get("item_id") == candidate_id),
+                    None,
+                )
+                if not candidate_item:
+                    candidate_item = next(
+                        (
+                            i
+                            for i in source_items
+                            if isinstance(i, dict) and i.get("item_id") == candidate_id
+                        ),
+                        None,
+                    )
+            if isinstance(candidate_item, dict):
+                candidate_items.append(candidate_item)
+
+        prewarm_audio_delivery_paths(
+            (candidate.get("audio_path") for candidate in candidate_items),
+            transport=audio_transport,
+            mp3_bitrate=audio_mp3_bitrate,
+            cache_dir=audio_cache_dir,
         )
 
         modal_actions = _build_modal_item_actions(

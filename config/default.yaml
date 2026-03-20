@@ -33,8 +33,15 @@ cache:
   max_size: 75
 
 audio:
+  # direct: serve the source file; mp3_cached: route through the ffmpeg-backed cache for better browser seeking.
   transport: mp3_cached
   mp3_bitrate: 128k
+  cache_dir: /tmp/hydrophone_audio_transport
+  cache_max_age: 300
+  stale_while_revalidate: 60
+  stale_if_error: 86400
+  # Keep the old filename route alive for compatibility, but it now redirects to the tokenized audio URL.
+  legacy_filename_route: true
 
 spectrogram_render:
   source: existing          # existing or audio_generated

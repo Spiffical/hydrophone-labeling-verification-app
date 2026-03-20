@@ -6,10 +6,15 @@ import yaml
 
 from app.defaults import (
     DEFAULT_AUDIO_MP3_BITRATE,
+    DEFAULT_AUDIO_CACHE_MAX_AGE,
+    DEFAULT_AUDIO_LEGACY_FILENAME_ROUTE,
     DEFAULT_AUDIO_TRANSPORT,
+    DEFAULT_AUDIO_STALE_IF_ERROR,
+    DEFAULT_AUDIO_STALE_WHILE_REVALIDATE,
     DEFAULT_CACHE_MAX_SIZE,
     DEFAULT_ITEMS_PER_PAGE,
 )
+from app.utils.audio_transport import DEFAULT_AUDIO_CACHE_DIR
 from app.utils.audio_transport import normalize_audio_transport
 
 
@@ -29,6 +34,30 @@ def resolve_path(path: str, repo_root: str) -> str:
     if os.path.isabs(path):
         return path
     return os.path.join(repo_root, path)
+
+
+def _coerce_non_negative_int(value: Any, default: int) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    candidate = str(value).strip().lower()
+    if candidate in {"1", "true", "yes", "on"}:
+        return True
+    if candidate in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
 
 
 def load_config_file(config_path: str) -> Dict[str, Any]:
@@ -123,11 +152,28 @@ def get_config() -> Dict[str, Any]:
 
     cache_cfg = config.get("cache", {})
     cache_max_size = cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE)
-    audio_cfg = config.get("audio", {})
+    audio_cfg = config.get("audio", {}) if isinstance(config.get("audio"), dict) else {}
     audio_transport = normalize_audio_transport(
         args.audio_transport or audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
     )
     audio_mp3_bitrate = str(args.audio_mp3_bitrate or audio_cfg.get("mp3_bitrate", DEFAULT_AUDIO_MP3_BITRATE))
+    audio_cache_dir = resolve_path(audio_cfg.get("cache_dir", DEFAULT_AUDIO_CACHE_DIR), repo_root)
+    audio_cache_max_age = _coerce_non_negative_int(
+        audio_cfg.get("cache_max_age", DEFAULT_AUDIO_CACHE_MAX_AGE),
+        DEFAULT_AUDIO_CACHE_MAX_AGE,
+    )
+    audio_stale_while_revalidate = _coerce_non_negative_int(
+        audio_cfg.get("stale_while_revalidate", DEFAULT_AUDIO_STALE_WHILE_REVALIDATE),
+        DEFAULT_AUDIO_STALE_WHILE_REVALIDATE,
+    )
+    audio_stale_if_error = _coerce_non_negative_int(
+        audio_cfg.get("stale_if_error", DEFAULT_AUDIO_STALE_IF_ERROR),
+        DEFAULT_AUDIO_STALE_IF_ERROR,
+    )
+    audio_legacy_filename_route = _coerce_bool(
+        audio_cfg.get("legacy_filename_route", DEFAULT_AUDIO_LEGACY_FILENAME_ROUTE),
+        DEFAULT_AUDIO_LEGACY_FILENAME_ROUTE,
+    )
     spec_render_cfg = config.get("spectrogram_render", {})
 
     spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")
@@ -163,6 +209,11 @@ def get_config() -> Dict[str, Any]:
         "audio": {
             "transport": audio_transport,
             "mp3_bitrate": audio_mp3_bitrate,
+            "cache_dir": audio_cache_dir,
+            "cache_max_age": audio_cache_max_age,
+            "stale_while_revalidate": audio_stale_while_revalidate,
+            "stale_if_error": audio_stale_if_error,
+            "legacy_filename_route": audio_legacy_filename_route,
         },
         "spectrogram_render": {
             "source": spec_source,

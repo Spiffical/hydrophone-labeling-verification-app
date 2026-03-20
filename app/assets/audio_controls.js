@@ -35,16 +35,15 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 { key: 'eq-16000', frequency: 16000, slider: document.getElementById(playerId + '-eq-16000-slider') },
             ];
             const hasLowEqSliders = lowEqBands.some(function (band) { return !!band.slider; });
+            const formatClock = function (totalSeconds) {
+                if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = Math.floor(totalSeconds % 60);
+                return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+            };
 
             if (!audio.hasEventListeners) {
                 audio.hasEventListeners = true;
-
-                const formatClock = function (totalSeconds) {
-                    if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
-                    const minutes = Math.floor(totalSeconds / 60);
-                    const seconds = Math.floor(totalSeconds % 60);
-                    return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
-                };
 
                 const updateDurationLabel = function () {
                     if (!durationEl) return;
@@ -279,14 +278,15 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     e.stopPropagation();
 
                     if (audio.paused) {
-                        ensureAudioSourceLoaded(audio, true);
+                        const sourceChanged = ensureAudioSourceLoaded(audio, true);
+                        const syncedFromSlider = syncAudioTimeFromSlider(audio, timeSlider);
                         if (audio.audioContext && audio.audioContext.state === 'suspended') {
                             audio.audioContext.resume().catch(function () { });
                         }
                         // Always restart from the beginning if playback is at (or past) the end.
                         const hasFiniteDuration = isFinite(audio.duration) && audio.duration > 0;
                         const atEnd = hasFiniteDuration && audio.currentTime >= (audio.duration - 0.05);
-                        if (audio.ended || atEnd) {
+                        if ((audio.ended || atEnd) && !syncedFromSlider && !sourceChanged) {
                             audio.currentTime = 0;
                             if (timeSlider) {
                                 updateSliderPositionSafely(timeSlider, 0);
@@ -301,9 +301,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         });
 
                         // Play this audio
-                        audio.play().catch(function (error) {
-                            console.error('Error playing audio:', playerId, error);
-                        });
+                        resumeAudioPlayback(audio, playerId);
                     } else {
                         audio.pause();
                     }
@@ -313,8 +311,18 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             // Set up slider event listeners with better handling
             if (timeSlider && !timeSlider.hasSliderListeners) {
                 timeSlider.hasSliderListeners = true;
-                if (playerId.startsWith('modal-')) {
-                    setupSliderInteraction(timeSlider, audio, cleanupFns);
+                if (timeSlider.matches && timeSlider.matches('input[type="range"]')) {
+                    setupSliderInteraction(timeSlider, audio, cleanupFns, {
+                        playerId: playerId,
+                        currentTimeEl: currentTimeEl,
+                        formatClock: formatClock,
+                    });
+                } else if (playerId.startsWith('modal-')) {
+                    setupSliderInteraction(timeSlider, audio, cleanupFns, {
+                        playerId: playerId,
+                        currentTimeEl: currentTimeEl,
+                        formatClock: formatClock,
+                    });
                 } else {
                     attachSliderValueSeekSync(timeSlider, audio, cleanupFns);
                 }
@@ -428,13 +436,17 @@ function ensureAudioSourceLoaded(audio, shouldLoad) {
     if (!audio) return false;
     const datasetSrc = audio.getAttribute('data-audio-src') || '';
     const currentSrc = audio.getAttribute('src') || '';
-    if (!currentSrc && datasetSrc) {
+    let sourceChanged = false;
+    if (datasetSrc && currentSrc !== datasetSrc) {
         audio.setAttribute('src', datasetSrc);
+        sourceChanged = true;
     }
-    if (shouldLoad && typeof audio.load === 'function' && (datasetSrc || currentSrc)) {
+    const resolvedSrc = audio.getAttribute('src') || audio.currentSrc || '';
+    const shouldInitializeLoad = !audio.currentSrc && !!resolvedSrc;
+    if (shouldLoad && typeof audio.load === 'function' && (sourceChanged || shouldInitializeLoad)) {
         audio.load();
     }
-    return !!(audio.getAttribute('src') || audio.currentSrc);
+    return sourceChanged;
 }
 
 // Helper function to safely update slider position (avoid conflicts)
@@ -456,6 +468,9 @@ function updateSliderPositionSafely(slider, progress) {
 
 function getSliderRoot(slider) {
     if (!slider) return null;
+    if (slider.matches && slider.matches('input[type="range"]')) {
+        return slider;
+    }
     return (
         slider.querySelector('.dash-slider-root') ||
         slider.querySelector('.dash-slider') ||
@@ -466,11 +481,20 @@ function getSliderRoot(slider) {
 
 function getSliderHandle(slider) {
     if (!slider) return null;
+    if (slider.matches && slider.matches('input[type="range"]')) {
+        return slider;
+    }
     return slider.querySelector('.dash-slider-thumb[role="slider"]') || slider.querySelector('.rc-slider-handle');
 }
 
 function setSliderVisualProgress(slider, progress) {
     const clamped = clamp(progress, 0, 100);
+
+    if (slider.matches && slider.matches('input[type="range"]')) {
+        slider.value = String(clamped);
+        slider.setAttribute('value', String(clamped));
+        return;
+    }
 
     const dashRoot = slider.querySelector('.dash-slider-root');
     if (dashRoot) {
@@ -520,200 +544,259 @@ function getClientXFromEvent(e) {
     return null;
 }
 
+function getSliderTargetTime(slider, audio) {
+    if (!slider || !audio || !isFinite(audio.duration) || audio.duration <= 0) return null;
+    const progress = readSliderValue(slider, 0, 100);
+    if (progress === null) return null;
+    const targetTime = (progress / 100) * audio.duration;
+    const safeMax = Math.max(0, audio.duration - 0.01);
+    return clamp(targetTime, 0, safeMax);
+}
+
+function getSliderProgressFromEvent(e, sliderContainer) {
+    if (!sliderContainer || !e) return null;
+
+    const rect = sliderContainer.getBoundingClientRect();
+    const clientX = getClientXFromEvent(e);
+    if (clientX === null) return null;
+
+    const width = rect.width;
+    if (width <= 0) return null;
+
+    const x = clientX - rect.left;
+    const clampedX = Math.max(0, Math.min(width, x));
+    return (clampedX / width) * 100;
+}
+
+function updateSliderPreviewFromEvent(e, sliderContainer, slider) {
+    const progress = getSliderProgressFromEvent(e, sliderContainer);
+    if (progress === null) return false;
+    updateSliderPositionImmediately(slider, progress);
+    return true;
+}
+
+function renderSliderPreviewState(slider, audio, progress, options) {
+    if (!slider || !audio || !isFinite(progress)) return false;
+
+    const previewOptions = options || {};
+    const safeProgress = clamp(progress, 0, 100);
+    slider.previewProgress = safeProgress;
+    updateSliderPositionImmediately(slider, safeProgress);
+
+    if (!isFinite(audio.duration) || audio.duration <= 0) return true;
+    const targetTime = clamp((safeProgress / 100) * audio.duration, 0, Math.max(0, audio.duration - 0.01));
+
+    if (
+        previewOptions.currentTimeEl &&
+        typeof previewOptions.formatClock === 'function'
+    ) {
+        previewOptions.currentTimeEl.textContent = previewOptions.formatClock(targetTime);
+    }
+
+    if (
+        typeof previewOptions.playerId === 'string' &&
+        previewOptions.playerId.startsWith('modal-')
+    ) {
+        updateSpectrogramPlaybackMarker(targetTime, audio.duration);
+    }
+
+    return true;
+}
+
+function commitSliderSeekFromSliderValue(audio, slider) {
+    if (!isFinite(audio.duration) || audio.duration <= 0) return false;
+
+    const targetTime = getSliderTargetTime(slider, audio);
+    if (!isFinite(targetTime)) return false;
+
+    if (Math.abs((audio.currentTime || 0) - targetTime) <= 0.05) return false;
+    audio.currentTime = targetTime;
+    return true;
+}
+
+function commitSliderSeekFromProgress(audio, slider, progress) {
+    if (!slider || !audio || !isFinite(audio.duration) || audio.duration <= 0) return false;
+    if (!isFinite(progress)) return false;
+
+    const safeProgress = clamp(progress, 0, 100);
+    slider.previewProgress = safeProgress;
+    const targetTime = clamp((safeProgress / 100) * audio.duration, 0, Math.max(0, audio.duration - 0.01));
+    if (!isFinite(targetTime)) return false;
+    if (Math.abs((audio.currentTime || 0) - targetTime) <= 0.05) return false;
+    audio.currentTime = targetTime;
+    return true;
+}
+
+function syncAudioTimeFromSlider(audio, slider) {
+    const targetTime = getSliderTargetTime(slider, audio);
+    if (!isFinite(targetTime)) return false;
+    if (Math.abs((audio.currentTime || 0) - targetTime) <= 0.05) return false;
+    audio.currentTime = targetTime;
+    return true;
+}
+
+function resumeAudioPlayback(audio, logContext) {
+    if (!audio) return;
+
+    const attemptPlay = function () {
+        audio.play().catch(function (error) {
+            console.error('Error playing audio:', logContext, error);
+        });
+    };
+
+    if (!audio.seeking && audio.readyState >= 2) {
+        attemptPlay();
+        return;
+    }
+
+    let settled = false;
+    let timeoutId = null;
+    const cleanup = function () {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        audio.removeEventListener('seeked', onReady);
+        audio.removeEventListener('canplay', onReady);
+        audio.removeEventListener('canplaythrough', onReady);
+        audio.removeEventListener('loadeddata', onReady);
+    };
+    const onReady = function () {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        attemptPlay();
+    };
+
+    audio.addEventListener('seeked', onReady);
+    audio.addEventListener('canplay', onReady);
+    audio.addEventListener('canplaythrough', onReady);
+    audio.addEventListener('loadeddata', onReady);
+    timeoutId = setTimeout(onReady, 1200);
+}
+
 // Improved slider interaction setup - better click/drag detection
-function setupSliderInteraction(slider, audio, cleanupFns) {
-    const sliderContainer = getSliderRoot(slider);
-    if (!sliderContainer) return;
+function setupSliderInteraction(slider, audio, cleanupFns, previewOptions) {
+    if (!slider) return;
 
+    const usesPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
     let isActivelyDragging = false;
-    let dragStarted = false;
-    let mouseDownTime = 0;
     let resumeAfterSeek = false;
-    let fallbackSeekActive = false;
-    let fallbackResumeAfterSeek = false;
-    let fallbackInteractionTimer = null;
+    let finishFrameId = null;
 
-    const clearFallbackTimer = function () {
-        if (fallbackInteractionTimer) {
-            clearTimeout(fallbackInteractionTimer);
-            fallbackInteractionTimer = null;
-        }
-    };
-
-    const beginFallbackSeek = function () {
-        if (fallbackSeekActive) return;
-        fallbackSeekActive = true;
-        slider.isUserInteracting = true;
-        fallbackResumeAfterSeek = !audio.paused && !audio.ended;
-        if (fallbackResumeAfterSeek) {
-            audio.pause();
-        }
-    };
-
-    const endFallbackSeek = function () {
-        clearFallbackTimer();
-        if (!fallbackSeekActive) return;
-        fallbackSeekActive = false;
-        if (!isActivelyDragging) {
-            slider.isUserInteracting = false;
-        }
-        if (fallbackResumeAfterSeek && audio.paused) {
-            audio.play().catch(function (error) {
-                console.error('Error resuming audio after fallback seek:', error);
-            });
-        }
-        fallbackResumeAfterSeek = false;
-    };
-
-    const scheduleFallbackRelease = function () {
-        clearFallbackTimer();
-        fallbackInteractionTimer = setTimeout(function () {
-            endFallbackSeek();
-        }, 220);
-    };
-
-    const syncAudioTimeFromSliderValue = function () {
-        if (!isFinite(audio.duration) || audio.duration <= 0) return;
+    const previewFromSlider = function () {
         const progress = readSliderValue(slider, 0, 100);
-        if (progress === null) return;
-        const targetTime = (progress / 100) * audio.duration;
-        const safeMax = Math.max(0, audio.duration - 0.01);
-        const newTime = clamp(targetTime, 0, safeMax);
-        if (!isFinite(newTime)) return;
-        // Avoid excessive tiny writes that can trigger seek churn on some browsers.
-        if (Math.abs((audio.currentTime || 0) - newTime) > 0.01) {
-            audio.currentTime = newTime;
-        }
-        updateSliderPositionImmediately(slider, progress);
+        if (!isFinite(progress)) return null;
+        renderSliderPreviewState(slider, audio, progress, previewOptions);
+        return progress;
     };
 
     const beginInteraction = function (e) {
         if (isActivelyDragging) return;
         if (e && typeof e.button === 'number' && e.button !== 0) return;
-        mouseDownTime = Date.now();
-        dragStarted = false;
         isActivelyDragging = true;
         slider.isUserInteracting = true;
-        endFallbackSeek();
+        slider.pointerSeekActive = true;
 
         // Pause while scrubbing, then optionally resume on release.
         resumeAfterSeek = !audio.paused && !audio.ended;
         if (resumeAfterSeek) {
             audio.pause();
         }
-
-        handleSliderSeek(e, sliderContainer, slider, audio);
-
-        if (e && e.cancelable) {
-            e.preventDefault();
-        }
-        if (e) {
-            e.stopPropagation();
-        }
+        previewFromSlider();
     };
 
-    const continueInteraction = function (e) {
-        if (!isActivelyDragging) return;
-        dragStarted = true;
-        handleSliderSeek(e, sliderContainer, slider, audio);
-        if (e && e.cancelable) {
-            e.preventDefault();
-        }
-    };
-
-    const endInteraction = function (e, clickThresholdMs) {
-        if (!isActivelyDragging) return;
-
-        const clickDuration = Date.now() - mouseDownTime;
-        const shouldApplyFinalSeek = dragStarted || clickDuration < clickThresholdMs;
-        if (shouldApplyFinalSeek) {
-            handleSliderSeek(e, sliderContainer, slider, audio);
-        }
-
+    const clearInteractionState = function () {
         isActivelyDragging = false;
-        dragStarted = false;
+        slider.pointerSeekActive = false;
         slider.isUserInteracting = false;
+    };
 
+    const finishInteraction = function (options) {
+        const finishOptions = options || {};
+        const shouldResume = finishOptions.resume !== false;
+        const shouldCommit = finishOptions.commit !== false;
+        const wasInteracting = isActivelyDragging || slider.pointerSeekActive || slider.isUserInteracting;
+        if (!wasInteracting) return;
+
+        const progress = previewFromSlider();
+        if (shouldCommit && isFinite(progress)) {
+            commitSliderSeekFromProgress(audio, slider, progress);
+        }
+
+        clearInteractionState();
         if (resumeAfterSeek && audio.paused) {
-            audio.play().catch(function (error) {
-                console.error('Error resuming audio after seek:', error);
-            });
+            if (shouldResume) {
+                resumeAudioPlayback(audio, finishOptions.logContext || 'slider-seek');
+            }
         }
         resumeAfterSeek = false;
+    };
 
-        if (e && e.cancelable) {
-            e.preventDefault();
+    const scheduleFinishInteraction = function (options) {
+        if (finishFrameId) {
+            cancelAnimationFrame(finishFrameId);
         }
-        if (e) {
-            e.stopPropagation();
+        finishFrameId = requestAnimationFrame(function () {
+            finishFrameId = null;
+            finishInteraction(options);
+        });
+    };
+
+    const onInput = function () {
+        const progress = previewFromSlider();
+        if (!isFinite(progress)) return;
+        if (!(isActivelyDragging || slider.pointerSeekActive)) {
+            commitSliderSeekFromProgress(audio, slider, progress);
         }
     };
 
-    const startInteraction = function (e) { beginInteraction(e); };
-    const interactionTargets = [sliderContainer, slider].filter(Boolean);
-    interactionTargets.forEach(function (target) {
-        addTrackedEventListener(target, 'mousedown', startInteraction, undefined, cleanupFns);
-        addTrackedEventListener(target, 'touchstart', startInteraction, { passive: false }, cleanupFns);
-        addTrackedEventListener(target, 'pointerdown', startInteraction, undefined, cleanupFns);
-    });
-
-    // Handle mouse move while potentially dragging
-    const onMouseMove = function (e) {
-        continueInteraction(e);
+    const onClick = function () {
+        if (isActivelyDragging || slider.pointerSeekActive) return;
+        const progress = previewFromSlider();
+        if (!isFinite(progress)) return;
+        commitSliderSeekFromProgress(audio, slider, progress);
     };
-    addTrackedEventListener(document, 'mousemove', onMouseMove, undefined, cleanupFns);
 
-    const onTouchMove = function (e) {
-        continueInteraction(e);
-    };
-    addTrackedEventListener(document, 'touchmove', onTouchMove, { passive: false }, cleanupFns);
-
-    const onPointerMove = function (e) {
-        continueInteraction(e);
-    };
-    addTrackedEventListener(document, 'pointermove', onPointerMove, undefined, cleanupFns);
-
-    // Handle mouse up (end of interaction)
-    const onMouseUp = function (e) {
-        endInteraction(e, 200);
-        endFallbackSeek();
-    };
-    addTrackedEventListener(document, 'mouseup', onMouseUp, undefined, cleanupFns);
-
-    const onTouchEnd = function (e) {
-        endInteraction(e, 250);
-        endFallbackSeek();
-    };
-    addTrackedEventListener(document, 'touchend', onTouchEnd, { passive: false }, cleanupFns);
-
-    const onPointerUp = function (e) {
-        endInteraction(e, 200);
-        endFallbackSeek();
-    };
-    addTrackedEventListener(document, 'pointerup', onPointerUp, undefined, cleanupFns);
+    addTrackedEventListener(slider, 'input', onInput, { passive: true }, cleanupFns);
+    addTrackedEventListener(slider, 'change', function () {
+        scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-change' });
+    }, { passive: true }, cleanupFns);
+    addTrackedEventListener(slider, 'click', onClick, { passive: true }, cleanupFns);
+    addTrackedEventListener(slider, 'blur', function () {
+        scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-blur' });
+    }, undefined, cleanupFns);
 
     const onPointerCancel = function () {
-        endFallbackSeek();
+        scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-cancel' });
     };
-    addTrackedEventListener(document, 'pointercancel', onPointerCancel, undefined, cleanupFns);
 
-    // Disable Dash's default click handling on the slider
-    const suppressSliderClick = function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    };
-    addTrackedEventListener(sliderContainer, 'click', suppressSliderClick, undefined, cleanupFns);
+    registerPlayerCleanup(cleanupFns, function () {
+        if (finishFrameId) {
+            cancelAnimationFrame(finishFrameId);
+            finishFrameId = null;
+        }
+        clearInteractionState();
+        resumeAfterSeek = false;
+    });
 
-    attachSliderValueSeekSync(
-        slider,
-        audio,
-        cleanupFns,
-        beginFallbackSeek,
-        syncAudioTimeFromSliderValue,
-        scheduleFallbackRelease,
-        endFallbackSeek,
-        clearFallbackTimer
-    );
+    if (usesPointerEvents) {
+        addTrackedEventListener(slider, 'pointerdown', beginInteraction, undefined, cleanupFns);
+        addTrackedEventListener(document, 'pointerup', function () {
+            scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-seek' });
+        }, undefined, cleanupFns);
+        addTrackedEventListener(document, 'pointercancel', onPointerCancel, undefined, cleanupFns);
+    } else {
+        addTrackedEventListener(slider, 'mousedown', beginInteraction, undefined, cleanupFns);
+        addTrackedEventListener(slider, 'touchstart', beginInteraction, { passive: false }, cleanupFns);
+        addTrackedEventListener(document, 'mouseup', function () {
+            scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-seek' });
+        }, undefined, cleanupFns);
+        addTrackedEventListener(document, 'touchend', function () {
+            scheduleFinishInteraction({ resume: true, commit: true, logContext: 'slider-seek' });
+        }, { passive: false }, cleanupFns);
+        addTrackedEventListener(document, 'touchcancel', onPointerCancel, { passive: false }, cleanupFns);
+    }
 }
 
 function attachSliderValueSeekSync(
@@ -729,11 +812,7 @@ function attachSliderValueSeekSync(
     if (!slider || slider.hasFallbackSeekListeners) return;
     slider.hasFallbackSeekListeners = true;
 
-    const startFallbackSeek = typeof beginFallbackSeek === 'function'
-        ? beginFallbackSeek
-        : function () {
-            slider.isUserInteracting = true;
-        };
+    const startFallbackSeek = typeof beginFallbackSeek === 'function' ? beginFallbackSeek : null;
     const syncAudioTime = typeof syncAudioTimeFromSliderValue === 'function'
         ? syncAudioTimeFromSliderValue
         : function () {
@@ -749,26 +828,42 @@ function attachSliderValueSeekSync(
             }
             updateSliderPositionImmediately(slider, progress);
         };
-    const scheduleFallbackEnd = typeof scheduleFallbackRelease === 'function'
-        ? scheduleFallbackRelease
-        : function () { };
+    const scheduleFallbackEnd = typeof scheduleFallbackRelease === 'function' ? scheduleFallbackRelease : null;
     const finishFallbackSeek = typeof endFallbackSeek === 'function'
-        ? endFallbackSeek
+        ? function () {
+            endFallbackSeek();
+        }
         : function () {
+            commitSliderSeekFromSliderValue(audio, slider);
             slider.isUserInteracting = false;
         };
-    const clearFallback = typeof clearFallbackTimer === 'function'
-        ? clearFallbackTimer
-        : function () { };
+    const clearFallback = typeof clearFallbackTimer === 'function' ? clearFallbackTimer : function () { };
 
     const onInputLike = function () {
-        startFallbackSeek();
+        if (slider.pointerSeekActive) {
+            syncAudioTime();
+            return;
+        }
+        if (startFallbackSeek) {
+            startFallbackSeek();
+        } else {
+            slider.isUserInteracting = true;
+        }
         syncAudioTime();
-        scheduleFallbackEnd();
+        if (scheduleFallbackEnd) {
+            scheduleFallbackEnd();
+        }
     };
     addTrackedEventListener(slider, 'input', onInputLike, { passive: true }, cleanupFns);
     const onChange = function () {
-        startFallbackSeek();
+        if (slider.pointerSeekActive) {
+            return;
+        }
+        if (startFallbackSeek) {
+            startFallbackSeek();
+        } else {
+            slider.isUserInteracting = true;
+        }
         syncAudioTime();
         finishFallbackSeek();
     };
@@ -857,6 +952,13 @@ function clamp(value, min, max) {
 
 function readSliderValue(slider, min, max) {
     if (!slider) return null;
+
+    if (slider.matches && slider.matches('input[type="range"]')) {
+        const nativeValue = parseFloat(slider.value);
+        if (isNaN(nativeValue)) return null;
+        return clamp(nativeValue, min, max);
+    }
+
     const handle = getSliderHandle(slider);
     if (!handle) return null;
 
@@ -1064,7 +1166,8 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
 
         markerPosition = clamp(markerPosition, domainStart, domainEnd);
 
-        // Update the shape (playback marker line)
+        // Keep the layout state in sync locally, but avoid Plotly.relayout because
+        // it emits relayoutData and triggers expensive Dash bbox callbacks.
         if (!graphDiv.layout.shapes || graphDiv.layout.shapes.length === 0) {
             graphDiv.layout.shapes = [{
                 type: 'line',
@@ -1073,6 +1176,7 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
                 y0: 0,
                 y1: 1,
                 yref: 'paper',
+                editable: false,
                 line: {
                     color: 'rgba(255, 50, 50, 0.8)',
                     width: 2,
@@ -1080,18 +1184,64 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
                 }
             }];
         } else {
-            // Update existing marker
             graphDiv.layout.shapes[0].x0 = markerPosition;
             graphDiv.layout.shapes[0].x1 = markerPosition;
             graphDiv.layout.shapes[0].line.color = 'rgba(255, 50, 50, 0.8)';
         }
 
-        // Use Plotly's relayout to update without full redraw
-        if (window.Plotly) {
-            window.Plotly.relayout(graphDiv, {
-                'shapes[0].x0': markerPosition,
-                'shapes[0].x1': markerPosition
-            });
+        const fullLayout = graphDiv._fullLayout || {};
+        const xAxisFull = fullLayout.xaxis;
+        const yAxisFull = fullLayout.yaxis;
+        const xOffset = xAxisFull && isFinite(xAxisFull._offset) ? xAxisFull._offset : 0;
+        const yOffset = yAxisFull && isFinite(yAxisFull._offset) ? yAxisFull._offset : 0;
+        const yLength = yAxisFull && isFinite(yAxisFull._length) ? yAxisFull._length : graphDiv.clientHeight;
+        const axisToPixels = function (axis, value) {
+            if (!axis) return null;
+            const converter = typeof axis.d2p === 'function' ? axis.d2p : axis.l2p;
+            if (typeof converter !== 'function') return null;
+            const px = converter.call(axis, value);
+            if (!isFinite(px)) return null;
+            return (isFinite(axis._offset) ? axis._offset : 0) + px;
+        };
+        const markerPx = axisToPixels(xAxisFull, markerPosition);
+        if (markerPx === null) return;
+
+        const shapeLayer = graphDiv.querySelector('.shapelayer');
+        const svgMarker = shapeLayer && (shapeLayer.querySelector('path') || shapeLayer.querySelector('line'));
+        if (svgMarker) {
+            if (svgMarker.tagName && svgMarker.tagName.toLowerCase() === 'path') {
+                svgMarker.setAttribute('d', `M${markerPx},${yOffset}L${markerPx},${yOffset + yLength}`);
+            } else {
+                svgMarker.setAttribute('x1', String(markerPx));
+                svgMarker.setAttribute('x2', String(markerPx));
+                svgMarker.setAttribute('y1', String(yOffset));
+                svgMarker.setAttribute('y2', String(yOffset + yLength));
+            }
+            svgMarker.style.stroke = 'rgba(255, 50, 50, 0.8)';
+            svgMarker.style.strokeWidth = '2px';
+            return;
+        }
+
+        const overlayRoot = graphDiv.querySelector('.svg-container') || graphDiv;
+        if (overlayRoot) {
+            const overlayStyle = window.getComputedStyle(overlayRoot);
+            if (overlayStyle.position === 'static') {
+                overlayRoot.style.position = 'relative';
+            }
+            let overlayMarker = overlayRoot.querySelector('.hydro-playback-marker-overlay');
+            if (!overlayMarker) {
+                overlayMarker = document.createElement('div');
+                overlayMarker.className = 'hydro-playback-marker-overlay';
+                overlayMarker.style.position = 'absolute';
+                overlayMarker.style.pointerEvents = 'none';
+                overlayMarker.style.width = '2px';
+                overlayMarker.style.background = 'rgba(255, 50, 50, 0.8)';
+                overlayMarker.style.zIndex = '20';
+                overlayRoot.appendChild(overlayMarker);
+            }
+            overlayMarker.style.left = `${markerPx}px`;
+            overlayMarker.style.top = `${yOffset}px`;
+            overlayMarker.style.height = `${yLength}px`;
         }
     } catch (e) {
         // Silently fail if there's an issue

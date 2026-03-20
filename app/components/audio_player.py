@@ -163,20 +163,14 @@ def create_audio_player(
                     }),
                     
                     # Dash slider with better interaction handling
-                    dcc.Slider(
+                    dbc.Input(
                         id=f'{player_id}-time-slider',
+                        type='range',
                         min=0,
                         max=100,
                         step=0.001,
-                        value=0,
-                        marks=None,
-                        tooltip={
-                            "placement": "bottom",
-                            "always_visible": False,
-                            "style": {"display": "none"},
-                        },
-                        className='custom-time-slider',
-                        updatemode='drag'  # Allow dragging
+                        value='0',
+                        className='custom-time-slider native-time-slider'
                     ),
                     
                     html.Span("0:00", id=f'{player_id}-duration', style={
@@ -446,20 +440,14 @@ def create_modal_audio_player(
                     html.Span("0:00", id=f'{player_id}-current-time', className="modal-time-display"),
                     html.Span("0:00", id=f'{player_id}-duration', className="modal-time-display"),
                 ], className="modal-time-row"),
-                dcc.Slider(
+                dbc.Input(
                     id=f'{player_id}-time-slider',
+                    type='range',
                     min=0,
                     max=100,
                     step=0.001,
-                    value=0,
-                    marks=None,
-                    tooltip={
-                        "placement": "bottom",
-                        "always_visible": False,
-                        "style": {"display": "none"},
-                    },
-                    className='custom-time-slider modal-time-slider',
-                    updatemode='drag'
+                    value='0',
+                    className='custom-time-slider native-time-slider modal-time-slider'
                 ),
             ], className="modal-transport-track")
         ], className="modal-transport-row"),

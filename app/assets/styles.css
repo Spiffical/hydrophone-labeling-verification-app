@@ -1896,6 +1896,15 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     width: 100% !important;
 }
 
+input.custom-time-slider {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    padding: 0 !important;
+}
+
 .custom-time-slider .dash-range-slider-input {
     display: none !important;
 }
@@ -1912,6 +1921,18 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     height: 4px !important;
     width: 100% !important;
     margin: 8px 0 !important;
+}
+
+input.custom-time-slider::-webkit-slider-runnable-track {
+    background-color: rgba(102, 126, 234, 0.2) !important;
+    border-radius: 2px !important;
+    height: 4px !important;
+}
+
+input.custom-time-slider::-moz-range-track {
+    background-color: rgba(102, 126, 234, 0.2) !important;
+    border-radius: 2px !important;
+    height: 4px !important;
 }
 
 .custom-time-slider .rc-slider-rail {
@@ -1935,8 +1956,31 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     margin-top: -6px !important;
     opacity: 1 !important;
     cursor: pointer !important;
-    transform: none !important;
+    transform: translateX(-50%) !important;
     transition: none !important;
+}
+
+input.custom-time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
+    border: 2px solid white !important;
+    border-radius: 50% !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+    cursor: pointer !important;
+    height: 16px !important;
+    margin-top: -6px !important;
+    width: 16px !important;
+}
+
+input.custom-time-slider::-moz-range-thumb {
+    background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
+    border: 2px solid white !important;
+    border-radius: 50% !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+    cursor: pointer !important;
+    height: 16px !important;
+    width: 16px !important;
 }
 
 .custom-time-slider .rc-slider-handle:hover,
@@ -1945,7 +1989,7 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     background: linear-gradient(135deg, #4f9fff 0%, #58a6ff 100%) !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
     border-color: white !important;
-    transform: none !important;
+    transform: translateX(-50%) !important;
     transition: none !important;
     width: 16px !important;
     height: 16px !important;
@@ -1973,12 +2017,19 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
 
 .custom-time-slider:hover,
 .custom-time-slider:hover * {
-    transform: none !important;
     transition: none !important;
 }
 
 /* Dark mode adjustments for slider */
 .theme-dark .custom-time-slider .rc-slider-rail {
+    background-color: rgba(88, 166, 255, 0.2) !important;
+}
+
+.theme-dark input.custom-time-slider::-webkit-slider-runnable-track {
+    background-color: rgba(88, 166, 255, 0.2) !important;
+}
+
+.theme-dark input.custom-time-slider::-moz-range-track {
     background-color: rgba(88, 166, 255, 0.2) !important;
 }
 
