@@ -142,6 +142,210 @@ def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, 
     }
 
 
+def _optional_float(value: Any) -> Optional[float]:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _display_limit_cache_token(value: Any) -> Optional[float]:
+    parsed = _optional_float(value)
+    if parsed is None or not np.isfinite(parsed):
+        return None
+    return round(float(parsed), 6)
+
+
+def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> Dict[str, Any]:
+    psd = spectrogram_data["psd"]
+    freq = spectrogram_data["freq"]
+    time = spectrogram_data["time"]
+
+    if len(time) > 0 and time[0] > 1000:
+        time_plot = (time - time[0]) * 24 * 60
+        x_label = "Time (minutes)"
+        x_to_seconds = 60.0
+    else:
+        time_plot = time - time[0] if len(time) > 0 else time
+        x_label = "Time (seconds)"
+        x_to_seconds = 1.0
+
+    if len(freq) > 0:
+        max_f = float(np.max(freq))
+        if max_f > 1000:
+            freq_plot = freq / 1000
+            y_unit = "kHz"
+            y_to_hz = 1000.0
+        elif max_f > 2:
+            freq_plot = freq
+            y_unit = "Hz" if max_f < 1000 else "kHz"
+            y_to_hz = 1.0 if y_unit == "Hz" else 1000.0
+        else:
+            freq_plot = freq
+            y_unit = "kHz"
+            y_to_hz = 1000.0
+    else:
+        freq_plot = freq
+        y_unit = "Hz"
+        y_to_hz = 1.0
+
+    return {
+        "psd": psd,
+        "time_plot": np.asarray(time_plot),
+        "x_label": x_label,
+        "x_to_seconds": x_to_seconds,
+        "freq_plot": np.asarray(freq_plot),
+        "y_unit": y_unit,
+        "y_to_hz": y_to_hz,
+    }
+
+
+def _compute_color_limit_summary(psd: np.ndarray) -> Dict[str, float]:
+    psd_valid = psd[np.isfinite(psd)]
+    if len(psd_valid) > 0:
+        data_min = float(np.min(psd_valid))
+        data_max = float(np.max(psd_valid))
+        auto_min = float(np.percentile(psd_valid, 2))
+        auto_max = float(np.percentile(psd_valid, 98))
+        if auto_max - auto_min < 0.1:
+            auto_min = data_min
+            auto_max = data_max
+    else:
+        data_min, data_max = -60.0, 0.0
+        auto_min, auto_max = -60.0, 0.0
+
+    if auto_max <= auto_min:
+        auto_max = auto_min + 1.0
+    if data_max <= data_min:
+        data_max = data_min + 1.0
+
+    return {
+        "data_min": data_min,
+        "data_max": data_max,
+        "auto_min": auto_min,
+        "auto_max": auto_max,
+    }
+
+
+def summarize_spectrogram_display_ranges(
+    spectrogram_data: Optional[Dict[str, np.ndarray]],
+) -> Dict[str, float]:
+    if spectrogram_data is None:
+        return {}
+
+    plot_axes = _prepare_spectrogram_plot_axes(spectrogram_data)
+    freq_plot = np.asarray(plot_axes["freq_plot"], dtype=np.float64)
+    finite_freq = freq_plot[np.isfinite(freq_plot)] if freq_plot.size else np.asarray([], dtype=np.float64)
+
+    if finite_freq.size:
+        freq_data_min_plot = float(np.min(finite_freq))
+        freq_data_max_plot = float(np.max(finite_freq))
+    else:
+        freq_data_min_plot = 0.0
+        freq_data_max_plot = 1.0
+
+    positive_freq = finite_freq[finite_freq > 0]
+    if positive_freq.size:
+        freq_positive_min_plot = float(np.min(positive_freq))
+    else:
+        freq_positive_min_plot = 0.001 if plot_axes["y_unit"] == "kHz" else 0.1
+
+    color_summary = _compute_color_limit_summary(np.asarray(plot_axes["psd"]))
+    y_to_hz = float(plot_axes["y_to_hz"])
+
+    return {
+        "freq_data_min_hz": float(freq_data_min_plot * y_to_hz),
+        "freq_data_max_hz": float(freq_data_max_plot * y_to_hz),
+        "freq_positive_min_hz": float(freq_positive_min_plot * y_to_hz),
+        "color_data_min": float(color_summary["data_min"]),
+        "color_data_max": float(color_summary["data_max"]),
+        "color_auto_min": float(color_summary["auto_min"]),
+        "color_auto_max": float(color_summary["auto_max"]),
+    }
+
+
+def _resolve_color_limits(
+    *,
+    color_min: Any,
+    color_max: Any,
+    auto_min: float,
+    auto_max: float,
+) -> Tuple[float, float]:
+    zmin = _optional_float(color_min)
+    zmax = _optional_float(color_max)
+    if zmin is None:
+        zmin = float(auto_min)
+    if zmax is None:
+        zmax = float(auto_max)
+    if zmax <= zmin:
+        zmin = float(auto_min)
+        zmax = float(auto_max)
+    if zmax <= zmin:
+        zmax = zmin + 1.0
+    return float(zmin), float(zmax)
+
+
+def _resolve_y_axis_window(
+    *,
+    freq_plot: np.ndarray,
+    y_to_hz: float,
+    y_unit: str,
+    y_axis_scale: str,
+    y_axis_min_hz: Any,
+    y_axis_max_hz: Any,
+) -> Dict[str, float]:
+    if len(freq_plot):
+        finite_freq = np.asarray(freq_plot[np.isfinite(freq_plot)], dtype=np.float64)
+    else:
+        finite_freq = np.asarray([], dtype=np.float64)
+
+    if finite_freq.size:
+        data_min_plot = float(np.min(finite_freq))
+        data_max_plot = float(np.max(finite_freq))
+    else:
+        data_min_plot = 0.0
+        data_max_plot = 1.0
+
+    min_allowed_plot = data_min_plot
+    if y_axis_scale == "log":
+        positive_freq = finite_freq[finite_freq > 0]
+        if positive_freq.size:
+            min_allowed_plot = float(np.min(positive_freq))
+        else:
+            min_allowed_plot = 0.001 if y_unit == "kHz" else 0.1
+        data_min_plot = max(min_allowed_plot, data_min_plot)
+        data_max_plot = max(min_allowed_plot, data_max_plot)
+
+    default_min_hz = data_min_plot * y_to_hz
+    default_max_hz = data_max_plot * y_to_hz
+    requested_min_hz = _optional_float(y_axis_min_hz)
+    requested_max_hz = _optional_float(y_axis_max_hz)
+
+    lower_plot = data_min_plot if requested_min_hz is None else requested_min_hz / y_to_hz
+    upper_plot = data_max_plot if requested_max_hz is None else requested_max_hz / y_to_hz
+
+    lower_plot = max(min_allowed_plot, min(data_max_plot, float(lower_plot)))
+    upper_plot = max(min_allowed_plot, min(data_max_plot, float(upper_plot)))
+
+    if upper_plot <= lower_plot:
+        lower_plot = data_min_plot
+        upper_plot = data_max_plot
+    if upper_plot <= lower_plot:
+        upper_plot = lower_plot * 10.0 if y_axis_scale == "log" else lower_plot + 1.0
+
+    return {
+        "data_min_hz": float(default_min_hz),
+        "data_max_hz": float(default_max_hz),
+        "positive_min_hz": float(min_allowed_plot * y_to_hz),
+        "display_min_hz": float(lower_plot * y_to_hz),
+        "display_max_hz": float(upper_plot * y_to_hz),
+        "display_min_plot": float(lower_plot),
+        "display_max_plot": float(upper_plot),
+    }
+
+
 def _load_mat(mat_path: str):
     try:
         mat_data = sio.loadmat(mat_path)
@@ -429,6 +633,10 @@ def estimate_page_audio_generation_work(
     *,
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> Dict[str, Any]:
     render_cfg = get_spectrogram_render_settings(cfg)
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
@@ -466,6 +674,10 @@ def estimate_page_audio_generation_work(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         if image_key is None or image_key not in image_cache:
             status["pending"] += 1
@@ -540,6 +752,10 @@ def _item_image_generation_key(
     *,
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> Optional[Tuple[Any, ...]]:
     if not isinstance(item, dict):
         return None
@@ -568,6 +784,10 @@ def _item_image_generation_key(
         source_key,
         str(colormap or "default"),
         str(y_axis_scale or "linear"),
+        _display_limit_cache_token(y_axis_min_hz),
+        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(color_min),
+        _display_limit_cache_token(color_max),
     )
 
 
@@ -577,6 +797,10 @@ def _prefetch_item_image(
     cfg: Optional[Dict[str, Any]],
     colormap: str,
     y_axis_scale: str,
+    y_axis_min_hz: Any,
+    y_axis_max_hz: Any,
+    color_min: Any,
+    color_max: Any,
     dedupe_key: Tuple[Any, ...],
 ) -> None:
     try:
@@ -585,6 +809,10 @@ def _prefetch_item_image(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
     except Exception:
         logger.exception("Background image prefetch failed for item=%s", item.get("item_id"))
@@ -599,6 +827,10 @@ def prefetch_page_images_in_background(
     *,
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> int:
     submitted = 0
     items = page_items if isinstance(page_items, list) else []
@@ -611,6 +843,10 @@ def prefetch_page_images_in_background(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         if image_key is None:
             continue
@@ -629,6 +865,10 @@ def prefetch_page_images_in_background(
             cfg=cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
             dedupe_key=dedupe_key,
         )
         submitted += 1
@@ -712,6 +952,10 @@ def prefetch_page_items_in_background(
     *,
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> int:
     render_cfg = get_spectrogram_render_settings(cfg)
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
@@ -760,6 +1004,10 @@ def schedule_prefetch_for_future_pages(
     cfg: Optional[Dict[str, Any]],
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
     pages_ahead: int = 1,
 ) -> int:
     items = all_items if isinstance(all_items, list) else []
@@ -784,6 +1032,10 @@ def schedule_prefetch_for_future_pages(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
     return submitted
 
@@ -821,23 +1073,66 @@ def schedule_modal_prefetch_for_future_pages(
     return submitted
 
 
-def generate_image_cached(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
-    cache_key = ("mat", mat_path, colormap, y_axis_scale)
+def generate_image_cached(
+    mat_path: str,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
+):
+    cache_key = (
+        "mat",
+        mat_path,
+        colormap,
+        y_axis_scale,
+        _display_limit_cache_token(y_axis_min_hz),
+        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(color_min),
+        _display_limit_cache_token(color_max),
+    )
     with _IMAGE_CACHE_LOCK:
         if cache_key in image_cache:
             return image_cache[cache_key]
 
-    result = _generate_image(mat_path, colormap, y_axis_scale)
+    result = _generate_image(
+        mat_path,
+        colormap,
+        y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
     with _IMAGE_CACHE_LOCK:
         image_cache[cache_key] = result
     return result
 
 
-def _generate_image(mat_path: str, colormap: str = "default", y_axis_scale: str = "linear"):
+def _generate_image(
+    mat_path: str,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
+):
     spectrogram = load_spectrogram_cached(mat_path)
     if spectrogram is None:
         return None
-    return _generate_image_from_spectrogram_data(spectrogram, colormap=colormap, y_axis_scale=y_axis_scale)
+    return _generate_image_from_spectrogram_data(
+        spectrogram,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
 
 
 def generate_item_image_cached(
@@ -846,15 +1141,36 @@ def generate_item_image_cached(
     *,
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> Optional[str]:
     spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
     if spectrogram is None:
         return None
-    cache_key = ("item", source_key, colormap, y_axis_scale)
+    cache_key = (
+        "item",
+        source_key,
+        colormap,
+        y_axis_scale,
+        _display_limit_cache_token(y_axis_min_hz),
+        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(color_min),
+        _display_limit_cache_token(color_max),
+    )
     with _IMAGE_CACHE_LOCK:
         if cache_key in image_cache:
             return image_cache[cache_key]
-    result = _generate_image_from_spectrogram_data(spectrogram, colormap=colormap, y_axis_scale=y_axis_scale)
+    result = _generate_image_from_spectrogram_data(
+        spectrogram,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
     with _IMAGE_CACHE_LOCK:
         image_cache[cache_key] = result
     return result
@@ -864,6 +1180,11 @@ def _generate_image_from_spectrogram_data(
     spectrogram: Dict[str, np.ndarray],
     colormap: str = "default",
     y_axis_scale: str = "linear",
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ) -> Optional[str]:
     if spectrogram is None:
         return None
@@ -879,32 +1200,25 @@ def _generate_image_from_spectrogram_data(
         else:
             cmap = "viridis"
 
-        psd = spectrogram["psd"]
-        freq = spectrogram["freq"]
-        time = spectrogram["time"]
-
-        if len(time) > 0 and time[0] > 1000:
-            time_plot = (time - time[0]) * 24 * 60
-        else:
-            time_plot = time - time[0] if len(time) > 0 else time
-
-        if len(freq) > 0 and freq[-1] > 500:
-            freq_plot = freq
-        else:
-            if len(freq) == 0:
-                freq_plot = freq
-            else:
-                freq_plot = freq * 1000 if np.max(freq) < 1 else freq
-
-        psd_valid = psd[np.isfinite(psd)]
-        if len(psd_valid) > 0:
-            vmin = np.percentile(psd_valid, 2)
-            vmax = np.percentile(psd_valid, 98)
-            if vmax - vmin < 0.1:
-                vmin = np.min(psd_valid)
-                vmax = np.max(psd_valid)
-        else:
-            vmin, vmax = -60, 0
+        plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
+        psd = plot_axes["psd"]
+        time_plot = plot_axes["time_plot"]
+        freq_plot = np.asarray(plot_axes["freq_plot"], dtype=np.float64)
+        color_summary = _compute_color_limit_summary(psd)
+        vmin, vmax = _resolve_color_limits(
+            color_min=color_min,
+            color_max=color_max,
+            auto_min=color_summary["auto_min"],
+            auto_max=color_summary["auto_max"],
+        )
+        y_window = _resolve_y_axis_window(
+            freq_plot=freq_plot,
+            y_to_hz=plot_axes["y_to_hz"],
+            y_unit=plot_axes["y_unit"],
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+        )
 
         if y_axis_scale == "log":
             valid_freq_mask = freq_plot > 0
@@ -921,8 +1235,8 @@ def _generate_image_from_spectrogram_data(
             else:
                 freq_for_plot = freq_plot[valid_freq_mask]
                 psd_for_plot = psd[valid_freq_mask, :]
-                min_freq = max(freq_for_plot[0], 0.1)
-                max_freq = freq_for_plot[-1]
+                min_freq = float(freq_for_plot[0])
+                max_freq = float(freq_for_plot[-1])
                 ax.imshow(
                     psd_for_plot,
                     extent=[time_plot[0], time_plot[-1], min_freq, max_freq],
@@ -933,7 +1247,7 @@ def _generate_image_from_spectrogram_data(
                     vmax=vmax,
                 )
                 ax.set_yscale("log")
-                ax.set_ylim(min_freq, max_freq)
+                ax.set_ylim(y_window["display_min_plot"], y_window["display_max_plot"])
         else:
             extent = [
                 time_plot[0] if len(time_plot) > 0 else 0,
@@ -950,6 +1264,7 @@ def _generate_image_from_spectrogram_data(
                 vmin=vmin,
                 vmax=vmax,
             )
+            ax.set_ylim(y_window["display_min_plot"], y_window["display_max_plot"])
 
         ax.axis("off")
         ax.set_position([0, 0, 1, 1])
@@ -1009,56 +1324,25 @@ def create_spectrogram_figure(
     *,
     cfg: Optional[Dict[str, Any]] = None,
     transport_mode: Optional[str] = None,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
 ):
     if spectrogram_data is None:
         return go.Figure()
 
-    psd = spectrogram_data["psd"]
-    freq = spectrogram_data["freq"]
-    time = spectrogram_data["time"]
+    plot_axes = _prepare_spectrogram_plot_axes(spectrogram_data)
+    psd = plot_axes["psd"]
+    time_plot = plot_axes["time_plot"]
+    x_label = plot_axes["x_label"]
+    x_to_seconds = plot_axes["x_to_seconds"]
+    freq_plot = np.asarray(plot_axes["freq_plot"], dtype=np.float64)
+    y_unit = plot_axes["y_unit"]
+    y_to_hz = plot_axes["y_to_hz"]
     resolved_transport_mode = _normalize_modal_transport_mode(
         transport_mode if transport_mode is not None else get_modal_transport_mode(cfg)
     )
-
-    # Normalize time to start from 0 for better visualization.
-    # This shows clip-relative duration on x-axis, which aligns with annotation_extent seconds.
-    if len(time) > 0 and time[0] > 1000:
-        # Julian days - convert to minutes relative to start
-        time_plot = (time - time[0]) * 24 * 60
-        x_label = "Time (minutes)"
-        x_to_seconds = 60.0
-    else:
-        # Seconds - normalize to start from 0
-        time_plot = time - time[0] if len(time) > 0 else time
-        x_label = "Time (seconds)"
-        x_to_seconds = 1.0
-
-    # Intelligent frequency unit detection and scaling
-    if len(freq) > 0:
-        max_f = np.max(freq)
-        if max_f > 1000:
-            # Data is in Hz and has a high range -> convert to kHz for better readability
-            freq_plot = freq / 1000
-            y_unit = "kHz"
-            y_to_hz = 1000.0
-        elif max_f > 2:
-            # Data is likely already in the correct range (e.g., 0-100 Hz or 0-100 kHz)
-            # For low-frequency baleen whale data (5-100), we show it as Hz
-            # If it were high frequency already in kHz, 100 kHz is also a common range.
-            # We'll use Hz as the unit if max_f is between 2 and 1000, 
-            # assuming baleen whale context or that the values represent the actual Hz.
-            freq_plot = freq
-            y_unit = "Hz" if max_f < 1000 else "kHz"
-            y_to_hz = 1.0 if y_unit == "Hz" else 1000.0
-        else:
-            # Very small values -> likely already in kHz
-            freq_plot = freq
-            y_unit = "kHz"
-            y_to_hz = 1000.0
-    else:
-        freq_plot = freq
-        y_unit = "Hz"
-        y_to_hz = 1.0
 
     axis_dtype = np.float32 if resolved_transport_mode in {MODAL_TRANSPORT_FLOAT32, MODAL_TRANSPORT_UINT16} else None
     if axis_dtype is not None:
@@ -1068,13 +1352,13 @@ def create_spectrogram_figure(
         time_plot = np.asarray(time_plot)
         freq_plot = np.asarray(freq_plot)
 
-    # Determine appropriate color limits
-    psd_valid = psd[np.isfinite(psd)]
-    if len(psd_valid) > 0:
-        zmin = np.percentile(psd_valid, 2)
-        zmax = np.percentile(psd_valid, 98)
-    else:
-        zmin, zmax = -60, 0
+    color_summary = _compute_color_limit_summary(psd)
+    zmin, zmax = _resolve_color_limits(
+        color_min=color_min,
+        color_max=color_max,
+        auto_min=color_summary["auto_min"],
+        auto_max=color_summary["auto_max"],
+    )
 
     if colormap_value == "hydrophone":
         cmap_array = colmap_hyd_py(36, 3)
@@ -1084,14 +1368,27 @@ def create_spectrogram_figure(
     else:
         colorscale = "Viridis"
 
+    y_window = _resolve_y_axis_window(
+        freq_plot=np.asarray(freq_plot, dtype=np.float64),
+        y_to_hz=y_to_hz,
+        y_unit=y_unit,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+    )
     if y_axis_scale == "log":
         y_axis_type = "log"
         y_axis_title = f"Frequency ({y_unit}) - Log Scale"
-        # Ensure values for log scale are positive
-        freq_plot = np.maximum(freq_plot, 0.001 if y_unit == "kHz" else 0.1)
+        positive_floor = y_window["display_min_plot"]
+        freq_plot = np.maximum(freq_plot, positive_floor)
+        y_axis_range = [
+            float(np.log10(y_window["display_min_plot"])),
+            float(np.log10(y_window["display_max_plot"])),
+        ]
     else:
         y_axis_type = "linear"
         y_axis_title = f"Frequency ({y_unit})"
+        y_axis_range = [y_window["display_min_plot"], y_window["display_max_plot"]]
 
     heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _build_modal_heatmap_transport(
         psd,
@@ -1143,21 +1440,18 @@ def create_spectrogram_figure(
     else:
         x_min = 0.0
         x_max = 1.0
-    if len(freq_plot):
-        y_min = float(np.min(freq_plot))
-        y_max = float(np.max(freq_plot))
-    else:
-        y_min = 0.0
-        y_max = 1.0
+    y_min = float(y_window["display_min_plot"])
+    y_max = float(y_window["display_max_plot"])
     render_signature = (
         f"{render_source}|{render_reason}|{resolved_transport_mode}|"
-        f"{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|{psd.shape[0]}x{psd.shape[1]}"
+        f"{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|"
+        f"{zmin:.6f}|{zmax:.6f}|{psd.shape[0]}x{psd.shape[1]}"
     )
 
     fig.update_layout(
         title=dict(text=""),
         xaxis=dict(title=x_label, showgrid=True, tickformat=".2f"),
-        yaxis=dict(title=y_axis_title, showgrid=True, type=y_axis_type),
+        yaxis=dict(title=y_axis_title, showgrid=True, type=y_axis_type, range=y_axis_range),
         margin=dict(l=40, r=20, t=20, b=40),
         height=500,
         dragmode="pan",
@@ -1171,6 +1465,17 @@ def create_spectrogram_figure(
             "x_max": x_max,
             "y_min": y_min,
             "y_max": y_max,
+            "data_y_min_hz": y_window["data_min_hz"],
+            "data_y_max_hz": y_window["data_max_hz"],
+            "positive_y_min_hz": y_window["positive_min_hz"],
+            "display_y_min_hz": y_window["display_min_hz"],
+            "display_y_max_hz": y_window["display_max_hz"],
+            "auto_color_min": color_summary["auto_min"],
+            "auto_color_max": color_summary["auto_max"],
+            "data_color_min": color_summary["data_min"],
+            "data_color_max": color_summary["data_max"],
+            "display_color_min": zmin,
+            "display_color_max": zmax,
             "x_unit": "minutes" if x_to_seconds == 60.0 else "seconds",
             "y_unit": y_unit,
             "transport_mode": resolved_transport_mode,

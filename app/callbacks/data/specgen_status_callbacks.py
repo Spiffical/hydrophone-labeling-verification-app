@@ -60,14 +60,26 @@ def register_specgen_status_callbacks(
         State("label-data-store", "data"),
         State("label-colormap-toggle", "value"),
         State("label-yaxis-toggle", "value"),
+        State("label-yaxis-min-input", "value"),
+        State("label-yaxis-max-input", "value"),
+        State("label-colorbar-min-input", "value"),
+        State("label-colorbar-max-input", "value"),
         State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
         State("verify-class-filter", "data"),
         State("verify-colormap-toggle", "value"),
         State("verify-yaxis-toggle", "value"),
+        State("verify-yaxis-min-input", "value"),
+        State("verify-yaxis-max-input", "value"),
+        State("verify-colorbar-min-input", "value"),
+        State("verify-colorbar-max-input", "value"),
         State("explore-data-store", "data"),
         State("explore-colormap-toggle", "value"),
         State("explore-yaxis-toggle", "value"),
+        State("explore-yaxis-min-input", "value"),
+        State("explore-yaxis-max-input", "value"),
+        State("explore-colorbar-min-input", "value"),
+        State("explore-colorbar-max-input", "value"),
         State("config-store", "data"),
         prevent_initial_call=True,
     )
@@ -76,14 +88,26 @@ def register_specgen_status_callbacks(
         label_data,
         label_use_hydrophone_colormap,
         label_use_log_y_axis,
+        label_y_axis_min_hz,
+        label_y_axis_max_hz,
+        label_color_min,
+        label_color_max,
         verify_data,
         verify_thresholds,
         verify_class_filter,
         verify_use_hydrophone_colormap,
         verify_use_log_y_axis,
+        verify_y_axis_min_hz,
+        verify_y_axis_max_hz,
+        verify_color_min,
+        verify_color_max,
         explore_data,
         explore_use_hydrophone_colormap,
         explore_use_log_y_axis,
+        explore_y_axis_min_hz,
+        explore_y_axis_max_hz,
+        explore_color_min,
+        explore_color_max,
         cfg,
     ):
         cfg = cfg or {}
@@ -101,6 +125,10 @@ def register_specgen_status_callbacks(
         items = []
         colormap = display_cfg.get("colormap", "default")
         y_axis_scale = display_cfg.get("y_axis_scale", "linear")
+        y_axis_min_hz = None
+        y_axis_max_hz = None
+        color_min = None
+        color_max = None
 
         if request_mode == "verify":
             verify_data = verify_data or {"items": []}
@@ -131,16 +159,28 @@ def register_specgen_status_callbacks(
             items = filtered_items
             colormap = "hydrophone" if verify_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if verify_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
+            y_axis_min_hz = verify_y_axis_min_hz
+            y_axis_max_hz = verify_y_axis_max_hz
+            color_min = verify_color_min
+            color_max = verify_color_max
         elif request_mode == "explore":
             explore_data = explore_data or {"items": []}
             items = explore_data.get("items", []) or []
             colormap = "hydrophone" if explore_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if explore_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
+            y_axis_min_hz = explore_y_axis_min_hz
+            y_axis_max_hz = explore_y_axis_max_hz
+            color_min = explore_color_min
+            color_max = explore_color_max
         else:
             label_data = label_data or {"items": []}
             items = label_data.get("items", []) or []
             colormap = "hydrophone" if label_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if label_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
+            y_axis_min_hz = label_y_axis_min_hz
+            y_axis_max_hz = label_y_axis_max_hz
+            color_min = label_color_min
+            color_max = label_color_max
 
         page_items, page_index, total_pages = _slice_page(items, request_page, items_per_page)
         status = _estimate_page_audio_generation_work(
@@ -148,6 +188,10 @@ def register_specgen_status_callbacks(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         status.update(
             {
@@ -167,13 +211,30 @@ def register_specgen_status_callbacks(
         Input("label-data-store", "data"),
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
+        Input("label-yaxis-min-input", "value"),
+        Input("label-yaxis-max-input", "value"),
+        Input("label-colorbar-min-input", "value"),
+        Input("label-colorbar-max-input", "value"),
         Input("label-current-page", "data"),
         Input("config-store", "data"),
         Input("mode-tabs", "data"),
         Input("specgen-overlay-request-store", "data"),
         Input("specgen-overlay-poll", "n_intervals"),
     )
-    def compute_label_status(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode_tabs, specgen_request, poll_tick):
+    def compute_label_status(
+        data,
+        use_hydrophone_colormap,
+        use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
+        current_page,
+        cfg,
+        mode_tabs,
+        specgen_request,
+        poll_tick,
+    ):
         cfg = cfg or {}
         _ = poll_tick
         triggered_id = ctx.triggered_id
@@ -200,6 +261,10 @@ def register_specgen_status_callbacks(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         status.update(
             {
@@ -221,6 +286,10 @@ def register_specgen_status_callbacks(
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
         Input("verify-yaxis-toggle", "value"),
+        Input("verify-yaxis-min-input", "value"),
+        Input("verify-yaxis-max-input", "value"),
+        Input("verify-colorbar-min-input", "value"),
+        Input("verify-colorbar-max-input", "value"),
         Input("config-store", "data"),
         Input("mode-tabs", "data"),
         Input("specgen-overlay-request-store", "data"),
@@ -233,6 +302,10 @@ def register_specgen_status_callbacks(
         current_page,
         use_hydrophone_colormap,
         use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
         cfg,
         mode_tabs,
         specgen_request,
@@ -289,6 +362,10 @@ def register_specgen_status_callbacks(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         status.update(
             {
@@ -308,12 +385,29 @@ def register_specgen_status_callbacks(
         Input("explore-current-page", "data"),
         Input("explore-colormap-toggle", "value"),
         Input("explore-yaxis-toggle", "value"),
+        Input("explore-yaxis-min-input", "value"),
+        Input("explore-yaxis-max-input", "value"),
+        Input("explore-colorbar-min-input", "value"),
+        Input("explore-colorbar-max-input", "value"),
         Input("config-store", "data"),
         Input("mode-tabs", "data"),
         Input("specgen-overlay-request-store", "data"),
         Input("specgen-overlay-poll", "n_intervals"),
     )
-    def compute_explore_status(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg, mode_tabs, specgen_request, poll_tick):
+    def compute_explore_status(
+        data,
+        current_page,
+        use_hydrophone_colormap,
+        use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
+        cfg,
+        mode_tabs,
+        specgen_request,
+        poll_tick,
+    ):
         cfg = cfg or {}
         _ = poll_tick
         triggered_id = ctx.triggered_id
@@ -340,6 +434,10 @@ def register_specgen_status_callbacks(
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         status.update(
             {

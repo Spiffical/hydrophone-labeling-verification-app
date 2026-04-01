@@ -1,6 +1,8 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
+from app.layouts.display_controls import create_display_range_bar
+
 
 def create_verify_layout(config: dict) -> html.Div:
     verify_cfg = config.get("verify", {})
@@ -159,6 +161,7 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Span(id="verify-page-info", className="pagination-page-info"),
             ], className="pagination-controls"),
         ], className="pagination-sticky-bar"),
+        create_display_range_bar("verify", display_cfg=display_cfg),
 
         html.Div(id="verify-summary", className="summary-bar"),
         dbc.Modal(

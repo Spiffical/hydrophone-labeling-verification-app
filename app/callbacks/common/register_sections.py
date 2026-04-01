@@ -20,6 +20,7 @@ from app.callbacks.modal.label_callbacks import register_modal_label_callbacks
 from app.callbacks.modal.lifecycle_callbacks import register_modal_lifecycle_callbacks
 from app.callbacks.modal.view_callbacks import register_modal_view_callbacks
 from app.callbacks.ui.app_config_callbacks import register_app_config_callbacks
+from app.callbacks.ui.display_range_callbacks import register_display_range_callbacks
 from app.callbacks.ui.profile_callbacks import register_ui_callbacks
 from app.callbacks.ui.tab_switch_callbacks import register_mode_tab_callbacks
 from app.callbacks.ui.theme_callbacks import register_theme_callbacks
@@ -45,6 +46,14 @@ def register_all_callback_sections(app, *, config, deps):
     )
     register_app_config_callbacks(app, set_cache_sizes=d["set_cache_sizes"])
     register_theme_callbacks(app)
+    register_display_range_callbacks(
+        app,
+        _filter_predictions=d["filter_predictions"],
+        _predicted_labels_match_filter=d["predicted_labels_match_filter"],
+        _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
+        _build_verify_filter_paths=d["build_verify_filter_paths"],
+        _normalize_verify_class_filter=d["normalize_verify_class_filter"],
+    )
 
     register_global_load_trigger_callback(
         app,

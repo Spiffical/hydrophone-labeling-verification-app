@@ -1,6 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+
 def create_spectrogram_modal():
     """
     Create a large modal for zoomed-in spectrogram view with Plotly interactivity.
@@ -83,7 +84,135 @@ def create_spectrogram_modal():
                                 inputStyle={'margin-right': '6px'}
                             )
                         ], width=6),
-                    ])
+                    ]),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Label("Frequency window (Hz)", className="display-range-label"),
+                                            html.Div(
+                                                [
+                                                    html.Span(
+                                                        "Using page range",
+                                                        id="modal-yaxis-readout",
+                                                        className="display-range-readout",
+                                                    ),
+                                                    dbc.Button(
+                                                        "Use page range",
+                                                        id="modal-yaxis-reset-btn",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        size="sm",
+                                                        n_clicks=0,
+                                                        className="display-range-reset",
+                                                    ),
+                                                ],
+                                                className="display-range-actions",
+                                            ),
+                                        ],
+                                        className="display-range-group-header",
+                                    ),
+                                    html.Div(
+                                        dcc.RangeSlider(
+                                            id="modal-yaxis-slider",
+                                            min=0.0,
+                                            max=2.0,
+                                            value=[0.0, 2.0],
+                                            marks={0.0: "1 Hz", 1.0: "10 Hz", 2.0: "100 Hz"},
+                                            step=0.005,
+                                            allowCross=False,
+                                            updatemode="mouseup",
+                                            tooltip={
+                                                "placement": "bottom",
+                                                "always_visible": False,
+                                                "transform": "formatLogFrequencyHz",
+                                            },
+                                            className="control-slider display-range-slider",
+                                        ),
+                                        className="display-range-slider-shell",
+                                    ),
+                                    dbc.FormText(
+                                        "Log-scaled slider. Reset returns to the current page range.",
+                                        id="modal-yaxis-hint",
+                                    ),
+                                    dcc.Input(id="modal-yaxis-min-input", type="hidden"),
+                                    dcc.Input(id="modal-yaxis-max-input", type="hidden"),
+                                ],
+                                md=6,
+                                xs=12,
+                                className="display-range-group",
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Label("Contrast (dB/Hz)", className="display-range-label"),
+                                            html.Div(
+                                                [
+                                                    html.Span(
+                                                        "Auto contrast",
+                                                        id="modal-colorbar-readout",
+                                                        className="display-range-readout",
+                                                    ),
+                                                    dbc.Button(
+                                                        "Auto contrast",
+                                                        id="modal-colorbar-reset-btn",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        size="sm",
+                                                        n_clicks=0,
+                                                        className="display-range-reset",
+                                                    ),
+                                                ],
+                                                className="display-range-actions",
+                                            ),
+                                        ],
+                                        className="display-range-group-header",
+                                    ),
+                                    html.Div(
+                                        dcc.RangeSlider(
+                                            id="modal-colorbar-slider",
+                                            min=-120.0,
+                                            max=0.0,
+                                            value=[-90.0, -10.0],
+                                            marks={-120.0: "-120", -80.0: "-80", -40.0: "-40", 0.0: "0"},
+                                            step=0.1,
+                                            allowCross=False,
+                                            updatemode="mouseup",
+                                            tooltip={
+                                                "placement": "bottom",
+                                                "always_visible": False,
+                                                "transform": "formatDecibelRange",
+                                            },
+                                            className="control-slider display-range-slider",
+                                        ),
+                                        className="display-range-slider-shell",
+                                    ),
+                                    dbc.FormText(
+                                        "Reset returns to automatic contrast for the current spectrogram.",
+                                        id="modal-colorbar-hint",
+                                    ),
+                                    dcc.Input(id="modal-colorbar-min-input", type="hidden"),
+                                    dcc.Input(id="modal-colorbar-max-input", type="hidden"),
+                                ],
+                                md=6,
+                                xs=12,
+                                className="display-range-group",
+                            ),
+                        ],
+                        className="g-3 mt-1",
+                    ),
+                    dcc.Store(
+                        id="modal-display-range-defaults-store",
+                        data={
+                            "yaxis": [0.0, 2.0],
+                            "yaxis_readout": "Using page range",
+                            "colorbar": [-90.0, -10.0],
+                            "colorbar_readout": "Auto contrast",
+                        },
+                    ),
                 ], className="modal-controls-card mb-4"),
 
                 # Interactive Plotly Graph

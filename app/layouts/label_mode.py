@@ -1,6 +1,8 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
+from app.layouts.display_controls import create_display_range_bar
+
 
 def create_label_layout(config: dict) -> html.Div:
     label_cfg = config.get("label", {})
@@ -92,6 +94,7 @@ def create_label_layout(config: dict) -> html.Div:
                 html.Span(id="label-page-info", className="pagination-page-info"),
             ], className="pagination-controls"),
         ], className="pagination-sticky-bar"),
+        create_display_range_bar("label", display_cfg=display_cfg),
 
         html.Div(id="label-summary", className="summary-bar"),
         dcc.Store(id="label-current-page", data=0, storage_type="session"),

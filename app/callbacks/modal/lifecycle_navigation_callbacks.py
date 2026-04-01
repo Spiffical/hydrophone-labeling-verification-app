@@ -6,6 +6,10 @@ from dash import ALL, Input, Output, State, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.common.debug import perf_debug
+from app.callbacks.modal.display_helpers import (
+    build_modal_colorbar_ui,
+    resolve_mode_y_axis_limits,
+)
 from app.components.audio_player import (
     EQ_BAND_FREQUENCIES,
     EQ_LOW_FOCUS_MAX_HZ,
@@ -14,6 +18,15 @@ from app.components.audio_player import (
 from app.services.verify_modal_cache import get_verify_modal_item
 from app.utils.audio_transport import prewarm_audio_delivery_paths
 from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
+
+
+def _coerce_float(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def register_modal_lifecycle_navigation_callbacks(
@@ -45,6 +58,9 @@ def register_modal_lifecycle_navigation_callbacks(
         Output("unsaved-changes-modal", "is_open"),
         Output("modal-pending-action-store", "data"),
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-colorbar-min-input", "placeholder", allow_duplicate=True),
+        Output("modal-colorbar-max-input", "placeholder", allow_duplicate=True),
+        Output("modal-colorbar-hint", "children", allow_duplicate=True),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
@@ -60,6 +76,16 @@ def register_modal_lifecycle_navigation_callbacks(
         State("current-filename", "data"),
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
+        State("modal-yaxis-min-input", "value"),
+        State("modal-yaxis-max-input", "value"),
+        State("modal-colorbar-min-input", "value"),
+        State("modal-colorbar-max-input", "value"),
+        State("label-yaxis-min-input", "value"),
+        State("label-yaxis-max-input", "value"),
+        State("verify-yaxis-min-input", "value"),
+        State("verify-yaxis-max-input", "value"),
+        State("explore-yaxis-min-input", "value"),
+        State("explore-yaxis-max-input", "value"),
         State("modal-unsaved-store", "data"),
         State("config-store", "data"),
         prevent_initial_call=True,
@@ -80,6 +106,16 @@ def register_modal_lifecycle_navigation_callbacks(
         current_item_id,
         colormap,
         y_axis_scale,
+        modal_y_axis_min_hz,
+        modal_y_axis_max_hz,
+        color_min,
+        color_max,
+        label_y_axis_min_hz,
+        label_y_axis_max_hz,
+        verify_y_axis_min_hz,
+        verify_y_axis_max_hz,
+        explore_y_axis_min_hz,
+        explore_y_axis_max_hz,
         unsaved_store,
         cfg,
     ):
@@ -160,6 +196,9 @@ def register_modal_lifecycle_navigation_callbacks(
                     True,
                     action,
                     False,
+                    no_update,
+                    no_update,
+                    no_update,
                 )
             pending_item_id = (action.get("item_id") or "").strip() if action.get("kind") == "open" else ""
             if pending_item_id and pending_item_id != current_item_id:
@@ -181,6 +220,9 @@ def register_modal_lifecycle_navigation_callbacks(
                     True,
                     action,
                     False,
+                    no_update,
+                    no_update,
+                    no_update,
                 )
 
         if action.get("kind") == "close":
@@ -202,6 +244,9 @@ def register_modal_lifecycle_navigation_callbacks(
                 False,
                 None,
                 False,
+                no_update,
+                no_update,
+                no_update,
             )
 
         item_id = (action.get("item_id") or "").strip()
@@ -234,9 +279,34 @@ def register_modal_lifecycle_navigation_callbacks(
             raise PreventUpdate
 
         spectrogram = resolve_item_spectrogram(source_item, cfg)
-        fig = create_spectrogram_figure(spectrogram, colormap, y_axis_scale, cfg=cfg)
+        y_axis_min_hz, y_axis_max_hz = resolve_mode_y_axis_limits(
+            mode,
+            label_min=label_y_axis_min_hz,
+            label_max=label_y_axis_max_hz,
+            verify_min=verify_y_axis_min_hz,
+            verify_max=verify_y_axis_max_hz,
+            explore_min=explore_y_axis_min_hz,
+            explore_max=explore_y_axis_max_hz,
+        )
+        effective_y_axis_min_hz = (
+            modal_y_axis_min_hz if _coerce_float(modal_y_axis_min_hz) is not None else y_axis_min_hz
+        )
+        effective_y_axis_max_hz = (
+            modal_y_axis_max_hz if _coerce_float(modal_y_axis_max_hz) is not None else y_axis_max_hz
+        )
+        fig = create_spectrogram_figure(
+            spectrogram,
+            colormap,
+            y_axis_scale,
+            cfg=cfg,
+            y_axis_min_hz=effective_y_axis_min_hz,
+            y_axis_max_hz=effective_y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
         modal_boxes = _build_modal_boxes_from_item(source_item)
         fig = _apply_modal_boxes_to_figure(fig, modal_boxes)
+        placeholder_min, placeholder_max, colorbar_hint = build_modal_colorbar_ui(fig)
         default_box_label = None
 
         settings = audio_settings or {}
@@ -360,4 +430,7 @@ def register_modal_lifecycle_navigation_callbacks(
             False,
             None,
             False,
+            placeholder_min,
+            placeholder_max,
+            colorbar_hint,
         )

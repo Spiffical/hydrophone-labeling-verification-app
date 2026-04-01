@@ -709,6 +709,137 @@ body {
     margin-left: 6px;
 }
 
+.display-range-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: -8px 0 18px;
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+}
+
+.display-range-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px 18px;
+    flex-wrap: wrap;
+}
+
+.display-range-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.display-range-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.display-range-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.display-range-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.display-range-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.display-range-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.display-range-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.display-range-readout {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.display-range-reset {
+    white-space: nowrap;
+}
+
+.display-range-slider-shell {
+    padding: 4px 10px 0;
+}
+
+.display-range-slider .rc-slider-mark {
+    top: 22px;
+}
+
+.display-range-slider .rc-slider-mark-text,
+.display-range-slider .dash-slider-mark-text {
+    white-space: nowrap;
+    font-size: 10px;
+    max-width: none;
+}
+
+.display-range-slider .rc-slider-mark-text:first-child,
+.display-range-slider .dash-slider-mark-text:first-child {
+    transform: translateX(0) !important;
+    text-align: left;
+}
+
+.display-range-slider .rc-slider-mark-text:last-child,
+.display-range-slider .dash-slider-mark-text:last-child {
+    transform: translateX(-100%) !important;
+    text-align: right;
+}
+
+.display-range-slider .rc-slider-handle,
+.display-range-slider .dash-slider-handle {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+}
+
+.display-range-slider .rc-slider-track,
+.display-range-slider .dash-slider-track {
+    background: var(--accent) !important;
+}
+
+.display-range-slider .rc-slider-rail,
+.display-range-slider .dash-slider-rail {
+    background: rgba(139, 148, 158, 0.28) !important;
+}
+
+.display-range-slider .rc-slider-dot,
+.display-range-slider .dash-slider-dot {
+    border-color: rgba(139, 148, 158, 0.5) !important;
+}
+
+.display-range-help {
+    margin: 0;
+    color: var(--text-secondary);
+    opacity: 1;
+}
+
 /* ============================================
    BUTTONS
    ============================================ */
@@ -1491,6 +1622,11 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     color: var(--muted);
 }
 
+.display-range-bar .form-control::placeholder,
+.modal-controls-card .form-control::placeholder {
+    opacity: 1;
+}
+
 .form-label {
     font-size: 12px;
     font-weight: 600;
@@ -1700,6 +1836,15 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
         top: 8px;
         padding: 10px 12px;
     }
+
+    .display-range-group-header {
+        align-items: flex-start;
+    }
+
+    .display-range-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
 }
 
 @media (max-width: 600px) {
@@ -1801,6 +1946,12 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     background: var(--surface-2);
     border-color: var(--border);
     color: var(--text);
+}
+
+.app-shell.theme-dark .form-control::placeholder,
+.app-shell.theme-dark .form-select::placeholder {
+    color: #9aa8b5;
+    opacity: 1;
 }
 
 .app-shell.theme-dark .btn-secondary,
@@ -3513,6 +3664,19 @@ body.theme-dark .spectrogram-zoom-modal .custom-radio-group label,
     color: #e6edf3 !important;
 }
 
+body.theme-dark .spectrogram-zoom-modal .form-control,
+.theme-dark .spectrogram-zoom-modal .form-control {
+    background: #161b22 !important;
+    border-color: #3b424c !important;
+    color: #e6edf3 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .form-control::placeholder,
+.theme-dark .spectrogram-zoom-modal .form-control::placeholder {
+    color: #9aa8b5 !important;
+    opacity: 1 !important;
+}
+
 body.theme-dark .spectrogram-zoom-modal .text-muted,
 .theme-dark .spectrogram-zoom-modal .text-muted {
     color: #7d8590 !important;
@@ -3526,6 +3690,41 @@ body.theme-dark .spectrogram-zoom-modal .fw-semibold,
 body.theme-dark .spectrogram-zoom-modal .small,
 .theme-dark .spectrogram-zoom-modal .small {
     color: #7d8590 !important;
+}
+
+body.theme-dark .spectrogram-zoom-modal .modal-controls-card .form-text,
+.theme-dark .spectrogram-zoom-modal .modal-controls-card .form-text {
+    color: #b8c4d1 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .display-range-bar,
+.theme-dark .display-range-bar {
+    background: #161b22 !important;
+    border-color: #30363d !important;
+}
+
+body.theme-dark .display-range-title,
+.theme-dark .display-range-title {
+    color: #79b8ff !important;
+}
+
+body.theme-dark .display-range-subtitle,
+.theme-dark .display-range-subtitle,
+body.theme-dark .display-range-help,
+.theme-dark .display-range-help {
+    color: #b8c4d1 !important;
+    opacity: 1 !important;
+}
+
+body.theme-dark .display-range-readout,
+.theme-dark .display-range-readout {
+    color: #79b8ff !important;
+}
+
+body.theme-dark .display-range-label,
+.theme-dark .display-range-label {
+    color: #e6edf3 !important;
 }
 
 @media (max-width: 768px) {
@@ -3575,6 +3774,11 @@ body.theme-dark .spectrogram-zoom-modal .small,
 
 .modal-controls-card label {
     color: var(--text);
+}
+
+.modal-controls-card .form-text {
+    color: var(--text-secondary);
+    opacity: 1;
 }
 
 .spectrogram-zoom-card {

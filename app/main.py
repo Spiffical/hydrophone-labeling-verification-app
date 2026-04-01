@@ -244,12 +244,20 @@ def create_app(config: Dict) -> dash.Dash:
         cfg = {"spectrogram_render": payload.get("render_cfg") or {}}
         colormap = str(payload.get("colormap") or "default")
         y_axis_scale = str(payload.get("y_axis_scale") or "linear")
+        y_axis_min_hz = payload.get("y_axis_min_hz")
+        y_axis_max_hz = payload.get("y_axis_max_hz")
+        color_min = payload.get("color_min")
+        color_max = payload.get("color_max")
 
         image_src = generate_item_image_cached(
             item,
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         if not image_src or not image_src.startswith("data:") or ";base64," not in image_src:
             abort(404)

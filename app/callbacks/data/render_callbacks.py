@@ -63,12 +63,27 @@ def register_render_callbacks(
         Input("label-data-store", "data"),
         Input("label-colormap-toggle", "value"),
         Input("label-yaxis-toggle", "value"),
+        Input("label-yaxis-min-input", "value"),
+        Input("label-yaxis-max-input", "value"),
+        Input("label-colorbar-min-input", "value"),
+        Input("label-colorbar-max-input", "value"),
         Input("label-current-page", "data"),
         Input("config-store", "data"),
         State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def render_label(data, use_hydrophone_colormap, use_log_y_axis, current_page, cfg, mode):
+    def render_label(
+        data,
+        use_hydrophone_colormap,
+        use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
+        current_page,
+        cfg,
+        mode,
+    ):
         # Render even if not in label mode (to maintain state when switching back)
         pass
 
@@ -99,12 +114,27 @@ def register_render_callbacks(
         
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "label", colormap, y_axis_scale, items_per_page, cfg)
+        grid = _build_grid(
+            page_items,
+            "label",
+            colormap,
+            y_axis_scale,
+            y_axis_min_hz,
+            y_axis_max_hz,
+            color_min,
+            color_max,
+            items_per_page,
+            cfg,
+        )
         current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
             page_items,
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
             page_items,
@@ -131,6 +161,10 @@ def register_render_callbacks(
                 cfg=cfg,
                 colormap=colormap,
                 y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and submitted:
@@ -208,6 +242,10 @@ def register_render_callbacks(
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
         Input("verify-yaxis-toggle", "value"),
+        Input("verify-yaxis-min-input", "value"),
+        Input("verify-yaxis-max-input", "value"),
+        Input("verify-colorbar-min-input", "value"),
+        Input("verify-colorbar-max-input", "value"),
         Input("config-store", "data"),
         State("mode-tabs", "data"),
     )
@@ -218,6 +256,10 @@ def register_render_callbacks(
         current_page,
         use_hydrophone_colormap,
         use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
         cfg,
         mode,
     ):
@@ -302,12 +344,27 @@ def register_render_callbacks(
 
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "verify", colormap, y_axis_scale, items_per_page, cfg)
+        grid = _build_grid(
+            page_items,
+            "verify",
+            colormap,
+            y_axis_scale,
+            y_axis_min_hz,
+            y_axis_max_hz,
+            color_min,
+            color_max,
+            items_per_page,
+            cfg,
+        )
         current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
             page_items,
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
             page_items,
@@ -334,6 +391,10 @@ def register_render_callbacks(
                 cfg=cfg,
                 colormap=colormap,
                 y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and submitted:
@@ -409,9 +470,23 @@ def register_render_callbacks(
         Input("explore-current-page", "data"),
         Input("explore-colormap-toggle", "value"),
         Input("explore-yaxis-toggle", "value"),
+        Input("explore-yaxis-min-input", "value"),
+        Input("explore-yaxis-max-input", "value"),
+        Input("explore-colorbar-min-input", "value"),
+        Input("explore-colorbar-max-input", "value"),
         Input("config-store", "data"),
     )
-    def render_explore(data, current_page, use_hydrophone_colormap, use_log_y_axis, cfg):
+    def render_explore(
+        data,
+        current_page,
+        use_hydrophone_colormap,
+        use_log_y_axis,
+        y_axis_min_hz,
+        y_axis_max_hz,
+        color_min,
+        color_max,
+        cfg,
+    ):
         cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
@@ -433,12 +508,27 @@ def register_render_callbacks(
         page_items = items[start_idx:end_idx]
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(page_items, "explore", colormap, y_axis_scale, items_per_page, cfg)
+        grid = _build_grid(
+            page_items,
+            "explore",
+            colormap,
+            y_axis_scale,
+            y_axis_min_hz,
+            y_axis_max_hz,
+            color_min,
+            color_max,
+            items_per_page,
+            cfg,
+        )
         current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
             page_items,
             cfg,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
         )
         current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
             page_items,
@@ -465,6 +555,10 @@ def register_render_callbacks(
                 cfg=cfg,
                 colormap=colormap,
                 y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and submitted:
