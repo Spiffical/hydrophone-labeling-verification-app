@@ -121,6 +121,19 @@ def _format_hz_mark(value):
     return f"{value:.2f}"
 
 
+def _round_frequency_input_value(value):
+    value = float(value)
+    if value >= 1000.0:
+        return round(value, 2)
+    if value >= 100.0:
+        return round(value, 1)
+    return round(value, 2)
+
+
+def _round_color_input_value(value):
+    return round(float(value), 1)
+
+
 def _select_frequency_mark_values(min_hz, max_hz, *, limit=5):
     reference = [
         0.1,
@@ -325,10 +338,14 @@ def build_modal_display_range_ui(
         "y_readout": y_readout,
         "y_hint": f"Available on this item: {_format_hz(positive_y_min_hz)} to {_format_hz(data_y_max_hz)}.",
         "y_default": default_y_value,
+        "y_manual_min": _round_frequency_input_value(current_display_y_min_hz),
+        "y_manual_max": _round_frequency_input_value(current_display_y_max_hz),
         "color_slider_min": round(color_data_min, 2),
         "color_slider_max": round(color_data_max, 2),
         "color_slider_marks": _linear_marks(color_data_min, color_data_max),
         "color_slider_value": color_slider_value,
         "color_readout": color_readout,
         "color_default": default_color_value,
+        "color_manual_min": _round_color_input_value(current_display_color_min),
+        "color_manual_max": _round_color_input_value(current_display_color_max),
     }

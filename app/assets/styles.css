@@ -786,8 +786,29 @@ body {
     white-space: nowrap;
 }
 
+.display-range-slider-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
 .display-range-slider-shell {
     padding: 4px 10px 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.display-range-manual-input {
+    width: 88px;
+    min-width: 88px;
+    height: 50px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
 }
 
 .display-range-slider .rc-slider-mark {

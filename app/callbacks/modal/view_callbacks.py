@@ -1,6 +1,7 @@
 """Modal view callbacks: figure refresh, display ranges, and actions panel refresh."""
 
 import time
+from math import log10
 
 from dash import Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
@@ -138,6 +139,82 @@ def _preview_modal_color_readout(
     return f"{color_min:.1f} dB/Hz to {color_max:.1f} dB/Hz"
 
 
+def _round_frequency_input_value(value):
+    value = float(value)
+    if value >= 1000.0:
+        return round(value, 2)
+    if value >= 100.0:
+        return round(value, 1)
+    return round(value, 2)
+
+
+def _round_color_input_value(value):
+    return round(float(value), 1)
+
+
+def _preview_modal_frequency_manual_values(drag_value, slider_value, slider_min, slider_max):
+    active_range = _active_slider_range(drag_value, slider_value)
+    lower, upper = _commit_modal_frequency_slider(active_range, slider_min, slider_max)
+    if lower is None or upper is None:
+        return no_update, no_update
+    return _round_frequency_input_value(lower), _round_frequency_input_value(upper)
+
+
+def _preview_modal_color_manual_values(drag_value, slider_value, slider_min, slider_max):
+    active_range = _active_slider_range(drag_value, slider_value)
+    lower, upper = _commit_modal_color_slider(active_range, slider_min, slider_max)
+    if lower is None or upper is None:
+        return no_update, no_update
+    return _round_color_input_value(lower), _round_color_input_value(upper)
+
+
+def _coerce_manual_bounds(lower, upper, *, minimum, maximum):
+    lower_value = _coerce_float(lower)
+    upper_value = _coerce_float(upper)
+    if lower_value is None and upper_value is None:
+        return None, None
+
+    if lower_value is not None:
+        lower_value = max(minimum, min(maximum, lower_value))
+    if upper_value is not None:
+        upper_value = max(minimum, min(maximum, upper_value))
+
+    if lower_value is not None and upper_value is not None and upper_value <= lower_value:
+        return None
+
+    return (
+        round(lower_value, 6) if lower_value is not None else None,
+        round(upper_value, 6) if upper_value is not None else None,
+    )
+
+
+def _modal_frequency_slider_pair_from_manual_bounds(lower, upper, *, slider_min, slider_max):
+    minimum = 10 ** float(slider_min)
+    maximum = 10 ** float(slider_max)
+    result = _coerce_manual_bounds(lower, upper, minimum=minimum, maximum=maximum)
+    if result is None:
+        return None
+    lower_value = minimum if result[0] is None else float(result[0])
+    upper_value = maximum if result[1] is None else float(result[1])
+    return [round(log10(lower_value), 6), round(log10(upper_value), 6)]
+
+
+def _modal_color_slider_pair_from_manual_bounds(lower, upper, *, slider_min, slider_max, defaults):
+    minimum = float(slider_min)
+    maximum = float(slider_max)
+    result = _coerce_manual_bounds(lower, upper, minimum=minimum, maximum=maximum)
+    if result is None:
+        return None
+    if result[0] is None and result[1] is None:
+        default_range = (defaults or {}).get("colorbar")
+        if isinstance(default_range, (list, tuple)) and len(default_range) == 2:
+            return [float(default_range[0]), float(default_range[1])]
+        return [minimum, maximum]
+    lower_value = minimum if result[0] is None else float(result[0])
+    upper_value = maximum if result[1] is None else float(result[1])
+    return [round(lower_value, 6), round(upper_value, 6)]
+
+
 def register_modal_view_callbacks(
     app,
     *,
@@ -247,11 +324,15 @@ def register_modal_view_callbacks(
         Output("modal-yaxis-slider", "value"),
         Output("modal-yaxis-readout", "children"),
         Output("modal-yaxis-hint", "children"),
+        Output("modal-yaxis-manual-min-input", "value"),
+        Output("modal-yaxis-manual-max-input", "value"),
         Output("modal-colorbar-slider", "min"),
         Output("modal-colorbar-slider", "max"),
         Output("modal-colorbar-slider", "marks"),
         Output("modal-colorbar-slider", "value"),
         Output("modal-colorbar-readout", "children"),
+        Output("modal-colorbar-manual-min-input", "value"),
+        Output("modal-colorbar-manual-max-input", "value"),
         Output("modal-display-range-defaults-store", "data"),
         Input("modal-image-graph", "figure"),
         State("modal-yaxis-min-input", "value"),
@@ -308,11 +389,15 @@ def register_modal_view_callbacks(
             ui["y_slider_value"],
             ui["y_readout"],
             ui["y_hint"],
+            ui["y_manual_min"],
+            ui["y_manual_max"],
             ui["color_slider_min"],
             ui["color_slider_max"],
             ui["color_slider_marks"],
             ui["color_slider_value"],
             ui["color_readout"],
+            ui["color_manual_min"],
+            ui["color_manual_max"],
             {
                 "yaxis": ui["y_default"],
                 "yaxis_readout": ui["y_readout"],
@@ -376,6 +461,44 @@ def register_modal_view_callbacks(
         )
 
     @app.callback(
+        Output("modal-yaxis-manual-min-input", "value", allow_duplicate=True),
+        Output("modal-yaxis-manual-max-input", "value", allow_duplicate=True),
+        Output("modal-colorbar-manual-min-input", "value", allow_duplicate=True),
+        Output("modal-colorbar-manual-max-input", "value", allow_duplicate=True),
+        Input("modal-yaxis-slider", "value"),
+        Input("modal-colorbar-slider", "value"),
+        State("modal-yaxis-slider", "min"),
+        State("modal-yaxis-slider", "max"),
+        State("modal-colorbar-slider", "min"),
+        State("modal-colorbar-slider", "max"),
+        prevent_initial_call=True,
+    )
+    def sync_modal_manual_inputs_from_slider(
+        modal_y_axis_slider_value,
+        modal_colorbar_slider_value,
+        modal_y_axis_slider_min,
+        modal_y_axis_slider_max,
+        modal_colorbar_slider_min,
+        modal_colorbar_slider_max,
+    ):
+        triggered_id = ctx.triggered_id
+        if triggered_id == "modal-yaxis-slider":
+            y_manual_min, y_manual_max = _preview_modal_frequency_manual_values(
+                None,
+                modal_y_axis_slider_value,
+                modal_y_axis_slider_min,
+                modal_y_axis_slider_max,
+            )
+            return y_manual_min, y_manual_max, no_update, no_update
+        color_manual_min, color_manual_max = _preview_modal_color_manual_values(
+            None,
+            modal_colorbar_slider_value,
+            modal_colorbar_slider_min,
+            modal_colorbar_slider_max,
+        )
+        return no_update, no_update, color_manual_min, color_manual_max
+
+    @app.callback(
         Output("modal-yaxis-min-input", "value", allow_duplicate=True),
         Output("modal-yaxis-max-input", "value", allow_duplicate=True),
         Output("modal-colorbar-min-input", "value", allow_duplicate=True),
@@ -434,6 +557,80 @@ def register_modal_view_callbacks(
             modal_colorbar_slider_max,
         )
         return no_update, no_update, color_min, color_max
+
+    @app.callback(
+        Output("modal-yaxis-slider", "value", allow_duplicate=True),
+        Output("modal-colorbar-slider", "value", allow_duplicate=True),
+        Input("modal-yaxis-manual-min-input", "n_blur"),
+        Input("modal-yaxis-manual-min-input", "n_submit"),
+        Input("modal-yaxis-manual-max-input", "n_blur"),
+        Input("modal-yaxis-manual-max-input", "n_submit"),
+        Input("modal-colorbar-manual-min-input", "n_blur"),
+        Input("modal-colorbar-manual-min-input", "n_submit"),
+        Input("modal-colorbar-manual-max-input", "n_blur"),
+        Input("modal-colorbar-manual-max-input", "n_submit"),
+        State("modal-yaxis-manual-min-input", "value"),
+        State("modal-yaxis-manual-max-input", "value"),
+        State("modal-colorbar-manual-min-input", "value"),
+        State("modal-colorbar-manual-max-input", "value"),
+        State("modal-yaxis-slider", "min"),
+        State("modal-yaxis-slider", "max"),
+        State("modal-colorbar-slider", "min"),
+        State("modal-colorbar-slider", "max"),
+        State("modal-display-range-defaults-store", "data"),
+        prevent_initial_call=True,
+    )
+    def commit_modal_manual_display_range_values(
+        modal_y_axis_manual_min_blur,
+        modal_y_axis_manual_min_submit,
+        modal_y_axis_manual_max_blur,
+        modal_y_axis_manual_max_submit,
+        modal_colorbar_manual_min_blur,
+        modal_colorbar_manual_min_submit,
+        modal_colorbar_manual_max_blur,
+        modal_colorbar_manual_max_submit,
+        modal_y_axis_manual_min,
+        modal_y_axis_manual_max,
+        modal_colorbar_manual_min,
+        modal_colorbar_manual_max,
+        modal_y_axis_slider_min,
+        modal_y_axis_slider_max,
+        modal_colorbar_slider_min,
+        modal_colorbar_slider_max,
+        defaults,
+    ):
+        _ = (
+            modal_y_axis_manual_min_blur,
+            modal_y_axis_manual_min_submit,
+            modal_y_axis_manual_max_blur,
+            modal_y_axis_manual_max_submit,
+            modal_colorbar_manual_min_blur,
+            modal_colorbar_manual_min_submit,
+            modal_colorbar_manual_max_blur,
+            modal_colorbar_manual_max_submit,
+        )
+        triggered_id = ctx.triggered_id
+        if triggered_id in {"modal-yaxis-manual-min-input", "modal-yaxis-manual-max-input"}:
+            slider_pair = _modal_frequency_slider_pair_from_manual_bounds(
+                modal_y_axis_manual_min,
+                modal_y_axis_manual_max,
+                slider_min=modal_y_axis_slider_min,
+                slider_max=modal_y_axis_slider_max,
+            )
+            if slider_pair is None:
+                return no_update, no_update
+            return slider_pair, no_update
+
+        slider_pair = _modal_color_slider_pair_from_manual_bounds(
+            modal_colorbar_manual_min,
+            modal_colorbar_manual_max,
+            slider_min=modal_colorbar_slider_min,
+            slider_max=modal_colorbar_slider_max,
+            defaults=defaults,
+        )
+        if slider_pair is None:
+            return no_update, no_update
+        return no_update, slider_pair
 
     @app.callback(
         Output("modal-yaxis-min-input", "value", allow_duplicate=True),

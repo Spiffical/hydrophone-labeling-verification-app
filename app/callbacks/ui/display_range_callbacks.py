@@ -63,6 +63,19 @@ def _format_hz_mark(value):
     return f"{value:.2f}"
 
 
+def _round_frequency_input_value(value):
+    value = float(value)
+    if value >= 1000.0:
+        return round(value, 2)
+    if value >= 100.0:
+        return round(value, 1)
+    return round(value, 2)
+
+
+def _round_color_input_value(value):
+    return round(float(value), 1)
+
+
 def _select_frequency_mark_values(min_hz, max_hz, *, limit=5):
     reference = [
         0.1,
@@ -214,6 +227,8 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
             None,
             None,
             default_slider_value,
+            _round_frequency_input_value(bound_min_hz),
+            _round_frequency_input_value(bound_max_hz),
         )
 
     if current_min is None and current_max is None:
@@ -248,6 +263,8 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
         actual_lower,
         actual_upper,
         default_slider_value,
+        _round_frequency_input_value(display_lower if current_min is not None or current_max is not None else bound_min_hz),
+        _round_frequency_input_value(display_upper if current_min is not None or current_max is not None else bound_max_hz),
     )
 
 
@@ -284,6 +301,8 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
             None,
             None,
             default_slider_value,
+            _round_color_input_value(auto_min),
+            _round_color_input_value(auto_max),
         )
 
     if current_min is None and current_max is None:
@@ -321,6 +340,8 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
         actual_lower,
         actual_upper,
         default_slider_value,
+        _round_color_input_value(display_lower if current_min is not None or current_max is not None else auto_min),
+        _round_color_input_value(display_upper if current_min is not None or current_max is not None else auto_max),
     )
 
 
@@ -350,6 +371,8 @@ def _build_display_range_outputs(prefix, page_items, cfg, current_y_min, current
         y_state[5],
         y_state[6],
         y_state[7],
+        y_state[9],
+        y_state[10],
         color_state[0],
         color_state[1],
         color_state[2],
@@ -358,6 +381,8 @@ def _build_display_range_outputs(prefix, page_items, cfg, current_y_min, current
         color_state[5],
         color_state[6],
         color_state[7],
+        color_state[9],
+        color_state[10],
         {
             "yaxis": y_state[8],
             "yaxis_readout": y_state[4],
@@ -437,6 +462,69 @@ def _preview_color_readout(drag_value, slider_value, slider_min, slider_max, def
     return readout
 
 
+def _preview_frequency_manual_values(drag_value, slider_value, slider_min, slider_max):
+    active_range = _active_slider_range(drag_value, slider_value)
+    lower, upper, _ = _commit_frequency_slider(active_range, slider_min, slider_max)
+    if lower is None or upper is None:
+        return no_update, no_update
+    return _round_frequency_input_value(lower), _round_frequency_input_value(upper)
+
+
+def _preview_color_manual_values(drag_value, slider_value, slider_min, slider_max):
+    active_range = _active_slider_range(drag_value, slider_value)
+    lower, upper, _ = _commit_color_slider(active_range, slider_min, slider_max)
+    if lower is None or upper is None:
+        return no_update, no_update
+    return _round_color_input_value(lower), _round_color_input_value(upper)
+
+
+def _coerce_manual_bounds(lower, upper, *, minimum, maximum):
+    lower_value = _coerce_float(lower)
+    upper_value = _coerce_float(upper)
+    if lower_value is None and upper_value is None:
+        return None, None
+
+    if lower_value is not None:
+        lower_value = max(minimum, min(maximum, lower_value))
+    if upper_value is not None:
+        upper_value = max(minimum, min(maximum, upper_value))
+
+    if lower_value is not None and upper_value is not None and upper_value <= lower_value:
+        return None
+
+    return (
+        round(lower_value, 6) if lower_value is not None else None,
+        round(upper_value, 6) if upper_value is not None else None,
+    )
+
+
+def _frequency_slider_pair_from_manual_bounds(lower, upper, *, slider_min, slider_max):
+    minimum = 10 ** float(slider_min)
+    maximum = 10 ** float(slider_max)
+    result = _coerce_manual_bounds(lower, upper, minimum=minimum, maximum=maximum)
+    if result is None:
+        return None
+    lower_value = minimum if result[0] is None else float(result[0])
+    upper_value = maximum if result[1] is None else float(result[1])
+    return [round(log10(lower_value), 6), round(log10(upper_value), 6)]
+
+
+def _color_slider_pair_from_manual_bounds(lower, upper, *, slider_min, slider_max, defaults):
+    minimum = float(slider_min)
+    maximum = float(slider_max)
+    result = _coerce_manual_bounds(lower, upper, minimum=minimum, maximum=maximum)
+    if result is None:
+        return None
+    if result[0] is None and result[1] is None:
+        default_range = (defaults or {}).get("colorbar")
+        if isinstance(default_range, (list, tuple)) and len(default_range) == 2:
+            return [float(default_range[0]), float(default_range[1])]
+        return [minimum, maximum]
+    lower_value = minimum if result[0] is None else float(result[0])
+    upper_value = maximum if result[1] is None else float(result[1])
+    return [round(lower_value, 6), round(upper_value, 6)]
+
+
 def register_display_range_callbacks(
     app,
     *,
@@ -456,6 +544,8 @@ def register_display_range_callbacks(
             Output(f"{prefix}-yaxis-help", "children"),
             Output(f"{prefix}-yaxis-min-input", "value"),
             Output(f"{prefix}-yaxis-max-input", "value"),
+            Output(f"{prefix}-yaxis-manual-min-input", "value"),
+            Output(f"{prefix}-yaxis-manual-max-input", "value"),
             Output(f"{prefix}-colorbar-slider", "min"),
             Output(f"{prefix}-colorbar-slider", "max"),
             Output(f"{prefix}-colorbar-slider", "marks"),
@@ -464,6 +554,8 @@ def register_display_range_callbacks(
             Output(f"{prefix}-colorbar-help", "children"),
             Output(f"{prefix}-colorbar-min-input", "value"),
             Output(f"{prefix}-colorbar-max-input", "value"),
+            Output(f"{prefix}-colorbar-manual-min-input", "value"),
+            Output(f"{prefix}-colorbar-manual-max-input", "value"),
             Output(f"{prefix}-display-range-defaults-store", "data"),
         )
 
@@ -668,6 +760,84 @@ def register_display_range_callbacks(
             )
             return no_update, no_update, color_min, color_max
 
+    def _register_manual_input_commit(prefix):
+        @app.callback(
+            Output(f"{prefix}-yaxis-slider", "value", allow_duplicate=True),
+            Output(f"{prefix}-colorbar-slider", "value", allow_duplicate=True),
+            Input(f"{prefix}-yaxis-manual-min-input", "n_blur"),
+            Input(f"{prefix}-yaxis-manual-min-input", "n_submit"),
+            Input(f"{prefix}-yaxis-manual-max-input", "n_blur"),
+            Input(f"{prefix}-yaxis-manual-max-input", "n_submit"),
+            Input(f"{prefix}-colorbar-manual-min-input", "n_blur"),
+            Input(f"{prefix}-colorbar-manual-min-input", "n_submit"),
+            Input(f"{prefix}-colorbar-manual-max-input", "n_blur"),
+            Input(f"{prefix}-colorbar-manual-max-input", "n_submit"),
+            State(f"{prefix}-yaxis-manual-min-input", "value"),
+            State(f"{prefix}-yaxis-manual-max-input", "value"),
+            State(f"{prefix}-colorbar-manual-min-input", "value"),
+            State(f"{prefix}-colorbar-manual-max-input", "value"),
+            State(f"{prefix}-yaxis-slider", "min"),
+            State(f"{prefix}-yaxis-slider", "max"),
+            State(f"{prefix}-colorbar-slider", "min"),
+            State(f"{prefix}-colorbar-slider", "max"),
+            State(f"{prefix}-display-range-defaults-store", "data"),
+            prevent_initial_call=True,
+        )
+        def commit_manual_input_values(
+            y_manual_min_blur,
+            y_manual_min_submit,
+            y_manual_max_blur,
+            y_manual_max_submit,
+            color_manual_min_blur,
+            color_manual_min_submit,
+            color_manual_max_blur,
+            color_manual_max_submit,
+            y_manual_min,
+            y_manual_max,
+            color_manual_min,
+            color_manual_max,
+            y_slider_min,
+            y_slider_max,
+            color_slider_min,
+            color_slider_max,
+            defaults,
+        ):
+            _ = (
+                y_manual_min_blur,
+                y_manual_min_submit,
+                y_manual_max_blur,
+                y_manual_max_submit,
+                color_manual_min_blur,
+                color_manual_min_submit,
+                color_manual_max_blur,
+                color_manual_max_submit,
+            )
+            triggered_id = ctx.triggered_id
+            if triggered_id in {
+                f"{prefix}-yaxis-manual-min-input",
+                f"{prefix}-yaxis-manual-max-input",
+            }:
+                slider_pair = _frequency_slider_pair_from_manual_bounds(
+                    y_manual_min,
+                    y_manual_max,
+                    slider_min=y_slider_min,
+                    slider_max=y_slider_max,
+                )
+                if slider_pair is None:
+                    return no_update, no_update
+                return slider_pair, no_update
+
+            slider_pair = _color_slider_pair_from_manual_bounds(
+                color_manual_min,
+                color_manual_max,
+                slider_min=color_slider_min,
+                slider_max=color_slider_max,
+                defaults=defaults,
+            )
+            if slider_pair is None:
+                return no_update, no_update
+            return no_update, slider_pair
+
     def _register_live_readout(prefix):
         @app.callback(
             Output(f"{prefix}-yaxis-readout", "children", allow_duplicate=True),
@@ -723,9 +893,54 @@ def register_display_range_callbacks(
                 ),
             )
 
+    def _register_manual_input_sync(prefix):
+        @app.callback(
+            Output(f"{prefix}-yaxis-manual-min-input", "value", allow_duplicate=True),
+            Output(f"{prefix}-yaxis-manual-max-input", "value", allow_duplicate=True),
+            Output(f"{prefix}-colorbar-manual-min-input", "value", allow_duplicate=True),
+            Output(f"{prefix}-colorbar-manual-max-input", "value", allow_duplicate=True),
+            Input(f"{prefix}-yaxis-slider", "value"),
+            Input(f"{prefix}-colorbar-slider", "value"),
+            State(f"{prefix}-yaxis-slider", "min"),
+            State(f"{prefix}-yaxis-slider", "max"),
+            State(f"{prefix}-colorbar-slider", "min"),
+            State(f"{prefix}-colorbar-slider", "max"),
+            prevent_initial_call=True,
+        )
+        def sync_manual_inputs_from_slider(
+            y_slider_value,
+            color_slider_value,
+            y_slider_min,
+            y_slider_max,
+            color_slider_min,
+            color_slider_max,
+        ):
+            triggered_id = ctx.triggered_id
+            if triggered_id == f"{prefix}-yaxis-slider":
+                y_manual_min, y_manual_max = _preview_frequency_manual_values(
+                    None,
+                    y_slider_value,
+                    y_slider_min,
+                    y_slider_max,
+                )
+                return y_manual_min, y_manual_max, no_update, no_update
+            color_manual_min, color_manual_max = _preview_color_manual_values(
+                None,
+                color_slider_value,
+                color_slider_min,
+                color_slider_max,
+            )
+            return no_update, no_update, color_manual_min, color_manual_max
+
     _register_slider_commit("label")
     _register_slider_commit("verify")
     _register_slider_commit("explore")
+    _register_manual_input_commit("label")
+    _register_manual_input_commit("verify")
+    _register_manual_input_commit("explore")
     _register_live_readout("label")
     _register_live_readout("verify")
     _register_live_readout("explore")
+    _register_manual_input_sync("label")
+    _register_manual_input_sync("verify")
+    _register_manual_input_sync("explore")
