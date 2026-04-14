@@ -13,6 +13,7 @@ def register_label_save_callbacks(
     _extract_label_extent_map_from_boxes,
     _profile_actor,
     _update_item_labels,
+    _update_item_notes,
     save_label_mode,
     _build_modal_boxes_from_item,
     _modal_snapshot_payload,
@@ -21,7 +22,17 @@ def register_label_save_callbacks(
     _ordered_unique_labels,
     _clean_annotation_extent,
     _has_pending_label_edits,
+    _stage_label_note_edit,
 ):
+    def _resolve_card_note_value(item_id, note_values, note_ids):
+        for index, note_id in enumerate(note_ids or []):
+            if not isinstance(note_id, dict):
+                continue
+            if (note_id.get("item_id") or "").strip() != item_id:
+                continue
+            return (note_values or [None])[index]
+        return None
+
     def quick_delete_label_mode(delete_timestamps, label_data, modal_item_id, modal_bbox_store, profile):
         if not ctx.triggered:
             raise PreventUpdate
@@ -135,6 +146,9 @@ def register_label_save_callbacks(
         State("user-profile-store", "data"),
         State("config-store", "data"),
         State("label-output-input", "value"),
+        State({"type": "card-note-text", "item_id": ALL}, "value"),
+        State({"type": "card-note-text", "item_id": ALL}, "id"),
+        State("modal-note-text", "value"),
         prevent_initial_call=True,
     )
     def save_label_changes(
@@ -146,6 +160,9 @@ def register_label_save_callbacks(
         profile,
         cfg,
         label_output_path,
+        card_note_values,
+        card_note_ids,
+        modal_note_text,
     ):
         triggered = ctx.triggered_id
         if not isinstance(triggered, dict):
@@ -165,6 +182,7 @@ def register_label_save_callbacks(
         if not item_id:
             raise PreventUpdate
         _require_complete_profile(profile, "save_label_changes")
+        profile_name = _profile_actor(profile)
 
         data = deepcopy(label_data or {})
         items = data.get("items") or []
@@ -174,6 +192,27 @@ def register_label_save_callbacks(
         )
         if not isinstance(active_item, dict):
             raise PreventUpdate
+
+        live_note_text = None
+        if triggered.get("type") == "modal-label-save":
+            live_note_text = modal_note_text
+        elif triggered.get("type") == "label-save-btn":
+            live_note_text = _resolve_card_note_value(item_id, card_note_values, card_note_ids)
+
+        if live_note_text is not None:
+            data, _ = _stage_label_note_edit(
+                data,
+                item_id,
+                live_note_text,
+                user_name=profile_name,
+            )
+            items = data.get("items") or []
+            active_item = next(
+                (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
+                None,
+            )
+            if not isinstance(active_item, dict):
+                raise PreventUpdate
 
         annotations_obj = active_item.get("annotations") if isinstance(active_item.get("annotations"), dict) else {}
         if not _has_pending_label_edits(annotations_obj):
@@ -213,7 +252,6 @@ def register_label_save_callbacks(
             or (data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}).get("labels_file")
             or (cfg.get("label", {}) if isinstance(cfg.get("label"), dict) else {}).get("output_file")
         )
-        profile_name = _profile_actor(profile)
 
         save_label_mode(
             labels_file,
@@ -233,6 +271,7 @@ def register_label_save_callbacks(
             is_reverification=True,
             label_extents=label_extents or None,
         )
+        updated = _update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
 
         dirty_update = no_update
         snapshot_update = no_update

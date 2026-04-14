@@ -1507,6 +1507,80 @@ body.theme-dark .grid-shell[data-dash-is-loading="true"]::before,
     transform: scale(1.01);
 }
 
+.note-editor {
+    margin-top: 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    overflow: hidden;
+}
+
+.note-editor--modal {
+    margin-top: 4px;
+}
+
+.note-editor-summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    list-style: none;
+}
+
+.note-editor-summary::-webkit-details-marker {
+    display: none;
+}
+
+.note-editor-summary::after {
+    content: "+";
+    float: right;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.note-editor[open] .note-editor-summary::after {
+    content: "−";
+}
+
+.note-editor-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 12px 12px;
+}
+
+.note-editor-textarea {
+    width: 100%;
+    min-height: 96px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    resize: vertical;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.note-editor-textarea:focus {
+    outline: none;
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
+}
+
+.note-editor-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.note-editor-hint {
+    font-size: 11px;
+    color: var(--muted);
+}
+
 /* ============================================
    BADGES
    ============================================ */

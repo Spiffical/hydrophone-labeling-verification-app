@@ -126,6 +126,7 @@ def register_all_callback_sections(app, *, config, deps):
         _ordered_unique_labels=d["ordered_unique_labels"],
         _clean_annotation_extent=d["clean_annotation_extent"],
         _has_pending_label_edits=d["has_pending_label_edits"],
+        _stage_label_note_edit=d["stage_label_note_edit"],
     )
 
     register_verify_action_callbacks(
