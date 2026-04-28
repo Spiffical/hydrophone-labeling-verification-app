@@ -824,8 +824,36 @@ def register_loading_overlay_callbacks(app):
                             img.addEventListener("error", function() { syncFromImages("error"); }, {once: true});
                         });
                     }
+                    function retryPendingImages(reason) {
+                        var imgs = Array.from(document.querySelectorAll(selectorForMode(modeName)));
+                        var retried = 0;
+                        imgs.forEach(function(img) {
+                            if (!!img.complete && asInt(img.naturalWidth, 0) > 0) {
+                                return;
+                            }
+                            var retryCount = asInt(img.__specgenRetryCount, 0);
+                            if (retryCount >= 2) {
+                                return;
+                            }
+                            var currentSrc = String(img.getAttribute("src") || "");
+                            if (!currentSrc) {
+                                return;
+                            }
+                            img.__specgenRetryCount = retryCount + 1;
+                            img.__specgenProgressToken = null;
+                            var separator = currentSrc.indexOf("?") === -1 ? "?" : "&";
+                            img.setAttribute("src", currentSrc + separator + "_img_retry=" + String(Date.now()));
+                            retried += 1;
+                        });
+                        if (retried > 0) {
+                            attachImageListeners();
+                            syncFromImages(reason || "retry");
+                        }
+                    }
                     window.setTimeout(function() { syncFromImages("initial"); }, 0);
                     window.setTimeout(function() { syncFromImages("settle"); }, 250);
+                    window.setTimeout(function() { retryPendingImages("retry-8s"); }, 8000);
+                    window.setTimeout(function() { retryPendingImages("retry-20s"); }, 20000);
                     attachImageListeners();
                     if (window.__specgenVisibleImageObserver) {
                         window.__specgenVisibleImageObserver.disconnect();
