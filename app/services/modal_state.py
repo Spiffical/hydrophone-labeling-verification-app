@@ -359,6 +359,17 @@ def persist_modal_item_before_exit(
             "verification_status": "verified",
             "notes": note_text,
         }
+        scope_date = active_item.get("date") or (active_item.get("metadata") or {}).get("date")
+        scope_device = (
+            active_item.get("device_code")
+            or (active_item.get("metadata") or {}).get("hydrophone")
+            or (active_item.get("metadata") or {}).get("device")
+        )
+        if scope_date:
+            verification["date"] = scope_date
+        if scope_device:
+            verification["hydrophone"] = scope_device
+            verification["device_code"] = scope_device
 
         predictions_path = (active_item.get("metadata") or {}).get("predictions_path")
         if not predictions_path:
@@ -383,7 +394,12 @@ def persist_modal_item_before_exit(
             item["annotations"] = item_annotations
             break
 
-        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        stored_verification = save_verify_predictions(
+            predictions_path,
+            item_id,
+            verification,
+            source_item=active_item,
+        )
         if stored_verification:
             for item in (updated or {}).get("items", []):
                 if item.get("item_id") != item_id:

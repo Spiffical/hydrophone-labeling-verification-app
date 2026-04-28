@@ -58,18 +58,6 @@ def create_label_layout(config: dict) -> html.Div:
             ], className="info-grid", style={"maxHeight": "200px", "overflowY": "auto"}),
 
             html.Div([
-                dbc.Switch(
-                    id="label-colormap-toggle",
-                    label="Hydrophone colormap",
-                    value=display_cfg.get("colormap") == "hydrophone",
-                    className="control-switch",
-                ),
-                dbc.Switch(
-                    id="label-yaxis-toggle",
-                    label="Log y-axis",
-                    value=display_cfg.get("y_axis_scale") == "log",
-                    className="control-switch",
-                ),
                 dbc.Button("Reload data", id="label-reload", color="primary", className="primary-btn"),
             ], className="control-row"),
         ], className="panel-card"),

@@ -36,6 +36,14 @@ def create_spectrogram_modal():
                             ],
                             className="modal-nav-controls",
                         ),
+                        dbc.Button(
+                            "×",
+                            id="close-modal-header",
+                            color="link",
+                            n_clicks=0,
+                            className="modal-header-close-btn",
+                            title="Close spectrogram",
+                        ),
                     ],
                     className="modal-header-row",
                 ),
@@ -44,7 +52,15 @@ def create_spectrogram_modal():
             ),
             dbc.ModalBody([
                 # Control panel for modal settings
-                html.Div([
+                html.Details([
+                    html.Summary(
+                        [
+                            html.Span("Display settings", className="display-range-title"),
+                            html.Span("Show controls", className="display-range-summary-hint"),
+                        ],
+                        className="display-range-summary",
+                    ),
+                    html.Div([
                     dbc.Row([
                         dbc.Col([
                             html.Label("Colormap", className="small fw-semibold text-muted mb-2"),
@@ -134,11 +150,6 @@ def create_spectrogram_modal():
                                                     step=0.005,
                                                     allowCross=False,
                                                     updatemode="mouseup",
-                                                    tooltip={
-                                                        "placement": "bottom",
-                                                        "always_visible": False,
-                                                        "transform": "formatLogFrequencyHz",
-                                                    },
                                                     className="control-slider display-range-slider",
                                                 ),
                                                 className="display-range-slider-shell",
@@ -212,11 +223,6 @@ def create_spectrogram_modal():
                                                     step=0.1,
                                                     allowCross=False,
                                                     updatemode="mouseup",
-                                                    tooltip={
-                                                        "placement": "bottom",
-                                                        "always_visible": False,
-                                                        "transform": "formatDecibelRange",
-                                                    },
                                                     className="control-slider display-range-slider",
                                                 ),
                                                 className="display-range-slider-shell",
@@ -255,7 +261,8 @@ def create_spectrogram_modal():
                             "colorbar_readout": "Auto contrast",
                         },
                     ),
-                ], className="modal-controls-card mb-4"),
+                    ], className="display-range-content modal-display-settings-content"),
+                ], className="modal-controls-card display-settings-details mb-4"),
 
                 # Interactive Plotly Graph
                 dbc.Card([
@@ -375,4 +382,21 @@ def create_spectrogram_modal():
         keyboard=False,
     )
 
-    return html.Div([main_modal, unsaved_changes_modal])
+    plotly_preload_graph = html.Div(
+        dcc.Graph(
+            id="plotly-preload-graph",
+            figure={"data": [], "layout": {"height": 1, "width": 1}},
+            config={"displayModeBar": False},
+        ),
+        style={
+            "height": "1px",
+            "left": "-9999px",
+            "overflow": "hidden",
+            "position": "absolute",
+            "top": "-9999px",
+            "width": "1px",
+        },
+        **{"aria-hidden": "true"},
+    )
+
+    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal])

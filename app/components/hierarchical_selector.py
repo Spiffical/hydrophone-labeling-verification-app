@@ -129,9 +129,16 @@ def _selected_ancestor_paths(selected_paths):
     return expanded_paths
 
 
+def _has_selected_descendant(path_tuple, selected_paths):
+    return any(
+        len(selected_path) > len(path_tuple)
+        and selected_path[: len(path_tuple)] == path_tuple
+        for selected_path in selected_paths or []
+    )
+
+
 def build_tree_children(filename, selected_paths, expanded_paths=None, search_value=None, read_only=False):
     expanded_path_set = set(expanded_paths or [])
-    expanded_path_set.update(_selected_ancestor_paths(selected_paths))
 
     hierarchy = HIERARCHICAL_LABELS
     normalized_search = (search_value or "").strip().lower()
@@ -173,6 +180,7 @@ def create_tree_structure(
         is_selected = path_tuple in selected_paths
         has_children = isinstance(value, dict) and value
         should_expand = has_children and path_string in expanded_path_set
+        has_selected_descendant = _has_selected_descendant(path_tuple, selected_paths)
 
         node_content = []
         if has_children:
@@ -208,6 +216,23 @@ def create_tree_structure(
             },
         ))
 
+        if has_selected_descendant and not is_selected:
+            node_content.append(html.Span(
+                "selected below",
+                title="This branch contains a selected label",
+                style={
+                    "margin-left": "8px",
+                    "padding": "1px 6px",
+                    "border-radius": "999px",
+                    "background": "rgba(13, 110, 253, 0.08)",
+                    "color": "#0d6efd",
+                    "font-size": "0.68em",
+                    "font-weight": "600",
+                    "letter-spacing": "0.01em",
+                    "white-space": "nowrap",
+                },
+            ))
+
         tree_items.append(html.Div([
             html.Div(
                 node_content,
@@ -216,9 +241,9 @@ def create_tree_structure(
                     "align-items": "center",
                     "padding": "2px 0",
                     "margin-left": f"{level * 20}px",
-                    "background": "#f8f9fa" if is_selected else "transparent",
+                    "background": "#f8f9fa" if is_selected else ("rgba(13, 110, 253, 0.03)" if has_selected_descendant else "transparent"),
                     "border-radius": "4px",
-                    "padding-left": "6px" if is_selected else "0",
+                    "padding-left": "6px" if (is_selected or has_selected_descendant) else "0",
                 },
             ),
             html.Div(
@@ -286,15 +311,28 @@ def toggle_tree_node(_n_clicks, expand_ids, expanded_paths):
 )
 def update_selected_labels(checkbox_values, checkbox_ids, current_labels, actions_store, thresholds, mode):
     if not checkbox_values or not checkbox_ids:
-        return [], create_selected_labels_display([], checkbox_ids[0]["filename"] if checkbox_ids else ""), dash.no_update
+        filename = checkbox_ids[0]["filename"] if checkbox_ids else ""
+        selected_paths = _normalize_selected_paths(current_labels)
+        return list(current_labels or []), create_selected_labels_display(selected_paths, filename), dash.no_update
 
     filename = checkbox_ids[0]["filename"]
-    selected_paths = []
+    visible_paths = [
+        tuple(str(checkbox_id.get("path", "")).split(" > "))
+        for checkbox_id in checkbox_ids
+        if isinstance(checkbox_id, dict) and checkbox_id.get("path")
+    ]
+    visible_path_set = set(visible_paths)
+    selected_paths = [
+        path
+        for path in _normalize_selected_paths(current_labels)
+        if path not in visible_path_set
+    ]
     for i, is_checked in enumerate(checkbox_values):
         if is_checked:
             path_string = checkbox_ids[i]["path"]
             selected_paths.append(tuple(path_string.split(" > ")))
 
+    selected_paths = _normalize_selected_paths(selected_paths)
     display = create_selected_labels_display(selected_paths, filename)
     selected_strings = [path_to_string(path) for path in selected_paths]
     actions_store = actions_store or {}

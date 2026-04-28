@@ -8,6 +8,7 @@ from app.callbacks.modal.action_rows_helpers import (
     build_accepted_rows,
     build_verify_rows,
 )
+from app.components.note_editor import create_note_editor
 from app.services.verification import (
     get_item_rejected_labels,
     get_modal_label_sets,
@@ -32,6 +33,7 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
     is_verified = bool(annotations.get("verified"))
     explicit_review = has_explicit_review(annotations)
     has_pending_edits = has_pending_label_edits(annotations)
+    note_text = annotations.get("notes", "") if isinstance(annotations.get("notes"), str) else ""
 
     accepted_rows = build_accepted_rows(
         active_labels=active_labels,
@@ -105,6 +107,16 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
             )
             if accepted_rows
             else html.Div("No labels", className="text-muted small"),
+            (
+                create_note_editor(
+                    note_text,
+                    textarea_id="modal-note-text",
+                    button_id="modal-note-apply",
+                    scope="modal",
+                )
+                if mode == "label"
+                else None
+            ),
             html.Div(status_note, className="modal-status-note") if status_note else None,
             html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
         ],

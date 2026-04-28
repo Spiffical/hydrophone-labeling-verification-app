@@ -63,13 +63,63 @@ def register_label_editor_modal_callbacks(
     _build_modal_boxes_from_item,
     _modal_snapshot_payload,
 ):
+    app.clientside_callback(
+        """
+        function(cancelClicks) {
+            var dc = (window.dash_clientside || {});
+            if (!cancelClicks) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            return [false, [], null];
+        }
+        """,
+        Output("label-editor-modal", "is_open", allow_duplicate=True),
+        Output("label-editor-body", "children", allow_duplicate=True),
+        Output("active-item-store", "data", allow_duplicate=True),
+        Input("label-editor-cancel", "n_clicks"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
+        function(editClicks, editIds, profile, mode) {
+            var dc = (window.dash_clientside || {});
+            var ctx = dc.callback_context || null;
+            if (!ctx || !ctx.triggered || ctx.triggered.length === 0) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            if (mode === "explore") {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            profile = profile || {};
+            var name = String(profile.name || "").trim();
+            var email = String(profile.email || "").trim();
+            if (!name || email.indexOf("@") === -1) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            var triggered = ctx.triggered[0] || {};
+            if (!triggered.value) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            return [true, "Loading label editor...", null];
+        }
+        """,
+        Output("label-editor-modal", "is_open", allow_duplicate=True),
+        Output("label-editor-body", "children", allow_duplicate=True),
+        Output("active-item-store", "data", allow_duplicate=True),
+        Input({"type": "edit-btn", "item_id": ALL}, "n_clicks"),
+        State({"type": "edit-btn", "item_id": ALL}, "id"),
+        State("user-profile-store", "data"),
+        State("mode-tabs", "data"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("label-editor-modal", "is_open"),
         Output("label-editor-body", "children"),
         Output("active-item-store", "data"),
         Output("label-editor-clicks", "data"),
         Input({"type": "edit-btn", "item_id": ALL}, "n_clicks"),
-        Input("label-editor-cancel", "n_clicks"),
         State("label-editor-clicks", "data"),
         State({"type": "edit-btn", "item_id": ALL}, "id"),
         State("label-data-store", "data"),
@@ -83,7 +133,6 @@ def register_label_editor_modal_callbacks(
     )
     def open_label_editor(
         n_clicks_list,
-        cancel_clicks,
         click_store,
         edit_ids,
         label_data,
@@ -95,11 +144,9 @@ def register_label_editor_modal_callbacks(
         profile,
     ):
         start = time.perf_counter()
-        _ = cancel_clicks, active_item_id
+        _ = active_item_id
         data = _get_mode_data(mode, label_data, verify_data, explore_data)
         triggered = ctx.triggered_id
-        if triggered == "label-editor-cancel":
-            return False, no_update, None, click_store or {}
         if mode == "explore":
             return False, no_update, None, click_store or {}
         _require_complete_profile(profile, "open_label_editor")

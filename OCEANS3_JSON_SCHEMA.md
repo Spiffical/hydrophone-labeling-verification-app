@@ -249,6 +249,20 @@ Use this to store audio filenames even when local paths are unavailable.
 | `recording_end_time` | date-time | Optional absolute end time of the source recording. |
 | `checksum_sha256` | string | Optional checksum of source audio for integrity/provenance. |
 
+#### Merged events that span multiple source audio files
+
+The strict OCEANS3 schema intentionally has one `source_audio` object per item.
+If an app-facing or postprocessed event spans multiple raw files, represent it
+as multiple strict `items[]`, one per source audio file. Use a stable shared
+prefix in `item_id` to preserve grouping, and put the source-specific file in
+`items[].source_audio.file_name`.
+
+The local review media in `items[].paths` may point to the same merged WAV/MAT
+for each split item. Do not add custom fields such as `source_segments`,
+`parent_source_audio_files`, `aggregation_method`, or model-output `metadata`
+to strict OCEANS3 JSON; those belong in app-specific sidecars such as
+`predictions_postprocessed.app.json`.
+
 #### Shared `annotation_extent` object
 
 Used by both:

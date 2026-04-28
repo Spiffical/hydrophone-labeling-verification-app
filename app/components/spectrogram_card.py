@@ -2,6 +2,7 @@ import os
 from dash import html
 import dash_bootstrap_components as dbc
 from app.components.audio_player import create_audio_player
+from app.components.note_editor import create_note_editor
 
 
 def _label_badges(labels, color="primary"):
@@ -222,6 +223,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
 
     predictions = item.get("predictions") or {}
     annotations_data = item.get("annotations") or {}
+    note_text = annotations_data.get("notes", "") if isinstance(annotations_data.get("notes"), str) else ""
     predicted = _ordered_unique_labels(predictions.get("labels", []))
     annotations = _ordered_unique_labels(annotations_data.get("labels", []))
     rejected = _ordered_unique_labels((item.get("ui_rejected_labels") or annotations_data.get("rejected_labels") or []))
@@ -301,6 +303,16 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         actions = []
 
     actions_block = html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap") if actions else None
+    note_block = (
+        create_note_editor(
+            note_text,
+            textarea_id={"type": "card-note-text", "item_id": item_id},
+            button_id={"type": "card-note-apply", "item_id": item_id},
+            scope="card",
+        )
+        if mode == "label"
+        else None
+    )
 
     return dbc.Card([
         dbc.CardHeader(html.Div([
@@ -310,6 +322,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
             image,
             audio_player,
             html.Div(badges, className="mt-3"),
+            note_block,
             actions_block,
         ])
     ], className="spectrogram-card h-100")

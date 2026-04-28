@@ -59,6 +59,9 @@ from app.services.modal_state import (
     persist_modal_item_before_exit as _persist_modal_item_before_exit_service,
     replace_item_in_data as _replace_item_in_data,
 )
+from app.services.note_state import (
+    stage_label_note_edit as _stage_label_note_edit,
+)
 from app.services.verification import (
     filter_predictions as _filter_predictions,
     get_item_rejected_labels as _get_item_rejected_labels,
@@ -192,6 +195,7 @@ def register_callbacks(app, config):
         "build_modal_item_actions": _build_modal_item_actions,
         "persist_modal_item_before_exit": _persist_modal_item_before_exit,
         "replace_item_in_data": _replace_item_in_data,
+        "stage_label_note_edit": _stage_label_note_edit,
         "parse_active_box_target": _parse_active_box_target,
         "bbox_debug": _bbox_debug,
         "bbox_debug_box_summary": _bbox_debug_box_summary,

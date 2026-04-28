@@ -2,6 +2,7 @@
 Data structure discovery utilities.
 Automatically detects folder structure and discovers spectrograms, audio, and predictions.
 """
+import json
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -98,9 +99,108 @@ def _is_device_folder(name: str) -> bool:
     # Common patterns: ICLISTENHF1234, hydrophone_01, device_001
     if name.startswith('.'):
         return False
-    if name.lower() in {'audio', 'spectrograms', 'onc_spectrograms', 'images', 'data'}:
+    if name.lower() in {
+        'audio',
+        'spectrograms',
+        'onc_spectrograms',
+        'images',
+        'data',
+        'logs',
+        'manifests',
+        'target',
+        'excluded',
+        'predictions_postprocessed_events_media',
+    }:
         return False
     return bool(re.match(r'^[A-Za-z0-9_-]+$', name))
+
+
+def _date_from_compact(value: str) -> Optional[str]:
+    if isinstance(value, str) and re.match(r"^\d{8}$", value):
+        return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"
+    return None
+
+
+def _infer_scope_from_text(value: str) -> Tuple[Optional[str], Optional[str]]:
+    if not isinstance(value, str) or not value:
+        return None, None
+
+    date = None
+    device = None
+    match = re.search(r"(?<!\d)(20\d{2})-(\d{2})-(\d{2})(?!\d)", value)
+    if match:
+        date = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    if not date:
+        match = re.search(r"(?<!\d)(20\d{6})T", value)
+        if match:
+            date = _date_from_compact(match.group(1))
+    if not date:
+        match = re.search(r"(?<!\d)(20\d{6})(?!\d)", value)
+        if match:
+            date = _date_from_compact(match.group(1))
+
+    match = re.search(r"\b(ICLISTENHF[0-9A-Za-z]+)\b", value)
+    if match:
+        device = match.group(1)
+    if not device:
+        match = re.search(r"\bfw-([A-Za-z0-9_-]+)-20\d{6}T", value)
+        if match:
+            device = match.group(1)
+
+    return date, device
+
+
+def _infer_prediction_scopes(predictions_file: Optional[str]) -> Tuple[List[str], List[str]]:
+    dates = set()
+    devices = set()
+    if not predictions_file or not os.path.isfile(predictions_file):
+        return [], []
+
+    try:
+        with open(predictions_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return [], []
+
+    entries = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        entries = data.get("predictions") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return [], []
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        raw_date = entry.get("date") or metadata.get("date")
+        raw_device = (
+            entry.get("device_code")
+            or metadata.get("hydrophone")
+            or metadata.get("device")
+            or metadata.get("device_code")
+        )
+        if isinstance(raw_date, str) and raw_date:
+            dates.add(raw_date)
+        if isinstance(raw_device, str) and raw_device:
+            devices.add(raw_device)
+
+        text_parts = []
+        for key in ("item_id", "audio_path", "spectrogram_path", "mat_path", "source_audio"):
+            value = entry.get(key)
+            if isinstance(value, str) and value:
+                text_parts.append(value)
+        paths = entry.get("paths") if isinstance(entry.get("paths"), dict) else {}
+        for key in ("audio_path", "spectrogram_path", "spectrogram_png_path", "spectrogram_mat_path"):
+            value = paths.get(key)
+            if isinstance(value, str) and value:
+                text_parts.append(value)
+        date, device = _infer_scope_from_text(" ".join(text_parts))
+        if date:
+            dates.add(date)
+        if device:
+            devices.add(device)
+
+    return sorted(dates, reverse=True), sorted(devices)
 
 
 def _find_spectrograms(folder: str, recursive: bool = False) -> Tuple[List[str], Dict[str, int]]:
@@ -138,7 +238,14 @@ def _find_audio_folder(base_path: str, spectrogram_folder: str = None) -> Option
     3. 'audio' folder at same level as spectrogram folder
     """
     # Check for audio folder in base path
-    audio_candidates = ['audio', 'Audio', 'AUDIO', 'wav', 'flac']
+    audio_candidates = [
+        'audio',
+        'Audio',
+        'AUDIO',
+        'wav',
+        'flac',
+        os.path.join('predictions_postprocessed_events_media', 'audio'),
+    ]
     
     for candidate in audio_candidates:
         audio_path = os.path.join(base_path, candidate)
@@ -207,7 +314,15 @@ def _count_audio_files(folder: str) -> int:
 
 def _find_spectrogram_subfolder(base_path: str) -> Optional[str]:
     """Find a spectrogram subfolder like 'spectrograms', 'images', etc."""
-    candidates = ['spectrograms', 'onc_spectrograms', 'mat_files', 'images', 'data', 'Spectrograms']
+    candidates = [
+        'spectrograms',
+        'onc_spectrograms',
+        'mat_files',
+        'images',
+        'data',
+        'Spectrograms',
+        os.path.join('predictions_postprocessed_events_media', 'spectrograms'),
+    ]
     
     for candidate in candidates:
         subfolder = os.path.join(base_path, candidate)
@@ -539,17 +654,19 @@ def _check_flat_structure(path: str) -> Dict:
             root_predictions = candidate
             break
 
+    predictions_for_scope = predictions or root_predictions
+    dates, devices = _infer_prediction_scopes(predictions_for_scope)
     ext_summary = ", ".join(f"{count} {ext}" for ext, count in spec_exts.items())
 
     return {
         "found": True,
         "result": {
             "structure_type": "flat",
-            "dates": [],
-            "devices": [],
+            "dates": dates,
+            "devices": devices,
             "spectrogram_folder": spec_folder,
             "audio_folder": audio_folder,
-            "predictions_file": predictions or root_predictions,
+            "predictions_file": predictions_for_scope,
             "spectrogram_extensions": list(spec_exts.keys()),
             "spectrogram_count": len(spec_files),
             "audio_count": audio_count,
