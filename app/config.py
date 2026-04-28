@@ -129,11 +129,12 @@ def get_config() -> Dict[str, Any]:
     args = parse_args()
     config = load_config_file(args.config)
     repo_root = get_repo_root()
+    data_cfg = config.get("data", {}) if isinstance(config.get("data"), dict) else {}
 
-    mode = args.mode or config.get("data", {}).get("mode", "label")
+    mode = args.mode or data_cfg.get("mode", "label")
 
-    label_cfg = config.get("data", {}).get("label", {})
-    verify_cfg = config.get("data", {}).get("verify", {})
+    label_cfg = data_cfg.get("label", {}) if isinstance(data_cfg.get("label"), dict) else {}
+    verify_cfg = data_cfg.get("verify", {}) if isinstance(data_cfg.get("verify"), dict) else {}
 
     label_folder = args.label_folder or label_cfg.get("folder")
     audio_folder = args.audio_folder or label_cfg.get("audio_folder")
@@ -143,7 +144,7 @@ def get_config() -> Dict[str, Any]:
     date_str = args.date or verify_cfg.get("date")
     hydrophone = args.hydrophone or verify_cfg.get("hydrophone")
 
-    predictions_json = args.predictions_json  # CLI arg only, no config fallback
+    predictions_json = args.predictions_json or verify_cfg.get("predictions_json")
 
     display_cfg = config.get("display", {})
     items_per_page = args.items_per_page or display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE)
@@ -179,6 +180,14 @@ def get_config() -> Dict[str, Any]:
     spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")
     if spec_source not in {"existing", "audio_generated"}:
         spec_source = "existing"
+
+    def resolve_optional_path(value: Any) -> Any:
+        return resolve_path(value, repo_root) if isinstance(value, str) and value else value
+
+    data_dir = resolve_optional_path(data_cfg.get("data_dir"))
+    data_predictions_file = resolve_optional_path(args.predictions_json or data_cfg.get("predictions_file"))
+    data_spectrogram_folder = resolve_optional_path(data_cfg.get("spectrogram_folder"))
+    data_audio_folder = resolve_optional_path(data_cfg.get("audio_folder"))
 
     return {
         "mode": mode,
@@ -227,10 +236,20 @@ def get_config() -> Dict[str, Any]:
             "port": args.port,
         },
         "data": {
-            "data_dir": resolve_path(config.get("data", {}).get("data_dir"), repo_root)
-            if config.get("data", {}).get("data_dir")
-            else None,
-            "spectrogram_folder_names": config.get("data", {}).get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"]),
-            "audio_folder_names": config.get("data", {}).get("audio_folder_names", ["audio"]),
+            "mode": data_cfg.get("mode"),
+            "data_dir": data_dir,
+            "structure_type": data_cfg.get("structure_type"),
+            "predictions_file": data_predictions_file,
+            "spectrogram_folder": data_spectrogram_folder,
+            "audio_folder": data_audio_folder,
+            "predictions_overrides": data_cfg.get("predictions_overrides"),
+            "spectrogram_folder_names": data_cfg.get("spectrogram_folder_names", ["spectrograms", "onc_spectrograms", "mat_files"]),
+            "audio_folder_names": data_cfg.get("audio_folder_names", ["audio"]),
+            "verify": {
+                "dashboard_root": resolve_path(dashboard_root, repo_root) if dashboard_root else None,
+                "date": date_str,
+                "hydrophone": hydrophone,
+                "predictions_json": resolve_path(predictions_json, repo_root) if predictions_json else None,
+            },
         },
     }
