@@ -661,6 +661,11 @@ def register_loading_overlay_callbacks(app):
                     }
                     window.__specgenOverlayPreflight = null;
                     window.__specgenOverlayLatestRequest = null;
+                    window.__specgenOverlayDomReady = null;
+                    if (window.__specgenVisibleImageObserver) {
+                        window.__specgenVisibleImageObserver.disconnect();
+                        window.__specgenVisibleImageObserver = null;
+                    }
                     setMarker("hide:" + String(reason || ""), extra);
                     if (titleEl) titleEl.textContent = "";
                     if (subtitleEl) subtitleEl.textContent = "";
@@ -803,14 +808,16 @@ def register_loading_overlay_callbacks(app):
                             })
                         );
                         if (stats.is_ready) {
-                            hide("visible-images-ready", {
+                            window.__specgenOverlayDomReady = {
                                 mode: modeName,
                                 dom_total: stats.total,
                                 dom_loaded: stats.loaded,
                                 dom_expected: stats.expected,
                                 dom_failed: stats.failed,
-                                dom_progress_reason: reason || "sync"
-                            });
+                                dom_progress_reason: reason || "sync",
+                                at_ms: Date.now()
+                            };
+                            setMarker("dom-ready:" + modeName, window.__specgenOverlayDomReady);
                         }
                     }
                     function attachImageListeners() {
@@ -1008,6 +1015,12 @@ def register_loading_overlay_callbacks(app):
                 var activeRequest = (request && typeof request === "object")
                     ? request
                     : (window.__specgenOverlayLatestRequest || null);
+                var domReadyFlag = (window.__specgenOverlayDomReady && typeof window.__specgenOverlayDomReady === "object")
+                    ? window.__specgenOverlayDomReady
+                    : null;
+                if (domReadyFlag && (Date.now() - asFloat(domReadyFlag.at_ms, 0.0)) < 10000.0) {
+                    return hide("visible-images-ready", domReadyFlag);
+                }
                 if (!activeRequest || typeof activeRequest !== "object") {
                     var fallbackMode = String(mode || "label");
                     var fallbackStatus = statusForMode(fallbackMode);
