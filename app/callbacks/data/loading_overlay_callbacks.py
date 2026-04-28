@@ -704,6 +704,7 @@ def register_loading_overlay_callbacks(app):
                         fillEl.style.width = fillStyle.width;
                         fillEl.className = fillClass;
                     }
+                    armVisibleImageProgress(extra || {});
                     return [
                         {display: "flex"},
                         "Generating spectrograms...",
@@ -717,6 +718,126 @@ def register_loading_overlay_callbacks(app):
                     if (m === "verify") return "#verify-grid img.spectrogram-image";
                     if (m === "explore") return "#explore-grid img.spectrogram-image";
                     return "#label-grid img.spectrogram-image";
+                }
+                function visibleImageStatsForMode(m, eligibleHint) {
+                    var imgs = Array.from(document.querySelectorAll(selectorForMode(m)));
+                    var expected = Math.max(asInt(eligibleHint, 0), imgs.length);
+                    var loaded = 0;
+                    var failed = 0;
+                    for (var i = 0; i < imgs.length; i += 1) {
+                        var img = imgs[i];
+                        var complete = !!img.complete;
+                        var naturalWidth = asInt(img.naturalWidth, 0);
+                        if (complete && naturalWidth > 0) {
+                            loaded += 1;
+                        } else if (complete && String(img.getAttribute("src") || "")) {
+                            failed += 1;
+                        }
+                    }
+                    var pending = Math.max(0, expected - loaded);
+                    return {
+                        expected: expected,
+                        total: imgs.length,
+                        loaded: loaded,
+                        pending: pending,
+                        failed: failed,
+                        is_ready: expected > 0 && imgs.length >= expected && loaded >= expected && failed <= 0
+                    };
+                }
+                function armVisibleImageProgress(extra) {
+                    var overlayEl = document.getElementById("specgen-page-loading-overlay");
+                    if (!overlayEl) return;
+                    var modeName = String((extra || {}).mode || mode || "label");
+                    var eligibleHint = Math.max(
+                        asInt((extra || {}).dom_expected, 0),
+                        asInt((extra || {}).eligible, 0)
+                    );
+                    var token = [
+                        modeName,
+                        String((extra || {}).request_page ?? ""),
+                        String((extra || {}).ready_page ?? ""),
+                        String((extra || {}).status_page ?? ""),
+                        String(eligibleHint)
+                    ].join(":");
+                    window.__specgenVisibleImageProgressToken = token;
+                    function syncFromImages(reason) {
+                        var currentOverlay = document.getElementById("specgen-page-loading-overlay");
+                        if (!currentOverlay || currentOverlay.style.display === "none") {
+                            return;
+                        }
+                        var stats = visibleImageStatsForMode(modeName, eligibleHint);
+                        if (stats.expected <= 0) {
+                            return;
+                        }
+                        var progressEl = document.getElementById("specgen-load-progress-text");
+                        var subtitleEl = document.getElementById("specgen-load-subtitle");
+                        var fillEl = document.getElementById("specgen-load-progress-fill");
+                        var pct = Math.round((stats.loaded / Math.max(1, stats.expected)) * 100.0);
+                        if (pct < 0) pct = 0;
+                        if (pct > 100) pct = 100;
+                        if (progressEl) {
+                            progressEl.textContent = stats.loaded + "/" + stats.expected +
+                                " spectrograms ready (" + stats.pending + " left)";
+                        }
+                        if (subtitleEl) {
+                            subtitleEl.textContent = stats.pending > 0
+                                ? overlaySubtitleFor("image", stats.pending, stats.loaded, stats.expected)
+                                : "All spectrograms for this page are visible.";
+                        }
+                        if (fillEl) {
+                            fillEl.style.width = String(pct) + "%";
+                            fillEl.className = "specgen-load-progress-fill specgen-load-progress-fill--determinate";
+                        }
+                        setMarker(
+                            "dom-progress:" + modeName + ":" + String(stats.pending),
+                            Object.assign({}, extra || {}, {
+                                mode: modeName,
+                                pending: stats.pending,
+                                eligible: stats.expected,
+                                dom_total: stats.total,
+                                dom_loaded: stats.loaded,
+                                dom_failed: stats.failed,
+                                dom_expected: stats.expected,
+                                dom_progress_reason: reason || "sync",
+                                phase: "image"
+                            })
+                        );
+                        if (stats.is_ready) {
+                            hide("visible-images-ready", {
+                                mode: modeName,
+                                dom_total: stats.total,
+                                dom_loaded: stats.loaded,
+                                dom_expected: stats.expected,
+                                dom_failed: stats.failed,
+                                dom_progress_reason: reason || "sync"
+                            });
+                        }
+                    }
+                    function attachImageListeners() {
+                        var imgs = Array.from(document.querySelectorAll(selectorForMode(modeName)));
+                        imgs.forEach(function(img) {
+                            if (img.__specgenProgressToken === token) {
+                                return;
+                            }
+                            img.__specgenProgressToken = token;
+                            img.addEventListener("load", function() { syncFromImages("load"); }, {once: true});
+                            img.addEventListener("error", function() { syncFromImages("error"); }, {once: true});
+                        });
+                    }
+                    window.setTimeout(function() { syncFromImages("initial"); }, 0);
+                    window.setTimeout(function() { syncFromImages("settle"); }, 250);
+                    attachImageListeners();
+                    if (window.__specgenVisibleImageObserver) {
+                        window.__specgenVisibleImageObserver.disconnect();
+                    }
+                    var grid = document.querySelector(gridSelectorForMode(modeName));
+                    if (grid && window.MutationObserver) {
+                        window.__specgenVisibleImageObserver = new MutationObserver(function() {
+                            attachImageListeners();
+                            syncFromImages("mutation");
+                        });
+                        window.__specgenVisibleImageObserver.observe(grid, {childList: true, subtree: true});
+                    }
                 }
                 function gridSelectorForMode(m) {
                     if (m === "verify") return "#verify-grid";
