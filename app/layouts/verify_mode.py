@@ -210,17 +210,9 @@ def create_verify_layout(config: dict) -> html.Div:
         dcc.Store(id="verify-visible-item-ids-store", data=[], storage_type="memory"),
         dcc.Store(id="verify-data-cache-key-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-modal-synced-item-ids-store", data=[], storage_type="memory"),
-        dcc.Loading(
-            children=html.Div(
-                _create_spectrogram_grid_placeholder(),
-                id="verify-grid",
-                className="grid-shell",
-            ),
-            id="verify-grid-loading",
-            type="default",
-            delay_show=250,
-            color="#58a6ff",
-            className="specgen-loading",
-            parent_className="specgen-loading-wrap",
+        html.Div(
+            _create_spectrogram_grid_placeholder(),
+            id="verify-grid",
+            className="grid-shell",
         ),
     ])

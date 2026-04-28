@@ -86,13 +86,5 @@ def create_label_layout(config: dict) -> html.Div:
 
         html.Div(id="label-summary", className="summary-bar"),
         dcc.Store(id="label-current-page", data=0, storage_type="session"),
-        dcc.Loading(
-            children=html.Div(id="label-grid", className="grid-shell"),
-            id="label-grid-loading",
-            type="default",
-            delay_show=250,
-            color="#58a6ff",
-            className="specgen-loading",
-            parent_className="specgen-loading-wrap",
-        ),
+        html.Div(id="label-grid", className="grid-shell"),
     ])

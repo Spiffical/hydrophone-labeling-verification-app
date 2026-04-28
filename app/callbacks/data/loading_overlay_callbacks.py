@@ -213,8 +213,28 @@ def register_loading_overlay_callbacks(app):
                 if (m === "explore") return "#explore-grid img.spectrogram-image";
                 return "#label-grid img.spectrogram-image";
             }
-            function domStatsForMode(m) {
+            function expectedIdsFromReady(readyPayload) {
+                var ids = (readyPayload && Array.isArray(readyPayload.item_ids)) ? readyPayload.item_ids : [];
+                return ids.map(function(v) { return String(v || ""); }).filter(Boolean);
+            }
+            function domStatsForMode(m, readyPayload) {
+                var expectedIds = expectedIdsFromReady(readyPayload);
+                var expectedSet = new Set(expectedIds);
+                var expectedCount = Math.max(
+                    asInt((readyPayload || {}).item_count, expectedIds.length),
+                    expectedIds.length
+                );
                 var imgs = Array.from(document.querySelectorAll(selectorForMode(m)));
+                var domIds = [];
+                imgs = imgs.filter(function(img) {
+                    var node = img.closest ? img.closest("[data-item-id]") : null;
+                    var itemId = node ? String(node.getAttribute("data-item-id") || "") : "";
+                    if (itemId && domIds.indexOf(itemId) === -1) domIds.push(itemId);
+                    return expectedSet.size <= 0 || expectedSet.has(itemId);
+                });
+                var idsMatch = expectedIds.length <= 0 || expectedIds.every(function(id) {
+                    return domIds.indexOf(id) !== -1;
+                });
                 var total = imgs.length;
                 var loaded = 0;
                 for (var i = 0; i < imgs.length; i += 1) {
@@ -223,10 +243,16 @@ def register_loading_overlay_callbacks(app):
                         loaded += 1;
                     }
                 }
+                var targetTotal = expectedCount > 0 ? expectedCount : total;
+                var pending = Math.max(0, targetTotal - loaded);
+                if (!idsMatch) pending = Math.max(pending, targetTotal);
                 return {
                     total: total,
                     loaded: loaded,
-                    pending: Math.max(0, total - loaded)
+                    pending: pending,
+                    expected: targetTotal,
+                    ids_match: idsMatch,
+                    is_ready: targetTotal > 0 && idsMatch && loaded >= targetTotal
                 };
             }
 
@@ -247,8 +273,8 @@ def register_loading_overlay_callbacks(app):
                     var activeReadyPage = asInt(activeReady.page, -1);
                     var activeStatusPage = asInt(activeStatus.page_index, -2);
                     if (activeReadyPage === activeStatusPage) {
-                        var activeDom = domStatsForMode(activeMode);
-                        if (activeDom.total > 0 && activeDom.pending > 0) {
+                        var activeDom = domStatsForMode(activeMode, activeReady);
+                        if (activeDom.expected > 0 && activeDom.pending > 0) {
                             return false;
                         }
                     }
@@ -264,17 +290,13 @@ def register_loading_overlay_callbacks(app):
                 return false;
             }
 
-            if (Date.now() - requestedAtMs > 120000.0) {
-                return true;
-            }
-
             if (!reqStatus || typeof reqStatus !== "object") {
                 if (reqReady && typeof reqReady === "object") {
                     var reqReadyPageMissing = asInt(reqReady.page, -1);
                     var reqReadyAtMissing = asFloat(reqReady.rendered_at, 0.0) * 1000.0;
                     if (reqReadyPageMissing === asInt(request.page, -2) && reqReadyAtMissing >= (requestedAtMs - requestTimingSlackMs)) {
-                        var reqMissingDom = domStatsForMode(reqMode);
-                        if (reqMissingDom.total > 0 && reqMissingDom.pending <= 0) {
+                        var reqMissingDom = domStatsForMode(reqMode, reqReady);
+                        if (reqMissingDom.is_ready) {
                             return true;
                         }
                     }
@@ -299,18 +321,15 @@ def register_loading_overlay_callbacks(app):
             var statusPage = asInt(reqStatus.page_index, -2);
             var readyAtMs = asFloat(reqReady.rendered_at, 0.0) * 1000.0;
             if (readyPage === statusPage && readyAtMs >= (requestedAtMs - requestTimingSlackMs)) {
-                var reqDom = domStatsForMode(reqMode);
+                var reqDom = domStatsForMode(reqMode, reqReady);
                 var reqEligible = Math.max(
                     asInt(reqStatus.pending, 0),
                     asInt(reqStatus.eligible, asInt(reqStatus.total, 0))
                 );
-                if (reqDom.total > 0) {
-                    return reqDom.pending <= 0;
+                if (reqDom.expected > 0) {
+                    return reqDom.is_ready;
                 }
                 return reqEligible <= 0;
-            }
-            if (Date.now() - requestedAtMs > 15000.0) {
-                return true;
             }
             return false;
         }
@@ -623,9 +642,13 @@ def register_loading_overlay_callbacks(app):
                     return true;
                 }
                 function setMarker(marker, extra) {
+                    var previousMarker = window.__specgenOverlayLast;
                     window.__specgenOverlayLast = marker;
                     window.__specgenOverlayLastMeta = extra || null;
                     window.__specgenOverlayLastChangedAtMs = Date.now();
+                    if (previousMarker !== marker && window.console && console.debug) {
+                        console.debug("[specgen-overlay]", marker, extra || {});
+                    }
                 }
                 function hide(reason, extra) {
                     var overlayEl = document.getElementById("specgen-page-loading-overlay");
@@ -695,8 +718,45 @@ def register_loading_overlay_callbacks(app):
                     if (m === "explore") return "#explore-grid img.spectrogram-image";
                     return "#label-grid img.spectrogram-image";
                 }
-                function domStatsForMode(m) {
+                function gridSelectorForMode(m) {
+                    if (m === "verify") return "#verify-grid";
+                    if (m === "explore") return "#explore-grid";
+                    return "#label-grid";
+                }
+                function expectedIdsFromReady(readyInfo) {
+                    var payload = (readyInfo && readyInfo.payload && typeof readyInfo.payload === "object")
+                        ? readyInfo.payload
+                        : {};
+                    var ids = Array.isArray(payload.item_ids) ? payload.item_ids : [];
+                    return ids.map(function(v) { return String(v || ""); }).filter(Boolean);
+                }
+                function domStatsForMode(m, readyInfo) {
+                    var expectedIds = expectedIdsFromReady(readyInfo);
+                    var expectedSet = new Set(expectedIds);
+                    var expectedCount = Math.max(
+                        asInt(((readyInfo || {}).payload || {}).item_count, expectedIds.length),
+                        expectedIds.length
+                    );
+                    var grid = document.querySelector(gridSelectorForMode(m));
                     var imgs = Array.from(document.querySelectorAll(selectorForMode(m)));
+                    var domIds = [];
+                    if (grid) {
+                        var cards = Array.from(grid.querySelectorAll(".spectrogram-card[data-item-id], .spectrogram-image-container[data-item-id]"));
+                        for (var c = 0; c < cards.length; c += 1) {
+                            var cardId = String(cards[c].getAttribute("data-item-id") || "");
+                            if (cardId && domIds.indexOf(cardId) === -1) domIds.push(cardId);
+                        }
+                    }
+                    var idsMatch = expectedIds.length <= 0 || expectedIds.every(function(id) {
+                        return domIds.indexOf(id) !== -1;
+                    });
+                    if (expectedSet.size > 0) {
+                        imgs = imgs.filter(function(img) {
+                            var node = img.closest ? img.closest("[data-item-id]") : null;
+                            var itemId = node ? String(node.getAttribute("data-item-id") || "") : "";
+                            return expectedSet.has(itemId);
+                        });
+                    }
                     var total = imgs.length;
                     var loaded = 0;
                     var failed = 0;
@@ -710,11 +770,19 @@ def register_loading_overlay_callbacks(app):
                             failed += 1;
                         }
                     }
+                    var targetTotal = expectedCount > 0 ? expectedCount : total;
+                    var pending = Math.max(0, targetTotal - loaded);
+                    if (!idsMatch) pending = Math.max(pending, targetTotal);
                     return {
                         total: total,
                         loaded: loaded,
                         failed: failed,
-                        pending: Math.max(0, total - loaded)
+                        pending: pending,
+                        expected: targetTotal,
+                        ids_match: idsMatch,
+                        expected_ids: expectedIds.length,
+                        dom_ids: domIds.length,
+                        is_ready: targetTotal > 0 && idsMatch && loaded >= targetTotal && failed <= 0
                     };
                 }
                 function readyPageInfo(m, reqPage, requestedAtMs) {
@@ -794,6 +862,7 @@ def register_loading_overlay_callbacks(app):
                 if (!activeRequest || typeof activeRequest !== "object") {
                     var fallbackMode = String(mode || "label");
                     var fallbackStatus = statusForMode(fallbackMode);
+                    var fallbackReadyPayload = readyForMode(fallbackMode);
                     if (fallbackStatus && typeof fallbackStatus === "object") {
                         var fallbackPage = asInt(fallbackStatus.page_index, -1);
                         var fallbackPending = Math.max(0, asInt(fallbackStatus.pending, 0));
@@ -817,9 +886,9 @@ def register_loading_overlay_callbacks(app):
                         }
                         var fallbackReadyInfo = readyPageInfo(fallbackMode, fallbackPage, Date.now());
                         if (fallbackReadyInfo.matches_request) {
-                            var fallbackDom = domStatsForMode(fallbackMode);
-                            if (fallbackDom.total > 0 && fallbackDom.pending > 0) {
-                                var fallbackDomEligible = Math.max(fallbackEligible, fallbackDom.total);
+                            var fallbackDom = domStatsForMode(fallbackMode, fallbackReadyInfo);
+                            if (fallbackDom.expected > 0 && fallbackDom.pending > 0) {
+                                var fallbackDomEligible = Math.max(fallbackEligible, fallbackDom.expected);
                                 return show(
                                     overlaySubtitleFor("image", fallbackDom.pending, fallbackDom.loaded, fallbackDomEligible),
                                     {
@@ -831,18 +900,59 @@ def register_loading_overlay_callbacks(app):
                                         dom_total: fallbackDom.total,
                                         dom_loaded: fallbackDom.loaded,
                                         dom_failed: fallbackDom.failed,
+                                        dom_expected: fallbackDom.expected,
+                                        dom_ids_match: fallbackDom.ids_match,
                                         fallback: true,
                                         phase: "image"
                                     }
                                 );
                             }
-                            if (fallbackReadyInfo.page === fallbackPage) {
+                            if (fallbackDom.is_ready && fallbackReadyInfo.page === fallbackPage) {
                                 return hide("no-request-page-already-rendered", {
                                     mode: fallbackMode,
                                     status_page: fallbackPage,
                                     ready_page: fallbackReadyInfo.page
                                 });
                             }
+                        }
+                    }
+                    if (fallbackReadyPayload && typeof fallbackReadyPayload === "object") {
+                        var fallbackReadyOnly = {
+                            payload: fallbackReadyPayload,
+                            page: asInt(fallbackReadyPayload.page, -1),
+                            at_ms: asFloat(fallbackReadyPayload.rendered_at, 0.0) * 1000.0,
+                            fresh: true,
+                            matches_request: true
+                        };
+                        var fallbackReadyDom = domStatsForMode(fallbackMode, fallbackReadyOnly);
+                        if (fallbackReadyDom.expected > 0 && !fallbackReadyDom.is_ready) {
+                            return show(
+                                overlaySubtitleFor("image", fallbackReadyDom.pending, fallbackReadyDom.loaded, fallbackReadyDom.expected),
+                                {
+                                    mode: fallbackMode,
+                                    pending: fallbackReadyDom.pending,
+                                    eligible: fallbackReadyDom.expected,
+                                    ready_page: fallbackReadyOnly.page,
+                                    dom_total: fallbackReadyDom.total,
+                                    dom_loaded: fallbackReadyDom.loaded,
+                                    dom_failed: fallbackReadyDom.failed,
+                                    dom_expected: fallbackReadyDom.expected,
+                                    dom_ids_match: fallbackReadyDom.ids_match,
+                                    fallback: true,
+                                    no_active_request: true,
+                                    phase: "image"
+                                }
+                            );
+                        }
+                        if (fallbackReadyDom.is_ready) {
+                            return hide("no-request-page-already-rendered", {
+                                mode: fallbackMode,
+                                ready_page: fallbackReadyOnly.page,
+                                dom_total: fallbackReadyDom.total,
+                                dom_loaded: fallbackReadyDom.loaded,
+                                dom_expected: fallbackReadyDom.expected,
+                                dom_ids_match: fallbackReadyDom.ids_match
+                            });
                         }
                     }
                     return hide("no-request");
@@ -860,34 +970,43 @@ def register_loading_overlay_callbacks(app):
                     requestedAtMs = Date.now();
                 }
                 var readyInfo = readyPageInfo(activeMode, requestPage, requestedAtMs);
-                var domStats = readyInfo.matches_request ? domStatsForMode(activeMode) : {
+                var domStats = readyInfo.matches_request ? domStatsForMode(activeMode, readyInfo) : {
                     total: 0,
                     loaded: 0,
                     failed: 0,
-                    pending: 0
+                    pending: 0,
+                    expected: 0,
+                    ids_match: false,
+                    expected_ids: 0,
+                    dom_ids: 0,
+                    is_ready: false
                 };
 
                 if (!st || typeof st !== "object") {
                     var ageWithoutStatusMs = Date.now() - requestedAtMs;
-                    if (readyInfo.matches_request && domStats.total > 0 && domStats.pending <= 0) {
+                    if (readyInfo.matches_request && domStats.is_ready) {
                         return hide("missing-status-dom-ready", {
                             mode: activeMode,
                             request_page: requestPage,
                             age_ms: ageWithoutStatusMs,
                             ready_page: readyInfo.page,
                             dom_total: domStats.total,
-                            dom_loaded: domStats.loaded
+                            dom_loaded: domStats.loaded,
+                            dom_expected: domStats.expected,
+                            dom_ids_match: domStats.ids_match
                         });
                     }
                     if (ageWithoutStatusMs > requestTimeoutMs) {
-                        return hide("request-timeout-missing-status", {
+                        return show("Still waiting for the current page to finish rendering spectrograms...", {
                             mode: activeMode,
                             request_page: requestPage,
-                            age_ms: ageWithoutStatusMs
+                            age_ms: ageWithoutStatusMs,
+                            missing_status: true,
+                            timeout_waiting_for_dom: true
                         });
                     }
                     if (ageWithoutStatusMs > staleRequestGraceMs) {
-                        return hide("missing-status-stale", {
+                        return show("Waiting for the current page spectrograms to appear...", {
                             mode: activeMode,
                             request_page: requestPage,
                             age_ms: ageWithoutStatusMs,
@@ -897,19 +1016,21 @@ def register_loading_overlay_callbacks(app):
                             dom_pending: domStats.pending
                         });
                     }
-                    if (readyInfo.matches_request && domStats.total > 0 && domStats.pending > 0) {
+                    if (readyInfo.matches_request && domStats.expected > 0 && domStats.pending > 0) {
                         return show(
-                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.total),
+                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.expected),
                             {
                                 mode: activeMode,
                                 pending: domStats.pending,
-                                eligible: domStats.total,
+                                eligible: domStats.expected,
                                 request_page: requestPage,
                                 age_ms: ageWithoutStatusMs,
                                 ready_page: readyInfo.page,
                                 dom_total: domStats.total,
                                 dom_loaded: domStats.loaded,
                                 dom_failed: domStats.failed,
+                                dom_expected: domStats.expected,
+                                dom_ids_match: domStats.ids_match,
                                 missing_status: true,
                                 phase: "image"
                             }
@@ -951,8 +1072,8 @@ def register_loading_overlay_callbacks(app):
                 var effectivePending = statusPending;
                 var overlayKind = "audio";
 
-                if (readyInfo.matches_request && domStats.total > 0) {
-                    effectiveEligible = Math.max(statusEligible, domStats.total);
+                if (readyInfo.matches_request && domStats.expected > 0) {
+                    effectiveEligible = Math.max(statusEligible, domStats.expected);
                     effectivePending = Math.max(statusPending, domStats.pending);
                     if (domStats.pending > statusPending) {
                         overlayKind = "image";
@@ -973,35 +1094,55 @@ def register_loading_overlay_callbacks(app):
                             dom_total: domStats.total,
                             dom_loaded: domStats.loaded,
                             dom_failed: domStats.failed,
+                            dom_expected: domStats.expected,
+                            dom_ids_match: domStats.ids_match,
                             phase: overlayKind
                         }
                     );
                 }
 
                 if (statusCurrent && statusPending <= 0) {
-                    if (readyInfo.matches_request && domStats.total > 0 && domStats.pending > 0) {
+                    if (readyInfo.matches_request && domStats.is_ready) {
+                        return hide("page-images-ready", {
+                            mode: activeMode,
+                            request_page: requestPage,
+                            status_page: statusPage,
+                            status_at_ms: statusAtMs,
+                            requested_at_ms: requestedAtMs,
+                            dom_total: domStats.total,
+                            dom_loaded: domStats.loaded,
+                            dom_expected: domStats.expected,
+                            dom_ids_match: domStats.ids_match
+                        });
+                    }
+                    if (readyInfo.matches_request && domStats.expected > 0) {
                         return show(
-                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, Math.max(statusEligible, domStats.total)),
+                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, Math.max(statusEligible, domStats.expected)),
                             {
                                 mode: activeMode,
                                 pending: domStats.pending,
-                                eligible: Math.max(statusEligible, domStats.total),
+                                eligible: Math.max(statusEligible, domStats.expected),
                                 request_page: requestPage,
                                 status_page: statusPage,
                                 status_at_ms: statusAtMs,
                                 dom_total: domStats.total,
                                 dom_loaded: domStats.loaded,
                                 dom_failed: domStats.failed,
+                                dom_expected: domStats.expected,
+                                dom_ids_match: domStats.ids_match,
                                 phase: "image"
                             }
                         );
                     }
-                    return hide("status-ready-no-pending", {
+                    return show("Generated spectrograms are ready; waiting for the page to render them...", {
                         mode: activeMode,
+                        pending: 1,
+                        eligible: Math.max(1, statusEligible),
                         request_page: requestPage,
                         status_page: statusPage,
                         status_at_ms: statusAtMs,
-                        requested_at_ms: requestedAtMs
+                        requested_at_ms: requestedAtMs,
+                        phase: "render"
                     });
                 }
 
@@ -1011,13 +1152,13 @@ def register_loading_overlay_callbacks(app):
                         statusCurrent &&
                         statusEligible <= 0
                     ) {
-                        if (domStats.total > 0 && domStats.pending > 0) {
+                        if (domStats.expected > 0 && domStats.pending > 0) {
                             return show(
-                                overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.total),
+                                overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.expected),
                                 {
                                     mode: activeMode,
                                     pending: domStats.pending,
-                                    eligible: domStats.total,
+                                    eligible: domStats.expected,
                                     request_page: requestPage,
                                     status_page: statusPage,
                                     ready_page: readyInfo.page,
@@ -1025,30 +1166,47 @@ def register_loading_overlay_callbacks(app):
                                     dom_total: domStats.total,
                                     dom_loaded: domStats.loaded,
                                     dom_failed: domStats.failed,
+                                    dom_expected: domStats.expected,
+                                    dom_ids_match: domStats.ids_match,
                                     phase: "image"
                                 }
                             );
                         }
-                        return hide("render-ready-no-eligible-work", {
+                        if (domStats.is_ready || domStats.expected <= 0) {
+                            return hide("render-ready-no-eligible-work", {
+                                mode: activeMode,
+                                request_page: requestPage,
+                                status_page: statusPage,
+                                ready_page: readyInfo.page,
+                                ready_at_ms: readyInfo.at_ms,
+                                requested_at_ms: requestedAtMs,
+                                dom_expected: domStats.expected
+                            });
+                        }
+                        return show("Waiting for the current page spectrograms to appear...", {
                             mode: activeMode,
+                            pending: domStats.pending || 1,
+                            eligible: Math.max(1, domStats.expected),
                             request_page: requestPage,
                             status_page: statusPage,
                             ready_page: readyInfo.page,
                             ready_at_ms: readyInfo.at_ms,
-                            requested_at_ms: requestedAtMs
+                            requested_at_ms: requestedAtMs,
+                            dom_expected: domStats.expected,
+                            phase: "image"
                         });
                     }
                 }
 
                 var ageMs = Date.now() - requestedAtMs;
-                if (readyInfo.matches_request && domStats.total > 0) {
+                if (readyInfo.matches_request && domStats.expected > 0) {
                     if (domStats.pending > 0) {
                         return show(
-                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.total),
+                            overlaySubtitleFor("image", domStats.pending, domStats.loaded, domStats.expected),
                             {
                                 mode: activeMode,
                                 pending: domStats.pending,
-                                eligible: domStats.total,
+                                eligible: domStats.expected,
                                 request_page: requestPage,
                                 status_page: statusPage,
                                 status_fresh: statusFresh,
@@ -1057,6 +1215,8 @@ def register_loading_overlay_callbacks(app):
                                 dom_total: domStats.total,
                                 dom_loaded: domStats.loaded,
                                 dom_failed: domStats.failed,
+                                dom_expected: domStats.expected,
+                                dom_ids_match: domStats.ids_match,
                                 phase: "image"
                             }
                         );
@@ -1068,19 +1228,22 @@ def register_loading_overlay_callbacks(app):
                         age_ms: ageMs,
                         ready_page: readyInfo.page,
                         dom_total: domStats.total,
-                        dom_loaded: domStats.loaded
+                        dom_loaded: domStats.loaded,
+                        dom_expected: domStats.expected,
+                        dom_ids_match: domStats.ids_match
                     });
                 }
                 if (ageMs > requestTimeoutMs) {
-                    return hide("request-timeout", {
+                    return show("Still waiting for the current page to finish rendering spectrograms...", {
                         mode: activeMode,
                         request_page: requestPage,
                         status_page: statusPage,
-                        age_ms: ageMs
+                        age_ms: ageMs,
+                        timeout_waiting_for_dom: true
                     });
                 }
                 if (ageMs > staleRequestGraceMs) {
-                    return hide("stale-request", {
+                    return show("Waiting for the current page spectrograms to appear...", {
                         mode: activeMode,
                         request_page: requestPage,
                         status_page: statusPage,

@@ -242,7 +242,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
             className="text-muted text-center p-3",
             style={"background": "#f8f9fa", "borderRadius": "10px"},
         )
-    ], className="spectrogram-image-container")
+    ], className="spectrogram-image-container", **{"data-item-id": item_id})
 
     # Add audio player
     audio_player = html.Div([

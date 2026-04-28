@@ -88,6 +88,19 @@ def register_render_callbacks(
             className="spec-grid-placeholder",
         )
 
+    def _ui_ready_payload(data, page_items, current_page):
+        item_ids = [
+            item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
+            for item in (page_items or [])
+        ]
+        return {
+            "load_timestamp": data.get("load_timestamp") if isinstance(data, dict) else None,
+            "page": int(current_page),
+            "rendered_at": time.time(),
+            "item_count": len(item_ids),
+            "item_ids": item_ids,
+        }
+
     @app.callback(
         Output("label-summary", "children"),
         Output("label-grid", "children"),
@@ -243,11 +256,7 @@ def register_render_callbacks(
         )
         labels_file_display = summary.get("labels_file") or no_update
 
-        ui_ready = {
-            "load_timestamp": data.get("load_timestamp"),
-            "page": int(current_page),
-            "rendered_at": time.time(),
-        }
+        ui_ready = _ui_ready_payload(data, page_items, current_page)
         if _SPECGEN_DEBUG:
             print(
                 f"[render-ready] mode=label page={current_page} total_pages={total_pages} "
@@ -533,11 +542,7 @@ def register_render_callbacks(
             summary.get("data_root", ""), "pred-file-popover-trigger"
         )
 
-        ui_ready = {
-            "load_timestamp": data.get("load_timestamp"),
-            "page": int(current_page),
-            "rendered_at": time.time(),
-        }
+        ui_ready = _ui_ready_payload(data, page_items, current_page)
         if _SPECGEN_DEBUG:
             print(
                 f"[render-ready] mode=verify page={current_page} total_pages={total_pages} "
@@ -682,11 +687,7 @@ def register_render_callbacks(
                     f"pages_ahead={prefetch_pages} submitted={modal_submitted}",
                     flush=True,
                 )
-        ui_ready = {
-            "load_timestamp": data.get("load_timestamp"),
-            "page": int(current_page),
-            "rendered_at": time.time(),
-        }
+        ui_ready = _ui_ready_payload(data, page_items, current_page)
         if _SPECGEN_DEBUG:
             print(
                 f"[render-ready] mode=explore page={current_page} total_pages={total_pages} "
