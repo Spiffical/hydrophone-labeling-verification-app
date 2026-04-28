@@ -4,8 +4,28 @@ import dash_bootstrap_components as dbc
 from app.layouts.display_controls import create_display_range_bar
 
 
+def _create_spectrogram_grid_placeholder() -> html.Div:
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(className="spec-card-skeleton-title"),
+                    html.Div("Preparing spectrogram cards...", className="spec-card-skeleton-image"),
+                    html.Div(className="spec-card-skeleton-line"),
+                    html.Div(className="spec-card-skeleton-line spec-card-skeleton-line--short"),
+                ],
+                className="spec-card-skeleton",
+            )
+            for _ in range(6)
+        ],
+        className="spec-grid-placeholder",
+    )
+
+
 def create_verify_layout(config: dict) -> html.Div:
+    data_cfg = config.get("data", {})
     verify_cfg = config.get("verify", {})
+    nested_verify_cfg = data_cfg.get("verify", {}) if isinstance(data_cfg.get("verify"), dict) else {}
     display_cfg = config.get("display", {})
 
     return html.Div([
@@ -21,7 +41,7 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Div([
                     html.Small("Data Root", className="text-muted"),
                     html.Div(
-                        config.get("data", {}).get("data_dir") or verify_cfg.get("dashboard_root") or "Not set",
+                        data_cfg.get("data_dir") or verify_cfg.get("dashboard_root") or nested_verify_cfg.get("dashboard_root") or "Not set",
                         id="verify-data-root-display",
                         className="mono-muted",
                         style={"maxHeight": "40px", "overflowY": "auto"}
@@ -30,7 +50,8 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Div([
                     html.Small("Spectrogram folder", className="text-muted"),
                     html.Div(
-                        "Not set",
+                        data_cfg.get("spectrogram_folder")
+                        or html.Span("Loading spectrogram folder...", className="loading-path-text"),
                         id="verify-spec-folder-display",
                         className="mono-muted",
                         style={"maxHeight": "40px", "overflowY": "auto"}
@@ -39,7 +60,8 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Div([
                     html.Small("Audio folder", className="text-muted"),
                     html.Div(
-                        "Not set",
+                        data_cfg.get("audio_folder")
+                        or html.Span("Loading audio folder...", className="loading-path-text"),
                         id="verify-audio-folder-display",
                         className="mono-muted",
                         style={"maxHeight": "40px", "overflowY": "auto"}
@@ -48,7 +70,9 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Div([
                     html.Small("Predictions file", className="text-muted"),
                     html.Div(
-                        "Not set",
+                        data_cfg.get("predictions_file")
+                        or nested_verify_cfg.get("predictions_json")
+                        or html.Span("Loading predictions file...", className="loading-path-text"),
                         id="verify-predictions-display",
                         className="mono-muted",
                         style={"maxHeight": "40px", "overflowY": "auto"}
@@ -119,20 +143,6 @@ def create_verify_layout(config: dict) -> html.Div:
                     ], md=5, sm=12, xs=12),
                 ], className="align-items-end g-4"),
             ]),
-            html.Div([
-                dbc.Switch(
-                    id="verify-colormap-toggle",
-                    label="Hydrophone colormap",
-                    value=display_cfg.get("colormap") == "hydrophone",
-                    className="control-switch",
-                ),
-                dbc.Switch(
-                    id="verify-yaxis-toggle",
-                    label="Log y-axis",
-                    value=display_cfg.get("y_axis_scale") == "log",
-                    className="control-switch",
-                ),
-            ], className="control-row mt-3"),
         ], className="panel-card"),
         html.Div(
             id="verify-class-filter-dismiss-overlay",
@@ -201,7 +211,11 @@ def create_verify_layout(config: dict) -> html.Div:
         dcc.Store(id="verify-data-cache-key-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-modal-synced-item-ids-store", data=[], storage_type="memory"),
         dcc.Loading(
-            children=html.Div(id="verify-grid", className="grid-shell"),
+            children=html.Div(
+                _create_spectrogram_grid_placeholder(),
+                id="verify-grid",
+                className="grid-shell",
+            ),
             id="verify-grid-loading",
             type="default",
             delay_show=250,

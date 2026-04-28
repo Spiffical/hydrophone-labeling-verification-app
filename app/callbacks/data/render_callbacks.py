@@ -7,6 +7,7 @@ from dash import Input, Output, State, html, no_update
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
 from app.services.verify_modal_cache import register_verify_modal_items
+from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -26,6 +27,15 @@ def register_render_callbacks(
     _schedule_modal_prefetch_for_current_page_spectrograms,
     _schedule_modal_prefetch_for_future_pages,
 ):
+    def _auto_prefetch_enabled(cfg):
+        cache_cfg = (cfg or {}).get("cache", {}) or {}
+        configured = cache_cfg.get("prefetch_enabled", cache_cfg.get("prefetch"))
+        if configured is not None:
+            return str(configured).strip().lower() not in {"0", "false", "no", "off"}
+
+        render_cfg = get_spectrogram_render_settings(cfg)
+        return render_cfg.get("source") != SPECTROGRAM_SOURCE_AUDIO_GENERATED
+
     def _compute_prefetch_pages_ahead(cfg, items_per_page):
         cfg = cfg or {}
         cache_cfg = cfg.get("cache", {}) or {}
@@ -50,6 +60,33 @@ def register_render_callbacks(
             return min(desired_pages, pages_by_capacity)
 
         return pages_by_capacity
+
+    def _loading_path(text):
+        return html.Span(text, className="loading-path-text")
+
+    def _path_value(value, loading_text, is_loading):
+        if value:
+            return value
+        if is_loading:
+            return _loading_path(loading_text)
+        return "Not set"
+
+    def _spectrogram_grid_placeholder(text="Preparing spectrogram cards..."):
+        return html.Div(
+            [
+                html.Div(
+                    [
+                        html.Div(className="spec-card-skeleton-title"),
+                        html.Div(text, className="spec-card-skeleton-image"),
+                        html.Div(className="spec-card-skeleton-line"),
+                        html.Div(className="spec-card-skeleton-line spec-card-skeleton-line--short"),
+                    ],
+                    className="spec-card-skeleton",
+                )
+                for _ in range(6)
+            ],
+            className="spec-grid-placeholder",
+        )
 
     @app.callback(
         Output("label-summary", "children"),
@@ -88,6 +125,7 @@ def register_render_callbacks(
         pass
 
         cfg = cfg or {}
+        is_loading_dataset = not isinstance(data, dict) or not data.get("load_timestamp")
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
@@ -126,20 +164,24 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
-            page_items,
-            cfg,
-            colormap=colormap,
-            y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
-        )
-        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
-            page_items,
-            cfg,
-        )
+        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        current_page_submitted = 0
+        current_page_modal_submitted = 0
+        if prefetch_enabled:
+            current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+                page_items,
+                cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
+            )
+            current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+                page_items,
+                cfg,
+            )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=label current_page={current_page} "
@@ -152,7 +194,7 @@ def register_render_callbacks(
                 f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
-        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page) if prefetch_enabled else 0
         if prefetch_pages > 0:
             submitted = _schedule_specgen_prefetch_for_future_pages(
                 items,
@@ -267,9 +309,44 @@ def register_render_callbacks(
         pass
 
         cfg = cfg or {}
+        is_loading_dataset = not isinstance(data, dict) or not data.get("load_timestamp")
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
+        cfg_data = cfg.get("data", {}) if isinstance(cfg.get("data"), dict) else {}
+        if is_loading_dataset:
+            data_root = summary.get("data_root") or cfg_data.get("data_dir") or "Loading data root..."
+            nested_verify_cfg = cfg_data.get("verify", {}) if isinstance(cfg_data.get("verify"), dict) else {}
+            spec_folder_display = _path_value(
+                summary.get("spectrogram_folder") or cfg_data.get("spectrogram_folder"),
+                "Loading spectrogram folder...",
+                True,
+            )
+            audio_folder_display = _path_value(
+                summary.get("audio_folder") or cfg_data.get("audio_folder"),
+                "Loading audio folder...",
+                True,
+            )
+            pred_file_display = _path_value(
+                summary.get("predictions_file")
+                or cfg_data.get("predictions_file")
+                or nested_verify_cfg.get("predictions_json"),
+                "Loading predictions file...",
+                True,
+            )
+            return (
+                html.Div("Loading predictions and preparing spectrogram cards...", className="summary-info text-muted"),
+                _spectrogram_grid_placeholder(),
+                "Preparing page...",
+                1,
+                spec_folder_display,
+                audio_folder_display,
+                pred_file_display,
+                data_root,
+                no_update,
+                [],
+                no_update,
+            )
         verify_cache_key = register_verify_modal_items(data)
         thresholds = thresholds or {"__global__": 0.5}
         leaf_class_values = _extract_verify_leaf_classes(items)
@@ -281,11 +358,6 @@ def register_render_callbacks(
         if selected_filters is not None:
             selected_filters = [value for value in selected_filters if value in available_value_set]
         current_threshold = float(thresholds.get("__global__", 0.5))
-
-        # Get folder display info from summary
-        spec_folder = summary.get("spectrogram_folder") or "Not set"
-        audio_folder = summary.get("audio_folder") or "Not set"
-        predictions_file = summary.get("predictions_file") or "Not set"
 
         filtered_items = []
         for item in items:
@@ -356,20 +428,24 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
-            page_items,
-            cfg,
-            colormap=colormap,
-            y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
-        )
-        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
-            page_items,
-            cfg,
-        )
+        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        current_page_submitted = 0
+        current_page_modal_submitted = 0
+        if prefetch_enabled:
+            current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+                page_items,
+                cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
+            )
+            current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+                page_items,
+                cfg,
+            )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=verify current_page={current_page} "
@@ -382,7 +458,7 @@ def register_render_callbacks(
                 f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
-        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page) if prefetch_enabled else 0
         if prefetch_pages > 0:
             submitted = _schedule_specgen_prefetch_for_future_pages(
                 filtered_items,
@@ -417,20 +493,42 @@ def register_render_callbacks(
                     flush=True,
                 )
         
-        data_root = summary.get("data_root") or "Not set"
+        data_root = (
+            summary.get("data_root")
+            or cfg_data.get("data_dir")
+            or ("Loading data root..." if is_loading_dataset else "Not set")
+        )
+        spec_folder_value = _path_value(
+            summary.get("spectrogram_folder") or cfg_data.get("spectrogram_folder"),
+            "Loading spectrogram folder...",
+            is_loading_dataset,
+        )
+        audio_folder_value = _path_value(
+            summary.get("audio_folder") or cfg_data.get("audio_folder"),
+            "Loading audio folder...",
+            is_loading_dataset,
+        )
+        nested_verify_cfg = cfg_data.get("verify", {}) if isinstance(cfg_data.get("verify"), dict) else {}
+        predictions_file_value = _path_value(
+            summary.get("predictions_file")
+            or cfg_data.get("predictions_file")
+            or nested_verify_cfg.get("predictions_json"),
+            "Loading predictions file...",
+            is_loading_dataset,
+        )
 
         spec_folder_display = _create_folder_display(
-            summary.get("spectrogram_folder") or "Not set",
+            spec_folder_value,
             summary.get("spectrogram_folders_list", []),
             summary.get("data_root", ""), "spec-folder-popover-trigger"
         )
         audio_folder_display = _create_folder_display(
-            summary.get("audio_folder") or "Not set",
+            audio_folder_value,
             summary.get("audio_folders_list", []),
             summary.get("data_root", ""), "audio-folder-popover-trigger"
         )
         pred_file_display = _create_folder_display(
-            summary.get("predictions_file") or "Not set",
+            predictions_file_value,
             summary.get("predictions_files_list", []),
             summary.get("data_root", ""), "pred-file-popover-trigger"
         )
@@ -520,20 +618,24 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
-            page_items,
-            cfg,
-            colormap=colormap,
-            y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
-        )
-        current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
-            page_items,
-            cfg,
-        )
+        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        current_page_submitted = 0
+        current_page_modal_submitted = 0
+        if prefetch_enabled:
+            current_page_submitted = _schedule_specgen_prefetch_for_current_page_images(
+                page_items,
+                cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
+            )
+            current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+                page_items,
+                cfg,
+            )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
                 f"[specgen-prefetch] mode=explore current_page={current_page} "
@@ -546,7 +648,7 @@ def register_render_callbacks(
                 f"current_submitted={current_page_modal_submitted}",
                 flush=True,
             )
-        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page)
+        prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page) if prefetch_enabled else 0
         if prefetch_pages > 0:
             submitted = _schedule_specgen_prefetch_for_future_pages(
                 items,

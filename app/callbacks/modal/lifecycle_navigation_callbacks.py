@@ -65,6 +65,7 @@ def register_modal_lifecycle_navigation_callbacks(
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
         Input("close-modal", "n_clicks"),
+        Input("close-modal-header", "n_clicks"),
         Input("modal-force-action-store", "data"),
         State("label-data-store", "data"),
         State("explore-data-store", "data"),
@@ -95,6 +96,7 @@ def register_modal_lifecycle_navigation_callbacks(
         prev_clicks,
         next_clicks,
         close_clicks,
+        header_close_clicks,
         force_action,
         label_data,
         explore_data,
@@ -120,7 +122,7 @@ def register_modal_lifecycle_navigation_callbacks(
         cfg,
     ):
         start = time.perf_counter()
-        _ = prev_clicks, next_clicks, close_clicks
+        _ = prev_clicks, next_clicks, close_clicks, header_close_clicks
         mode = mode or "label"
         data = _get_mode_data(mode, label_data, None, explore_data)
         source_items = (data or {}).get("items", []) if isinstance(data, dict) else []
@@ -152,7 +154,7 @@ def register_modal_lifecycle_navigation_callbacks(
             candidate = force_action.get("action")
             if isinstance(candidate, dict) and candidate.get("kind") in {"close", "open"}:
                 action = candidate
-        elif triggered == "close-modal":
+        elif isinstance(triggered, str) and triggered in {"close-modal", "close-modal-header"}:
             action = {"kind": "close"}
         elif isinstance(triggered, dict) and triggered.get("type") == "spectrogram-image":
             if not any(image_clicks_list):

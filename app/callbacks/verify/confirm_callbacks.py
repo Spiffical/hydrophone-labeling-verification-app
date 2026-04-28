@@ -63,10 +63,12 @@ def register_verify_confirm_callbacks(
         predictions = {}
         predictions_path = None
         annotations = {}
+        active_item = None
         thresholds = thresholds or {"__global__": 0.5}
         threshold_used = float(thresholds.get("__global__", 0.5))
         for item in items:
             if item.get("item_id") == item_id:
+                active_item = item
                 annotations = item.get("annotations") or {}
                 predictions = item.get("predictions") or {}
                 predictions_path = (item.get("metadata") or {}).get("predictions_path")
@@ -207,7 +209,12 @@ def register_verify_confirm_callbacks(
             item["annotations"] = annotations_obj
             break
 
-        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        stored_verification = save_verify_predictions(
+            predictions_path,
+            item_id,
+            verification,
+            source_item=active_item,
+        )
         if stored_verification:
             for item in (updated or {}).get("items", []):
                 if item.get("item_id") == item_id:
@@ -407,7 +414,12 @@ def register_verify_confirm_callbacks(
         annotations_obj["rejected_labels"] = sorted(rejected_labels)
         updated_item["annotations"] = annotations_obj
 
-        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        stored_verification = save_verify_predictions(
+            predictions_path,
+            item_id,
+            verification,
+            source_item=item,
+        )
         if stored_verification:
             verifications = updated_item.get("verifications")
             if not isinstance(verifications, list):

@@ -1,6 +1,7 @@
 import base64
 from io import BytesIO
 import logging
+import math
 import os
 import threading
 from typing import Any, Dict, Optional, Tuple
@@ -13,6 +14,7 @@ from matplotlib.figure import Figure
 import numpy as np
 import plotly.graph_objects as go
 import scipy.io as sio
+import scipy.signal as scipy_signal
 import soundfile as sf
 from cachetools import LRUCache
 from concurrent.futures import ThreadPoolExecutor
@@ -405,8 +407,35 @@ def _audio_spectrogram_cache_key(
         float(overlap),
         float(freq_min_hz),
         float(freq_max_hz),
-        "torch_cpu_stft_v1",
+        "torch_cpu_stft_v2",
     )
+
+
+def _downsample_audio_for_requested_band(
+    audio: np.ndarray,
+    sample_rate: int,
+    *,
+    freq_max_hz: float,
+) -> Tuple[np.ndarray, int]:
+    if sample_rate <= 0:
+        return audio, sample_rate
+
+    # The fin whale review defaults only need the low-frequency band. Reducing
+    # the sample rate before STFT avoids computing thousands of unused bins.
+    target_rate = int(min(sample_rate, max(512, math.ceil(float(freq_max_hz) * 4.0))))
+    if target_rate <= 0 or target_rate >= sample_rate:
+        return audio, sample_rate
+
+    common = math.gcd(int(sample_rate), target_rate)
+    up = target_rate // common
+    down = int(sample_rate) // common
+    try:
+        downsampled = scipy_signal.resample_poly(audio, up, down)
+    except Exception as exc:
+        logger.warning("Audio downsampling failed for spectrogram generation: %s", exc)
+        return audio, sample_rate
+
+    return np.asarray(downsampled, dtype=np.float32), target_rate
 
 
 def _load_audio_spectrogram_torch(
@@ -440,6 +469,11 @@ def _load_audio_spectrogram_torch(
         return None
 
     sr = int(sample_rate)
+    audio, sr = _downsample_audio_for_requested_band(
+        audio,
+        sr,
+        freq_max_hz=float(freq_max_hz),
+    )
     win_len = max(8, int(round(float(win_dur_s) * float(sr))))
     hop_len = int(round((1.0 - float(overlap)) * float(win_len)))
     hop_len = max(1, hop_len)

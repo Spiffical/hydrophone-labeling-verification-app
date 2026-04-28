@@ -113,6 +113,23 @@ def compute_global_filter_options(
         else:
             date_options = [{"label": "Device folders", "value": "__device_only__"}]
             date_value = "__device_only__"
+    elif discovery and (discovery.get("dates") or discovery.get("devices")):
+        dates = discovery.get("dates", [])
+        devices = discovery.get("devices", [])
+        date_options = [{"label": "All Dates", "value": "__all__"}] + [
+            {"label": d, "value": d} for d in dates
+        ]
+        device_options = [{"label": "All Devices", "value": "__all__"}] + [
+            {"label": d, "value": d} for d in devices
+        ]
+        if current_date_value in dates:
+            date_value = current_date_value
+        else:
+            date_value = "__all__" if dates else "__flat__"
+        if current_device_value in devices:
+            device_value = current_device_value
+        else:
+            device_value = "__all__" if devices else None
     else:
         date_options = [{"label": "(Direct)", "value": "__flat__"}]
         date_value = "__flat__"

@@ -243,7 +243,12 @@ def save_all_pending_verify_changes(verify_data, thresholds, profile):
             profile_name,
         )
         predictions_path = _resolve_predictions_path(item, summary_predictions_file)
-        stored_verification = save_verify_predictions(predictions_path, item_id, verification)
+        stored_verification = save_verify_predictions(
+            predictions_path,
+            item_id,
+            verification,
+            source_item=item,
+        )
 
         verifications = item.get("verifications")
         if not isinstance(verifications, list):
@@ -291,4 +296,3 @@ def compute_target_page(triggered_id, current_page, goto_page, max_pages):
     if triggered_id == "verify-goto-page" and goto_page:
         return max(0, min(int(goto_page) - 1, max_pages - 1))
     return current_page
-

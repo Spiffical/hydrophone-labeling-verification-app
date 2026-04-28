@@ -4,6 +4,7 @@ import os
 
 from dash import Input, Output, State
 from dash.exceptions import PreventUpdate
+from app.utils.data_discovery import detect_data_structure
 
 
 def register_tab_state_callbacks(
@@ -49,6 +50,42 @@ def register_tab_state_callbacks(
         current_date = global_date_value
 
         try:
+            summary = tab_data.get("summary", {}) if isinstance(tab_data, dict) else {}
+            available_dates = (
+                tab_data.get("available_dates")
+                if isinstance(tab_data, dict)
+                else None
+            ) or summary.get("available_dates")
+            if available_dates:
+                dates = sorted({d for d in available_dates if d}, reverse=True)
+                options = [{"label": "All Dates", "value": "__all__"}] + [
+                    {"label": d, "value": d} for d in dates
+                ]
+                option_values = {"__all__", *dates}
+                default_val = "__all__"
+
+                config_date = None
+                if mode == "verify" and isinstance(cfg, dict):
+                    verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
+                    config_date = verify_cfg.get("date")
+                if saved_date in option_values:
+                    default_val = saved_date
+                elif current_date in option_values:
+                    default_val = current_date
+                elif config_date in dates:
+                    default_val = config_date
+
+                tab_iso_debug(
+                    "discover_dates_return_available",
+                    mode=mode,
+                    options_count=len(options),
+                    default_val=default_val,
+                    saved_date=saved_date,
+                    current_date=current_date,
+                    config_date=config_date,
+                )
+                return options, default_val
+
             base_name = os.path.basename(data_dir.rstrip(os.sep))
             if len(base_name) == 10 and base_name[4] == "-" and base_name[7] == "-":
                 tab_iso_debug("discover_dates_return_base_date", mode=mode, base_name=base_name)
@@ -83,6 +120,30 @@ def register_tab_state_callbacks(
                     saved_date=saved_date,
                     current_date=current_date,
                     config_date=config_date,
+                )
+                return options, default_val
+
+            discovery = detect_data_structure(data_dir)
+            inferred_dates = discovery.get("dates") or []
+            if inferred_dates:
+                dates = sorted({d for d in inferred_dates if d}, reverse=True)
+                options = [{"label": "All Dates", "value": "__all__"}] + [
+                    {"label": d, "value": d} for d in dates
+                ]
+                option_values = {"__all__", *dates}
+                default_val = "__all__"
+                if saved_date in option_values:
+                    default_val = saved_date
+                elif current_date in option_values:
+                    default_val = current_date
+                elif config_date in dates:
+                    default_val = config_date
+                tab_iso_debug(
+                    "discover_dates_return_inferred",
+                    mode=mode,
+                    options_count=len(options),
+                    default_val=default_val,
+                    structure_type=discovery.get("structure_type"),
                 )
                 return options, default_val
 
@@ -147,6 +208,43 @@ def register_tab_state_callbacks(
         current_device = global_device_value
 
         try:
+            summary = tab_data.get("summary", {}) if isinstance(tab_data, dict) else {}
+            available_devices = (
+                tab_data.get("available_devices")
+                if isinstance(tab_data, dict)
+                else None
+            ) or summary.get("available_devices")
+            if available_devices:
+                devices = sorted({d for d in available_devices if d})
+                options = [{"label": "All Devices", "value": "__all__"}] + [
+                    {"label": d, "value": d} for d in devices
+                ]
+                option_values = {"__all__", *devices}
+                default_val = "__all__"
+
+                config_dev = None
+                if mode == "verify" and isinstance(cfg, dict):
+                    verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
+                    config_dev = verify_cfg.get("hydrophone")
+                if saved_device in option_values:
+                    default_val = saved_device
+                elif current_device in option_values:
+                    default_val = current_device
+                elif config_dev in devices:
+                    default_val = config_dev
+
+                tab_iso_debug(
+                    "discover_devices_return_available",
+                    mode=mode,
+                    selected_date=selected_date,
+                    devices_count=len(devices),
+                    default_val=default_val,
+                    saved_device=saved_device,
+                    current_device=current_device,
+                    config_dev=config_dev,
+                )
+                return options, default_val
+
             devices = set()
             base_name = os.path.basename(data_dir.rstrip(os.sep))
             is_base_date = len(base_name) == 10 and base_name[4] == "-" and base_name[7] == "-"
@@ -166,6 +264,11 @@ def register_tab_state_callbacks(
                     devices = {d for d in os.listdir(date_path) if os.path.isdir(os.path.join(date_path, d))}
 
             devices = sorted(devices)
+            if not devices:
+                discovery = detect_data_structure(data_dir)
+                inferred_devices = discovery.get("devices") or []
+                if inferred_devices:
+                    devices = sorted({d for d in inferred_devices if d})
             options = [{"label": "All Devices", "value": "__all__"}] + [
                 {"label": d, "value": d} for d in devices
             ]

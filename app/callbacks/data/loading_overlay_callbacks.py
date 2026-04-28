@@ -18,11 +18,23 @@ def register_loading_overlay_callbacks(app):
             var triggerVal = triggered.value;
 
             function show(title, subtitle, overlayMode) {
+                var shownAtMs = Date.now();
                 window.__dataLoadOverlayState = {
                     mode: String(overlayMode || mode || "label"),
                     reason: String(triggerId || ""),
-                    shown_at_ms: Date.now()
+                    shown_at_ms: shownAtMs
                 };
+                window.setTimeout(function() {
+                    var state = window.__dataLoadOverlayState || null;
+                    if (!state || state.shown_at_ms !== shownAtMs) {
+                        return;
+                    }
+                    var overlayEl = document.getElementById("data-config-loading-overlay");
+                    if (overlayEl && overlayEl.style.display !== "none") {
+                        overlayEl.style.display = "none";
+                    }
+                    window.__dataLoadOverlayState = null;
+                }, 10000);
                 return [{display: "flex"}, title, subtitle];
             }
 
@@ -129,12 +141,17 @@ def register_loading_overlay_callbacks(app):
 
             var shownAtMs = asFloat(overlayState.shown_at_ms, 0.0);
             var renderedAtMs = asFloat(readyPayload.rendered_at, 0.0) * 1000.0;
+            var nowMs = Date.now();
             if (renderedAtMs <= 0.0) {
+                if (shownAtMs > 0.0 && (nowMs - shownAtMs) > 10000.0) {
+                    window.__dataLoadOverlayState = null;
+                    return {"display": "none"};
+                }
                 return dc.no_update;
             }
 
             // Render callbacks stamp `rendered_at` on every load/filter/reload completion.
-            if (renderedAtMs >= (shownAtMs - 1500.0)) {
+            if (renderedAtMs >= (shownAtMs - 1500.0) || (shownAtMs > 0.0 && (nowMs - shownAtMs) > 10000.0)) {
                 window.__dataLoadOverlayState = null;
                 return {"display": "none"};
             }

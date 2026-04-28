@@ -22,20 +22,6 @@ def create_explore_layout(config: dict) -> html.Div:
                     html.Div("Export and summary controls will appear here.", className="text-muted small"),
                 ], md=10, sm=8, xs=12),
             ], className="align-items-center g-3"),
-            html.Div([
-                dbc.Switch(
-                    id="explore-colormap-toggle",
-                    label="Hydrophone colormap",
-                    value=display_cfg.get("colormap") == "hydrophone",
-                    className="control-switch",
-                ),
-                dbc.Switch(
-                    id="explore-yaxis-toggle",
-                    label="Log y-axis",
-                    value=display_cfg.get("y_axis_scale") == "log",
-                    className="control-switch",
-                ),
-            ], className="control-row mt-3"),
         ], className="panel-card"),
 
         html.Div([

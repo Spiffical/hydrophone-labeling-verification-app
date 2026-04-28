@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 from copy import deepcopy
 from typing import Dict, Optional, Tuple
 
@@ -142,9 +143,136 @@ def _is_segment_item_id(item_id: Optional[str]) -> bool:
     return bool(prefix) and suffix.isdigit()
 
 
+def _normalize_scope_value(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or value in {"__all__", "__flat__", "__device_only__", "All"}:
+        return None
+    return value
+
+
+def _date_from_compact(value: str) -> Optional[str]:
+    if isinstance(value, str) and re.match(r"^\d{8}$", value):
+        return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"
+    return None
+
+
+def _infer_item_scope(item: dict) -> Tuple[Optional[str], Optional[str]]:
+    """Infer YYYY-MM-DD and device from item metadata, IDs, or media paths."""
+    if not isinstance(item, dict):
+        return None, None
+
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    date = _normalize_scope_value(item.get("date")) or _normalize_scope_value(metadata.get("date"))
+    device = (
+        _normalize_scope_value(item.get("device_code"))
+        or _normalize_scope_value(metadata.get("hydrophone"))
+        or _normalize_scope_value(metadata.get("device"))
+        or _normalize_scope_value(metadata.get("device_code"))
+    )
+
+    values = []
+    for key in ("item_id", "audio_path", "spectrogram_path", "mat_path", "source_audio"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            values.append(value)
+    for key in ("source_audio", "audio_path", "spectrogram_path", "mat_path"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value:
+            values.append(value)
+
+    joined = " ".join(values)
+    if not date:
+        match = re.search(r"(?<!\d)(20\d{2})-(\d{2})-(\d{2})(?!\d)", joined)
+        if match:
+            date = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    if not date:
+        match = re.search(r"(?<!\d)(20\d{6})T", joined)
+        if match:
+            date = _date_from_compact(match.group(1))
+    if not date:
+        match = re.search(r"(?<!\d)(20\d{6})(?!\d)", joined)
+        if match:
+            date = _date_from_compact(match.group(1))
+
+    if not device:
+        match = re.search(r"\b(ICLISTENHF[0-9A-Za-z]+)\b", joined)
+        if match:
+            device = match.group(1)
+    if not device:
+        match = re.search(r"\bfw-([A-Za-z0-9_-]+)-20\d{6}T", joined)
+        if match:
+            device = match.group(1)
+
+    return date, device
+
+
+def _ensure_item_scope(item: dict) -> None:
+    """Persist inferred scope fields so UI filtering and summaries can use them."""
+    if not isinstance(item, dict):
+        return
+    date, device = _infer_item_scope(item)
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+
+    if date and not _normalize_scope_value(item.get("date")):
+        item["date"] = date
+    if device and not _normalize_scope_value(item.get("device_code")):
+        item["device_code"] = device
+
+    changed = False
+    if date and not _normalize_scope_value(metadata.get("date")):
+        metadata["date"] = date
+        changed = True
+    if device and not _normalize_scope_value(metadata.get("hydrophone")):
+        metadata["hydrophone"] = device
+        changed = True
+    if changed or metadata:
+        item["metadata"] = metadata
+
+
+def _ensure_items_scope(items: list) -> None:
+    for item in items or []:
+        _ensure_item_scope(item)
+
+
+def _available_item_scopes(items: list) -> Tuple[list, list]:
+    dates = set()
+    devices = set()
+    for item in items or []:
+        date, device = _infer_item_scope(item)
+        if date:
+            dates.add(date)
+        if device:
+            devices.add(device)
+    return sorted(dates, reverse=True), sorted(devices)
+
+
+def _filter_items_for_scope(items: list, active_date: Optional[str], active_device: Optional[str]) -> list:
+    active_date = _normalize_scope_value(active_date)
+    active_device = _normalize_scope_value(active_device)
+    if not active_date and not active_device:
+        return items or []
+    return [
+        item for item in (items or [])
+        if _item_matches_scope(item, active_date, active_device)
+    ]
+
+
 def _item_matches_scope(item: dict, active_date: Optional[str], active_device: Optional[str]) -> bool:
     if not isinstance(item, dict):
         return False
+
+    active_date = _normalize_scope_value(active_date)
+    active_device = _normalize_scope_value(active_device)
+    inferred_date, inferred_device = _infer_item_scope(item)
+
+    if active_date and inferred_date and inferred_date != active_date:
+        return False
+    if active_device and inferred_device and inferred_device != active_device:
+        return False
+    if (not active_date or inferred_date) and (not active_device or inferred_device):
+        return True
 
     if active_device:
         device_code = item.get("device_code")
@@ -319,6 +447,7 @@ def _apply_item_deduplication(data: Dict) -> Dict:
 
     items = data.get("items", [])
     deduped_items, removed = _dedupe_items(items)
+    _ensure_items_scope(deduped_items)
     data["items"] = deduped_items
 
     summary = data.get("summary")
@@ -340,6 +469,16 @@ def _apply_item_deduplication(data: Dict) -> Dict:
         summary["duplicates_removed"] = removed
     else:
         summary.pop("duplicates_removed", None)
+
+    existing_dates = summary.get("available_dates") if isinstance(summary.get("available_dates"), list) else []
+    existing_devices = summary.get("available_devices") if isinstance(summary.get("available_devices"), list) else []
+    dates, devices = _available_item_scopes(deduped_items)
+    dates = existing_dates or dates
+    devices = existing_devices or devices
+    summary["available_dates"] = dates
+    summary["available_devices"] = devices
+    data["available_dates"] = dates
+    data["available_devices"] = devices
 
     data["summary"] = summary
     return data
@@ -1058,6 +1197,20 @@ def load_verify_mode(
             data["summary"]["total_items"] = len(data["items"])
 
         _enrich_items_with_audio_paths(data.get("items", []), audio_dir, base_path=mat_dir)
+        _ensure_items_scope(data.get("items", []))
+        available_dates, available_devices = _available_item_scopes(data.get("items", []))
+        data["items"] = _filter_items_for_scope(data.get("items", []), date_str, hydrophone)
+        data["summary"]["total_items"] = len(data["items"])
+        data["summary"]["active_date"] = _normalize_scope_value(date_str) or (
+            "All" if available_dates else date_str
+        )
+        data["summary"]["active_hydrophone"] = _normalize_scope_value(hydrophone) or (
+            "All" if available_devices else hydrophone
+        )
+        data["summary"]["available_dates"] = available_dates
+        data["summary"]["available_devices"] = available_devices
+        data["available_dates"] = available_dates
+        data["available_devices"] = available_devices
     
     elif dashboard_root and structure_type == "device_only":
         # Device-only structure (DATE folder selected as root)
@@ -1681,6 +1834,14 @@ def load_whale_mode(config: Dict) -> Dict:
     else:
         # Legacy format
         data = convert_whale_predictions_to_unified(predictions_json)
+
+    _ensure_items_scope(data.get("items", []))
+    dates, devices = _available_item_scopes(data.get("items", []))
+    data.setdefault("summary", {})
+    data["summary"]["available_dates"] = dates
+    data["summary"]["available_devices"] = devices
+    data["available_dates"] = dates
+    data["available_devices"] = devices
 
     audio_roots = []
     if predictions_json:
