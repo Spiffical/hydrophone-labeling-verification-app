@@ -863,6 +863,28 @@ def register_loading_overlay_callbacks(app):
                     var fallbackMode = String(mode || "label");
                     var fallbackStatus = statusForMode(fallbackMode);
                     var fallbackReadyPayload = readyForMode(fallbackMode);
+                    var fallbackReadyOnly = null;
+                    var fallbackReadyDom = null;
+                    if (fallbackReadyPayload && typeof fallbackReadyPayload === "object") {
+                        fallbackReadyOnly = {
+                            payload: fallbackReadyPayload,
+                            page: asInt(fallbackReadyPayload.page, -1),
+                            at_ms: asFloat(fallbackReadyPayload.rendered_at, 0.0) * 1000.0,
+                            fresh: true,
+                            matches_request: true
+                        };
+                        fallbackReadyDom = domStatsForMode(fallbackMode, fallbackReadyOnly);
+                        if (fallbackReadyDom.is_ready) {
+                            return hide("no-request-page-already-rendered", {
+                                mode: fallbackMode,
+                                ready_page: fallbackReadyOnly.page,
+                                dom_total: fallbackReadyDom.total,
+                                dom_loaded: fallbackReadyDom.loaded,
+                                dom_expected: fallbackReadyDom.expected,
+                                dom_ids_match: fallbackReadyDom.ids_match
+                            });
+                        }
+                    }
                     if (fallbackStatus && typeof fallbackStatus === "object") {
                         var fallbackPage = asInt(fallbackStatus.page_index, -1);
                         var fallbackPending = Math.max(0, asInt(fallbackStatus.pending, 0));
@@ -870,6 +892,33 @@ def register_loading_overlay_callbacks(app):
                             fallbackPending,
                             asInt(fallbackStatus.eligible, asInt(fallbackStatus.total, fallbackPending))
                         );
+                        if (
+                            fallbackReadyOnly &&
+                            fallbackReadyDom &&
+                            fallbackReadyOnly.page === fallbackPage &&
+                            fallbackReadyDom.expected > 0 &&
+                            fallbackReadyDom.pending > 0
+                        ) {
+                            var fallbackDomEligibleOnly = Math.max(fallbackEligible, fallbackReadyDom.expected);
+                            return show(
+                                overlaySubtitleFor("image", fallbackReadyDom.pending, fallbackReadyDom.loaded, fallbackDomEligibleOnly),
+                                {
+                                    mode: fallbackMode,
+                                    pending: fallbackReadyDom.pending,
+                                    eligible: fallbackDomEligibleOnly,
+                                    status_page: fallbackPage,
+                                    ready_page: fallbackReadyOnly.page,
+                                    dom_total: fallbackReadyDom.total,
+                                    dom_loaded: fallbackReadyDom.loaded,
+                                    dom_failed: fallbackReadyDom.failed,
+                                    dom_expected: fallbackReadyDom.expected,
+                                    dom_ids_match: fallbackReadyDom.ids_match,
+                                    fallback: true,
+                                    no_active_request: true,
+                                    phase: "image"
+                                }
+                            );
+                        }
                         if (fallbackPending > 0) {
                             var fallbackDone = Math.max(0, fallbackEligible - fallbackPending);
                             return show(
@@ -916,15 +965,7 @@ def register_loading_overlay_callbacks(app):
                             }
                         }
                     }
-                    if (fallbackReadyPayload && typeof fallbackReadyPayload === "object") {
-                        var fallbackReadyOnly = {
-                            payload: fallbackReadyPayload,
-                            page: asInt(fallbackReadyPayload.page, -1),
-                            at_ms: asFloat(fallbackReadyPayload.rendered_at, 0.0) * 1000.0,
-                            fresh: true,
-                            matches_request: true
-                        };
-                        var fallbackReadyDom = domStatsForMode(fallbackMode, fallbackReadyOnly);
+                    if (fallbackReadyOnly && fallbackReadyDom) {
                         if (fallbackReadyDom.expected > 0 && !fallbackReadyDom.is_ready) {
                             return show(
                                 overlaySubtitleFor("image", fallbackReadyDom.pending, fallbackReadyDom.loaded, fallbackReadyDom.expected),
@@ -982,20 +1023,22 @@ def register_loading_overlay_callbacks(app):
                     is_ready: false
                 };
 
+                if (readyInfo.matches_request && domStats.is_ready) {
+                    return hide("page-images-ready", {
+                        mode: activeMode,
+                        request_page: requestPage,
+                        ready_page: readyInfo.page,
+                        ready_at_ms: readyInfo.at_ms,
+                        requested_at_ms: requestedAtMs,
+                        dom_total: domStats.total,
+                        dom_loaded: domStats.loaded,
+                        dom_expected: domStats.expected,
+                        dom_ids_match: domStats.ids_match
+                    });
+                }
+
                 if (!st || typeof st !== "object") {
                     var ageWithoutStatusMs = Date.now() - requestedAtMs;
-                    if (readyInfo.matches_request && domStats.is_ready) {
-                        return hide("missing-status-dom-ready", {
-                            mode: activeMode,
-                            request_page: requestPage,
-                            age_ms: ageWithoutStatusMs,
-                            ready_page: readyInfo.page,
-                            dom_total: domStats.total,
-                            dom_loaded: domStats.loaded,
-                            dom_expected: domStats.expected,
-                            dom_ids_match: domStats.ids_match
-                        });
-                    }
                     if (ageWithoutStatusMs > requestTimeoutMs) {
                         return show("Still waiting for the current page to finish rendering spectrograms...", {
                             mode: activeMode,
