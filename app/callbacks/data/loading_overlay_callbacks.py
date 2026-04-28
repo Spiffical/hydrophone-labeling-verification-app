@@ -818,6 +818,10 @@ def register_loading_overlay_callbacks(app):
                                 at_ms: Date.now()
                             };
                             setMarker("dom-ready:" + modeName, window.__specgenOverlayDomReady);
+                            var signal = document.getElementById("specgen-overlay-dom-ready-signal");
+                            if (signal && typeof signal.click === "function") {
+                                signal.click();
+                            }
                         }
                     }
                     function attachImageListeners() {
@@ -1511,6 +1515,59 @@ def register_loading_overlay_callbacks(app):
         Input("label-ui-ready-store", "data"),
         Input("verify-ui-ready-store", "data"),
         Input("explore-ui-ready-store", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
+        function(nClicks) {
+            var dc = (window.dash_clientside || {});
+            if (!nClicks) {
+                return [
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update,
+                    dc.no_update
+                ];
+            }
+            var domReady = (window.__specgenOverlayDomReady && typeof window.__specgenOverlayDomReady === "object")
+                ? window.__specgenOverlayDomReady
+                : {};
+            window.__specgenOverlayPreflight = null;
+            window.__specgenOverlayLatestRequest = null;
+            window.__specgenOverlayDomReady = null;
+            if (window.__specgenVisibleImageObserver) {
+                window.__specgenVisibleImageObserver.disconnect();
+                window.__specgenVisibleImageObserver = null;
+            }
+            window.__specgenOverlayLast = "hide:visible-images-ready";
+            window.__specgenOverlayLastMeta = domReady;
+            window.__specgenOverlayLastChangedAtMs = Date.now();
+            return [
+                {display: "none"},
+                "",
+                "",
+                "",
+                {width: "0%"},
+                "specgen-load-progress-fill",
+                null,
+                true
+            ];
+        }
+        """,
+        Output("specgen-page-loading-overlay", "style", allow_duplicate=True),
+        Output("specgen-load-title", "children", allow_duplicate=True),
+        Output("specgen-load-subtitle", "children", allow_duplicate=True),
+        Output("specgen-load-progress-text", "children", allow_duplicate=True),
+        Output("specgen-load-progress-fill", "style", allow_duplicate=True),
+        Output("specgen-load-progress-fill", "className", allow_duplicate=True),
+        Output("specgen-overlay-request-store", "data", allow_duplicate=True),
+        Output("specgen-overlay-poll", "disabled", allow_duplicate=True),
+        Input("specgen-overlay-dom-ready-signal", "n_clicks"),
         prevent_initial_call=True,
     )
 
