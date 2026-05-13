@@ -6,6 +6,19 @@ from dash import ALL, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 
+def _resolve_modal_delete_active_item(items, current_item_id, modal_item):
+    active_item = next((item for item in items if item and item.get("item_id") == current_item_id), None)
+    if not active_item:
+        return None
+    if isinstance(modal_item, dict) and modal_item.get("item_id") == current_item_id:
+        active_item = deepcopy(modal_item)
+        for index, item in enumerate(items):
+            if isinstance(item, dict) and item.get("item_id") == current_item_id:
+                items[index] = active_item
+                break
+    return active_item
+
+
 def register_modal_label_callbacks(
     app,
     *,
@@ -67,6 +80,7 @@ def register_modal_label_callbacks(
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("explore-data-store", "data"),
+        State("modal-item-store", "data"),
         State("modal-bbox-store", "data"),
         State("modal-image-graph", "figure"),
         State("verify-thresholds-store", "data"),
@@ -80,6 +94,7 @@ def register_modal_label_callbacks(
         label_data,
         verify_data,
         explore_data,
+        modal_item,
         bbox_store,
         figure,
         thresholds,
@@ -110,7 +125,7 @@ def register_modal_label_callbacks(
             raise PreventUpdate
 
         items = data.get("items", [])
-        active_item = next((item for item in items if item and item.get("item_id") == current_item_id), None)
+        active_item = _resolve_modal_delete_active_item(items, current_item_id, modal_item)
         if not active_item:
             raise PreventUpdate
 

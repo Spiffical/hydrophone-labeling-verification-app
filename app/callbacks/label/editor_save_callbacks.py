@@ -148,7 +148,7 @@ def register_label_save_callbacks(
         State("label-output-input", "value"),
         State({"type": "card-note-text", "item_id": ALL}, "value"),
         State({"type": "card-note-text", "item_id": ALL}, "id"),
-        State("modal-note-text", "value"),
+        State("modal-note-text", "value", allow_optional=True),
         prevent_initial_call=True,
     )
     def save_label_changes(
