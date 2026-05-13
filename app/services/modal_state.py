@@ -260,7 +260,6 @@ def persist_modal_item_before_exit(
 
         _, _, active_labels = get_modal_label_sets(active_item, "verify", thresholds)
         labels_to_confirm = ordered_unique_labels(active_labels)
-        labels_set = set(labels_to_confirm)
         predicted_labels = ordered_unique_labels(filter_predictions(predictions, thresholds))
         predicted_set = set(predicted_labels)
 
@@ -306,8 +305,18 @@ def persist_modal_item_before_exit(
                     box_extent_map[label] = cleaned_extent
                     box_extent_lists[label] = [cleaned_extent]
 
+        if box_extent_lists:
+            ordered = list(labels_to_confirm)
+            seen = set(ordered)
+            for label in box_extent_lists.keys():
+                if label not in seen:
+                    ordered.append(label)
+                    seen.add(label)
+            labels_to_confirm = ordered
+        labels_set = set(labels_to_confirm)
+
         threshold_used = float(thresholds.get("__global__", 0.5))
-        rejected_labels = set(ordered_unique_labels(annotations_obj.get("rejected_labels") or []))
+        rejected_labels = set(ordered_unique_labels(get_item_rejected_labels(active_item)))
         for label in predicted_labels:
             if label not in labels_set:
                 rejected_labels.add(label)

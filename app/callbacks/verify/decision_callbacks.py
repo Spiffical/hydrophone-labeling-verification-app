@@ -32,6 +32,7 @@ def register_verify_action_callbacks(
         _extract_label_extent_list_map_from_boxes=_extract_label_extent_list_map_from_boxes,
         _extract_label_extent_map_from_boxes=_extract_label_extent_map_from_boxes,
         _get_modal_label_sets=_get_modal_label_sets,
+        _get_item_rejected_labels=_get_item_rejected_labels,
         _profile_actor=_profile_actor,
         _update_item_labels=_update_item_labels,
         _build_modal_boxes_from_item=_build_modal_boxes_from_item,
@@ -52,4 +53,3 @@ def register_verify_action_callbacks(
         _ordered_unique_labels=_ordered_unique_labels,
         _verify_badge_debug=_verify_badge_debug,
     )
-

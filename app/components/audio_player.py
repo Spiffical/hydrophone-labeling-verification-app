@@ -221,6 +221,7 @@ def create_modal_audio_player(
     pitch_value: float = 1.0,
     eq_values: Optional[dict] = None,
     gain_value: float = 1.0,
+    visible_filter_enabled: bool = False,
     transport: str = "direct",
     mp3_bitrate: Optional[str] = None,
 ) -> html.Div:
@@ -282,6 +283,7 @@ def create_modal_audio_player(
         gain_value = max(1.0, min(50.0, float(gain_value)))
     except (TypeError, ValueError):
         gain_value = 1.0
+    visible_filter_enabled = bool(visible_filter_enabled)
 
     side_controls = html.Div(
         [
@@ -367,20 +369,37 @@ def create_modal_audio_player(
         [
             html.Div(
                 [
-                    html.Label(
+                    html.Div(
                         [
-                            html.I(className="fas fa-sliders modal-control-icon"),
-                            html.Span("Equalizer (Log Scale)", className="modal-control-label"),
+                            html.Label(
+                                [
+                                    html.I(className="fas fa-sliders modal-control-icon"),
+                                    html.Span("Equalizer (Log Scale)", className="modal-control-label"),
+                                ],
+                                className="modal-control-header",
+                            ),
+                            dbc.Checkbox(
+                                id=f"{player_id}-visible-filter-toggle",
+                                label="Only play visible frequencies",
+                                value=visible_filter_enabled,
+                                className="visible-filter-toggle",
+                                inputClassName="visible-filter-checkbox",
+                                labelClassName="visible-filter-label",
+                            ),
                         ],
-                        className="modal-control-header",
+                        className="modal-eq-header-group",
                     ),
                     html.Div(
                         id=f"{player_id}-eq-display",
-                        children=_format_eq_mode_display(False),
+                        children=(
+                            "Visible-only: spectrogram window"
+                            if visible_filter_enabled
+                            else _format_eq_mode_display(False)
+                        ),
                         className="modal-control-display eq-mode-display",
                     ),
                 ],
-                className="modal-control-top",
+                className="modal-control-top modal-eq-control-top",
             ),
             html.Div(
                 [
@@ -472,7 +491,9 @@ def create_modal_audio_player(
         html.Div(id=f'{player_id}-pitch-output', style={'display': 'none'}),
         html.Div(id=f'{player_id}-eq-output', style={'display': 'none'}),
         html.Div(id=f'{player_id}-gain-output', style={'display': 'none'})
-    ], className="modal-audio-container")
+    ], className="modal-audio-container", **{
+        "data-visible-filter-default": "true" if visible_filter_enabled else "false",
+    })
 
 def create_audio_player_with_controls(
     audio_file_path: Optional[str],

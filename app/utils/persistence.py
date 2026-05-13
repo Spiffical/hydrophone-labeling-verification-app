@@ -179,6 +179,36 @@ def save_label_mode(
     )
 
 
+def save_verify_mode(
+    dashboard_root: Optional[str],
+    date: str,
+    hydrophone: str,
+    item_id: str,
+    labels: List[str],
+    username: Optional[str] = None,
+) -> None:
+    """Save legacy hydrophone-dashboard verification labels.
+
+    The current app writes O3 verifications via ``save_verify_predictions``, but
+    older dashboard-style datasets and tests still use date/device labels.json.
+    """
+    if not dashboard_root or not date or not hydrophone or not item_id:
+        return
+
+    labels_path = os.path.join(dashboard_root, date, hydrophone, "labels.json")
+    labels_data = read_json(labels_path)
+    if not isinstance(labels_data, dict):
+        labels_data = {}
+
+    existing = labels_data.get(item_id)
+    entry = dict(existing) if isinstance(existing, dict) else {}
+    entry["verified_labels"] = list(labels or [])
+    entry["verified_by"] = username or entry.get("verified_by") or "anonymous"
+    entry["verified_at"] = datetime.now(timezone.utc).isoformat()
+    labels_data[item_id] = entry
+    write_json(labels_path, labels_data)
+
+
 def save_verify_predictions(
     predictions_path: Optional[str],
     item_id: str,

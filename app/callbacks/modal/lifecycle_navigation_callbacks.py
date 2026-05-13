@@ -328,6 +328,7 @@ def register_modal_lifecycle_navigation_callbacks(
             except (TypeError, ValueError):
                 eq_values[eq_key] = 0.0
         gain_value = settings.get("gain", 1.0)
+        visible_filter_enabled = bool(settings.get("visible_filter", False))
         audio_cfg = (cfg or {}).get("audio", {}) if isinstance(cfg, dict) else {}
         audio_transport = audio_cfg.get("transport", "direct")
         audio_mp3_bitrate = audio_cfg.get("mp3_bitrate")
@@ -342,6 +343,7 @@ def register_modal_lifecycle_navigation_callbacks(
                 pitch_value=pitch_value,
                 eq_values=eq_values,
                 gain_value=gain_value,
+                visible_filter_enabled=visible_filter_enabled,
                 transport=audio_transport,
                 mp3_bitrate=audio_mp3_bitrate,
             )

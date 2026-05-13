@@ -147,11 +147,13 @@ def convert_whale_predictions_to_unified(predictions_json: dict) -> dict:
     entries = predictions_json.get("items")
     if not entries:
         entries = predictions_json.get("predictions")
+    if not entries:
+        entries = predictions_json.get("segments")
 
     for entry in entries or []:
         max_confidence = entry.get("max_confidence")
         confidence_value = max_confidence if max_confidence is not None else entry.get("confidence", 0)
-        item_id = entry.get("item_id") or entry.get("file_id")
+        item_id = entry.get("item_id") or entry.get("file_id") or entry.get("segment_id")
         if not item_id:
             continue
 

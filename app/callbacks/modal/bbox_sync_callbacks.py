@@ -25,6 +25,7 @@ def register_modal_bbox_sync_callbacks(
         Input("modal-unsaved-store", "data"),
         State("mode-tabs", "data"),
         State("current-filename", "data"),
+        State("modal-item-store", "data"),
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
@@ -36,6 +37,7 @@ def register_modal_bbox_sync_callbacks(
         unsaved_store,
         mode,
         current_item_id,
+        modal_item,
         label_data,
         verify_data,
         thresholds,
@@ -64,6 +66,12 @@ def register_modal_bbox_sync_callbacks(
         )
         if not isinstance(active_item, dict):
             raise PreventUpdate
+        if isinstance(modal_item, dict) and modal_item.get("item_id") == current_item_id:
+            active_item = deepcopy(modal_item)
+            for index, item in enumerate(items):
+                if isinstance(item, dict) and item.get("item_id") == current_item_id:
+                    items[index] = active_item
+                    break
 
         boxes = bbox_store.get("boxes")
         boxes = boxes if isinstance(boxes, list) else []

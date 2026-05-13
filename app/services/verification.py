@@ -157,15 +157,61 @@ def has_pending_label_edits(annotations):
     return bool(annotations.get("pending_save") or annotations.get("needs_reverify"))
 
 
+def get_latest_verification_label_sets(item):
+    """Return accepted/added and rejected labels from the latest stored verification."""
+    if not isinstance(item, dict):
+        return [], []
+    verifications = item.get("verifications")
+    if not isinstance(verifications, list):
+        return [], []
+
+    for verification in reversed(verifications):
+        if not isinstance(verification, dict):
+            continue
+        decisions = verification.get("label_decisions")
+        if not isinstance(decisions, list):
+            continue
+        active_labels = []
+        rejected_labels = []
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            label = decision.get("label")
+            if not isinstance(label, str) or not label.strip():
+                continue
+            normalized_label = label.strip()
+            decision_value = (decision.get("decision") or "").strip().lower()
+            if decision_value == "rejected":
+                rejected_labels.append(normalized_label)
+            elif decision_value in {"accepted", "added"}:
+                active_labels.append(normalized_label)
+        return ordered_unique_labels(active_labels), ordered_unique_labels(rejected_labels)
+
+    return [], []
+
+
 def get_modal_label_sets(item, mode, thresholds):
     predictions = item.get("predictions") or {}
     annotations = item.get("annotations") or {}
     predicted_labels = ordered_unique_labels(filter_predictions(predictions, thresholds or {"__global__": 0.5}))
-    verified_labels = ordered_unique_labels(annotations.get("labels") or [])
+    annotation_labels = ordered_unique_labels(annotations.get("labels") or [])
+    verification_labels, verification_rejected = get_latest_verification_label_sets(item)
+    verified_labels = annotation_labels or verification_labels
     explicit_review = has_explicit_review(annotations)
 
     if mode == "verify":
-        active_labels = verified_labels if explicit_review else predicted_labels
+        rejected_set = set(get_item_rejected_labels(item) or verification_rejected)
+        if explicit_review:
+            active_candidates = verified_labels
+        elif verified_labels:
+            active_candidates = verified_labels
+        elif rejected_set:
+            active_candidates = [label for label in predicted_labels if label not in rejected_set]
+        else:
+            active_candidates = predicted_labels
+        active_labels = ordered_unique_labels(
+            label for label in active_candidates if label not in rejected_set
+        )
     else:
         active_labels = (
             verified_labels
@@ -184,19 +230,9 @@ def get_item_rejected_labels(item):
     if annotation_rejected:
         return annotation_rejected
 
-    verifications = item.get("verifications")
-    if isinstance(verifications, list) and verifications:
-        latest = verifications[-1] if isinstance(verifications[-1], dict) else {}
-        rejected = []
-        for decision in latest.get("label_decisions", []) or []:
-            if not isinstance(decision, dict):
-                continue
-            if decision.get("decision") != "rejected":
-                continue
-            label = decision.get("label")
-            if isinstance(label, str):
-                rejected.append(label)
-        return ordered_unique_labels(rejected)
+    _, verification_rejected = get_latest_verification_label_sets(item)
+    if verification_rejected:
+        return verification_rejected
     return []
 
 

@@ -23,6 +23,7 @@ def register_verify_confirm_callbacks(
     _extract_label_extent_list_map_from_boxes,
     _extract_label_extent_map_from_boxes,
     _get_modal_label_sets,
+    _get_item_rejected_labels,
     _profile_actor,
     _update_item_labels,
     _build_modal_boxes_from_item,
@@ -133,7 +134,7 @@ def register_verify_confirm_callbacks(
             elif action.get("action") == "remove":
                 last_remove_threshold[label] = threshold_value
 
-        rejected_labels = set()
+        rejected_labels = set(_get_item_rejected_labels(active_item))
         for label in predicted_labels:
             if label not in labels_set:
                 rejected_labels.add(label)
@@ -141,6 +142,8 @@ def register_verify_confirm_callbacks(
             score = model_scores.get(label)
             if score is not None and score >= float(removed_threshold):
                 rejected_labels.add(label)
+        for label in labels_to_confirm:
+            rejected_labels.discard(label)
 
         label_decisions = []
         for label in labels_to_confirm:
@@ -264,7 +267,7 @@ def register_verify_confirm_callbacks(
         if not item_id:
             raise PreventUpdate
 
-        item = get_verify_modal_item(verify_data_cache_key, item_id) or modal_item
+        item = modal_item
         predictions = item.get("predictions") or {}
         annotations = item.get("annotations") or {}
         thresholds = thresholds or {"__global__": 0.5}
@@ -334,7 +337,7 @@ def register_verify_confirm_callbacks(
             elif action.get("action") == "remove":
                 last_remove_threshold[label] = threshold_value
 
-        rejected_labels = set()
+        rejected_labels = set(_get_item_rejected_labels(item))
         for label in predicted_labels:
             if label not in labels_set:
                 rejected_labels.add(label)
@@ -342,6 +345,8 @@ def register_verify_confirm_callbacks(
             score = model_scores.get(label)
             if score is not None and score >= float(removed_threshold):
                 rejected_labels.add(label)
+        for label in labels_to_confirm:
+            rejected_labels.discard(label)
 
         label_decisions = []
         for label in labels_to_confirm:

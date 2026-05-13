@@ -92,6 +92,7 @@ def create_main_layout(config: dict) -> html.Div:
                 "eq_10000": 0.0,
                 "eq_16000": 0.0,
                 "gain": 1.0,
+                "visible_filter": False,
             },
             storage_type="local",
         ),

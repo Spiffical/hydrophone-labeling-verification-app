@@ -18,6 +18,7 @@ from app.callbacks.verify.badge_helpers import (
     timestamp_summary,
     update_boxes_and_extents_for_action,
 )
+from app.services.verify_modal_cache import update_verify_modal_item
 
 
 def register_verify_badge_callbacks(
@@ -54,6 +55,7 @@ def register_verify_badge_callbacks(
         State("modal-bbox-store", "data"),
         State("user-profile-store", "data"),
         State("verify-badge-event-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         prevent_initial_call=True,
     )
     def quick_update_verify_labels(
@@ -69,6 +71,7 @@ def register_verify_badge_callbacks(
         modal_bbox_store,
         profile,
         badge_event_store,
+        verify_data_cache_key,
     ):
         _require_complete_profile(profile, "quick_update_verify_labels")
         _verify_badge_debug(
@@ -235,6 +238,7 @@ def register_verify_badge_callbacks(
         active_item["annotations"] = annotations_update
         if 0 <= active_item_index < len(items):
             items[active_item_index] = active_item
+        update_verify_modal_item(verify_data_cache_key, active_item)
 
         summary_obj = data.get("summary") if isinstance(data.get("summary"), dict) else {}
         summary_obj["annotated"] = sum(

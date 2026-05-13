@@ -21,6 +21,16 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             const eqDisplay = document.getElementById(playerId + '-eq-display');
             const gainSlider = document.getElementById(playerId + '-gain-slider');
             const gainDisplay = document.getElementById(playerId + '-gain-display');
+            const visibleFilterToggle = document.getElementById(playerId + '-visible-filter-toggle');
+            const visibleFilterInput = visibleFilterToggle && visibleFilterToggle.matches
+                && visibleFilterToggle.matches('input[type="checkbox"]')
+                ? visibleFilterToggle
+                : (visibleFilterToggle ? visibleFilterToggle.querySelector('input[type="checkbox"]') : null);
+            const visibleFilterRoot = visibleFilterInput || visibleFilterToggle;
+            const eqSection = visibleFilterRoot && visibleFilterRoot.closest
+                ? visibleFilterRoot.closest('.modal-eq-section')
+                : null;
+            const eqBandsGrid = eqSection ? eqSection.querySelector('.eq-bands-grid') : null;
             const lowEqBands = [
                 { key: 'eq-20', frequency: 20, slider: document.getElementById(playerId + '-eq-20-slider') },
                 { key: 'eq-40', frequency: 40, slider: document.getElementById(playerId + '-eq-40-slider') },
@@ -148,12 +158,25 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         audio.lowEqFilters[band.key] = filter;
                     });
 
-                    // Create gain node for post-EQ amplification.
+                    // Create the listenable-window filters. They are bypassed until the mode is enabled.
+                    audio.visibleHighpassFilter = audio.audioContext.createBiquadFilter();
+                    audio.visibleHighpassFilter.type = 'highpass';
+                    audio.visibleHighpassFilter.Q.value = 0.707;
+                    audio.visibleHighpassFilter.frequency.value = 0.001;
+
+                    audio.visibleLowpassFilter = audio.audioContext.createBiquadFilter();
+                    audio.visibleLowpassFilter.type = 'lowpass';
+                    audio.visibleLowpassFilter.Q.value = 0.707;
+                    audio.visibleLowpassFilter.frequency.value = (audio.audioContext.sampleRate || 48000) / 2;
+
+                    // Create gain node for post-filter amplification.
                     audio.gainNode = audio.audioContext.createGain();
                     audio.gainNode.gain.value = 1.0;
 
-                    // Connect: source -> low EQ chain -> gain -> destination
-                    chainTail.connect(audio.gainNode);
+                    // Connect: source -> EQ chain -> visible-window filters -> gain -> destination
+                    chainTail.connect(audio.visibleHighpassFilter);
+                    audio.visibleHighpassFilter.connect(audio.visibleLowpassFilter);
+                    audio.visibleLowpassFilter.connect(audio.gainNode);
                     audio.gainNode.connect(audio.audioContext.destination);
 
                     registerPlayerCleanup(cleanupFns, function () {
@@ -179,6 +202,22 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                             console.debug('Error disconnecting gain node:', disconnectError);
                         }
                         try {
+                            if (
+                                audio.visibleHighpassFilter &&
+                                typeof audio.visibleHighpassFilter.disconnect === 'function'
+                            ) {
+                                audio.visibleHighpassFilter.disconnect();
+                            }
+                            if (
+                                audio.visibleLowpassFilter &&
+                                typeof audio.visibleLowpassFilter.disconnect === 'function'
+                            ) {
+                                audio.visibleLowpassFilter.disconnect();
+                            }
+                        } catch (disconnectError) {
+                            console.debug('Error disconnecting visible-window filters:', disconnectError);
+                        }
+                        try {
                             if (audio.lowEqFilters) {
                                 Object.keys(audio.lowEqFilters).forEach(function (key) {
                                     const filter = audio.lowEqFilters[key];
@@ -201,21 +240,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         audio.sourceNode = null;
                         audio.gainNode = null;
                         audio.lowEqFilters = null;
+                        audio.visibleHighpassFilter = null;
+                        audio.visibleLowpassFilter = null;
                     });
 
                     console.log('Web Audio API initialized for:', playerId);
                 } catch (e) {
                     console.warn('Web Audio API not available:', e);
                 }
-            }
-
-            if (pitchSlider) {
-                bindSliderValueSync(pitchSlider, 0.1, 4.0, function (rate) {
-                    audio.playbackRate = rate;
-                    if (pitchDisplay) {
-                        pitchDisplay.textContent = rate.toFixed(2) + 'x';
-                    }
-                }, cleanupFns);
             }
 
             const getSliderRoundedDb = function (slider) {
@@ -225,29 +257,93 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 return Math.round(current);
             };
 
+            const isVisibleFrequencyFilterEnabled = function () {
+                return !!(visibleFilterInput && visibleFilterInput.checked);
+            };
+
             const applyEqBandGain = function (band, dbGain) {
                 if (!audio.lowEqFilters || !audio.lowEqFilters[band.key]) return;
                 audio.lowEqFilters[band.key].gain.value = dbGain;
             };
 
+            const setEqControlsDisabled = function (disabled) {
+                if (eqBandsGrid) {
+                    eqBandsGrid.classList.toggle('eq-bands-grid--disabled', disabled);
+                }
+                lowEqBands.forEach(function (band) {
+                    if (!band.slider) return;
+                    band.slider.classList.toggle('eq-slider--disabled', disabled);
+                    band.slider.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+                    const handle = getSliderHandle(band.slider);
+                    if (handle) {
+                        if (disabled) {
+                            handle.setAttribute('tabindex', '-1');
+                        } else {
+                            handle.removeAttribute('tabindex');
+                        }
+                    }
+                });
+            };
+
+            const refreshVisibleFrequencyFilter = function () {
+                const filterState = updateVisibleFrequencyFilters(audio, isVisibleFrequencyFilterEnabled());
+                if (eqDisplay) {
+                    eqDisplay.textContent = filterState
+                        ? formatVisibleFrequencyFilterDisplay(filterState)
+                        : 'Full-range EQ: 20 Hz to 16 kHz';
+                }
+            };
+
             const refreshEqFilterGains = function () {
+                const visibleFilterEnabled = isVisibleFrequencyFilterEnabled();
+                setEqControlsDisabled(visibleFilterEnabled);
                 lowEqBands.forEach(function (band) {
                     if (!band.slider) return;
                     const roundedGain = getSliderRoundedDb(band.slider);
-                    applyEqBandGain(band, roundedGain);
+                    applyEqBandGain(band, visibleFilterEnabled ? 0 : roundedGain);
                 });
             };
 
             const updateLowEqDisplay = function () {
-                if (!eqDisplay) return;
-                eqDisplay.textContent = 'Full-range EQ: 20 Hz to 16 kHz';
+                refreshVisibleFrequencyFilter();
             };
+
+            if (pitchSlider) {
+                disablePitchPreservation(audio);
+                bindSliderValueSync(pitchSlider, 0.1, 4.0, function (rate) {
+                    disablePitchPreservation(audio);
+                    audio.playbackRate = rate;
+                    refreshVisibleFrequencyFilter();
+                    if (pitchDisplay) {
+                        pitchDisplay.textContent = rate.toFixed(2) + 'x';
+                    }
+                }, cleanupFns);
+            }
+
+            if (visibleFilterInput && !visibleFilterInput.hasVisibleFrequencyFilterBinding) {
+                visibleFilterInput.hasVisibleFrequencyFilterBinding = true;
+                addTrackedEventListener(visibleFilterInput, 'change', function () {
+                    refreshEqFilterGains();
+                    refreshVisibleFrequencyFilter();
+                }, undefined, cleanupFns);
+
+                const visibleFilterRefreshInterval = setInterval(function () {
+                    if (isVisibleFrequencyFilterEnabled()) {
+                        refreshVisibleFrequencyFilter();
+                    }
+                }, 450);
+
+                registerPlayerCleanup(cleanupFns, function () {
+                    visibleFilterInput.hasVisibleFrequencyFilterBinding = false;
+                    clearInterval(visibleFilterRefreshInterval);
+                });
+            }
 
             lowEqBands.forEach(function (band) {
                 if (!band.slider) return;
                 bindSliderValueSync(band.slider, -24, 24, function (dbGain) {
                     const roundedGain = Math.round(dbGain);
-                    applyEqBandGain(band, roundedGain);
+                    applyEqBandGain(band, isVisibleFrequencyFilterEnabled() ? 0 : roundedGain);
                     updateLowEqDisplay();
                 }, cleanupFns);
             });
@@ -430,6 +526,178 @@ function trackMutationObserver(observer, target, options, cleanupFns) {
             console.debug('Error disconnecting mutation observer:', e);
         }
     });
+}
+
+function disablePitchPreservation(audio) {
+    if (!audio) return;
+    // Match Raven-style speed changes: faster playback should raise pitch.
+    if ('preservesPitch' in audio) {
+        audio.preservesPitch = false;
+    }
+    if ('webkitPreservesPitch' in audio) {
+        audio.webkitPreservesPitch = false;
+    }
+    if ('mozPreservesPitch' in audio) {
+        audio.mozPreservesPitch = false;
+    }
+}
+
+function updateVisibleFrequencyFilters(audio, enabled) {
+    if (!audio || !enabled) {
+        bypassVisibleFrequencyFilters(audio);
+        return null;
+    }
+    if (!audio.visibleHighpassFilter || !audio.visibleLowpassFilter) {
+        return { unavailable: true, reason: 'web-audio' };
+    }
+
+    const visibleWindow = getSpectrogramVisibleFrequencyWindowHz();
+    if (!visibleWindow) {
+        bypassVisibleFrequencyFilters(audio);
+        return { unavailable: true, reason: 'spectrogram' };
+    }
+
+    const nyquistHz = getAudioContextNyquistHz(audio);
+    const playbackRate = clamp(Number(audio.playbackRate) || 1, 0.1, 16);
+    const playbackMinHz = Math.max(0, visibleWindow.minHz * playbackRate);
+    const playbackMaxHz = Math.max(playbackMinHz, visibleWindow.maxHz * playbackRate);
+    const maxCutoffHz = Math.max(2, nyquistHz * 0.98);
+    const lowCutoffHz = clamp(playbackMinHz > 0 ? playbackMinHz : 0.001, 0.001, nyquistHz * 0.95);
+    const highCutoffHz = clamp(playbackMaxHz, Math.min(lowCutoffHz + 1, maxCutoffHz), maxCutoffHz);
+
+    setBiquadFrequency(audio.visibleHighpassFilter, lowCutoffHz);
+    setBiquadFrequency(audio.visibleLowpassFilter, highCutoffHz);
+
+    return {
+        visibleMinHz: visibleWindow.minHz,
+        visibleMaxHz: visibleWindow.maxHz,
+        playbackMinHz: playbackMinHz,
+        playbackMaxHz: playbackMaxHz,
+        cutoffMinHz: lowCutoffHz,
+        cutoffMaxHz: highCutoffHz,
+        playbackRate: playbackRate,
+        clamped: highCutoffHz + 0.5 < playbackMaxHz || lowCutoffHz > playbackMinHz + 0.5,
+    };
+}
+
+function bypassVisibleFrequencyFilters(audio) {
+    if (!audio || !audio.visibleHighpassFilter || !audio.visibleLowpassFilter) return;
+    const nyquistHz = getAudioContextNyquistHz(audio);
+    setBiquadFrequency(audio.visibleHighpassFilter, 0.001);
+    setBiquadFrequency(audio.visibleLowpassFilter, Math.max(2, nyquistHz * 0.98));
+}
+
+function getAudioContextNyquistHz(audio) {
+    const sampleRate = audio && audio.audioContext && audio.audioContext.sampleRate
+        ? audio.audioContext.sampleRate
+        : 48000;
+    return Math.max(2, sampleRate / 2);
+}
+
+function setBiquadFrequency(filter, frequencyHz) {
+    if (!filter || !filter.frequency) return;
+    const safeFrequency = Math.max(0.001, Number(frequencyHz) || 0.001);
+    if (
+        typeof filter.frequency.setValueAtTime === 'function' &&
+        filter.context &&
+        isFinite(filter.context.currentTime)
+    ) {
+        filter.frequency.setValueAtTime(safeFrequency, filter.context.currentTime);
+    } else {
+        filter.frequency.value = safeFrequency;
+    }
+}
+
+function getSpectrogramVisibleFrequencyWindowHz() {
+    const modalGraph = document.getElementById('modal-image-graph');
+    if (!modalGraph) return null;
+
+    const graphDiv = modalGraph.querySelector('.js-plotly-plot');
+    if (!graphDiv) return null;
+
+    const layout = graphDiv._fullLayout || graphDiv.layout || {};
+    const yaxis = layout.yaxis || {};
+    const yToHz = getFrequencyAxisScaleToHz(yaxis);
+    const rangeFromAxis = getFrequencyAxisRange(yaxis);
+
+    if (rangeFromAxis) {
+        return sanitizeFrequencyWindowHz(rangeFromAxis.min * yToHz, rangeFromAxis.max * yToHz);
+    }
+
+    const trace = graphDiv.data && graphDiv.data.length ? graphDiv.data[0] : null;
+    const yValues = trace && trace.y ? trace.y : null;
+    if (!yValues || typeof yValues.length !== 'number' || yValues.length < 2) return null;
+
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let index = 0; index < yValues.length; index += 1) {
+        const y = Number(yValues[index]);
+        if (!isFinite(y)) continue;
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+    }
+
+    return sanitizeFrequencyWindowHz(minY * yToHz, maxY * yToHz);
+}
+
+function getFrequencyAxisScaleToHz(yaxis) {
+    const title = yaxis && yaxis.title
+        ? (typeof yaxis.title === 'string' ? yaxis.title : yaxis.title.text)
+        : '';
+    return typeof title === 'string' && title.toLowerCase().indexOf('khz') !== -1 ? 1000 : 1;
+}
+
+function getFrequencyAxisRange(yaxis) {
+    if (!yaxis || !Array.isArray(yaxis.range) || yaxis.range.length < 2) return null;
+    let first = Number(yaxis.range[0]);
+    let second = Number(yaxis.range[1]);
+    if (!isFinite(first) || !isFinite(second)) return null;
+
+    if (String(yaxis.type || '').toLowerCase() === 'log') {
+        first = Math.pow(10, first);
+        second = Math.pow(10, second);
+    }
+
+    return {
+        min: Math.min(first, second),
+        max: Math.max(first, second),
+    };
+}
+
+function sanitizeFrequencyWindowHz(minHz, maxHz) {
+    const minValue = Number(minHz);
+    const maxValue = Number(maxHz);
+    if (!isFinite(minValue) || !isFinite(maxValue)) return null;
+    const low = Math.max(0, Math.min(minValue, maxValue));
+    const high = Math.max(low, Math.max(minValue, maxValue));
+    if (high <= low) return null;
+    return { minHz: low, maxHz: high };
+}
+
+function formatVisibleFrequencyFilterDisplay(filterState) {
+    if (!filterState || filterState.unavailable) {
+        return filterState && filterState.reason === 'web-audio'
+            ? 'Visible-only: Web Audio unavailable'
+            : 'Visible-only: waiting for spectrogram window';
+    }
+    const sourceWindow = formatFrequencyRange(filterState.visibleMinHz, filterState.visibleMaxHz);
+    const playbackWindow = formatFrequencyRange(filterState.playbackMinHz, filterState.playbackMaxHz);
+    const suffix = filterState.clamped ? ' (clamped)' : '';
+    return 'Visible-only: ' + sourceWindow + ' -> ' + playbackWindow + ' @ '
+        + filterState.playbackRate.toFixed(2) + 'x' + suffix;
+}
+
+function formatFrequencyRange(minHz, maxHz) {
+    return formatFrequencyValue(minHz) + '-' + formatFrequencyValue(maxHz);
+}
+
+function formatFrequencyValue(valueHz) {
+    if (!isFinite(valueHz)) return '0 Hz';
+    if (Math.abs(valueHz) >= 1000) {
+        const valueKhz = valueHz / 1000;
+        return valueKhz >= 10 ? valueKhz.toFixed(0) + ' kHz' : valueKhz.toFixed(1) + ' kHz';
+    }
+    return valueHz >= 10 ? valueHz.toFixed(0) + ' Hz' : valueHz.toFixed(1) + ' Hz';
 }
 
 function ensureAudioSourceLoaded(audio, shouldLoad) {

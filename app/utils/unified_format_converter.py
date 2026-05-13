@@ -118,6 +118,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
             if label_decisions:
                 accepted = [ld["label"] for ld in label_decisions if ld.get("decision") == "accepted"]
                 added = [ld["label"] for ld in label_decisions if ld.get("decision") == "added"]
+                rejected = [ld["label"] for ld in label_decisions if ld.get("decision") == "rejected"]
                 label_extents = {}
                 for ld in label_decisions:
                     if ld.get("decision") not in ("accepted", "added"):
@@ -129,10 +130,12 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
             else:
                 accepted = latest_verification.get("labels", [])
                 added = latest_verification.get("added_labels", [])
+                rejected = latest_verification.get("rejected_labels", [])
                 label_extents = {}
 
             annotations = {
                 "labels": accepted + added,
+                "rejected_labels": rejected,
                 "annotated_by": latest_verification.get("verified_by"),
                 "annotated_at": latest_verification.get("verified_at"),
                 "verified": True,

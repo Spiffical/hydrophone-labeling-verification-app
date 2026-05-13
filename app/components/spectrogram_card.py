@@ -3,6 +3,7 @@ from dash import html
 import dash_bootstrap_components as dbc
 from app.components.audio_player import create_audio_player
 from app.components.note_editor import create_note_editor
+from app.services.verification import get_item_rejected_labels, get_latest_verification_label_sets
 
 
 def _label_badges(labels, color="primary"):
@@ -225,8 +226,13 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     annotations_data = item.get("annotations") or {}
     note_text = annotations_data.get("notes", "") if isinstance(annotations_data.get("notes"), str) else ""
     predicted = _ordered_unique_labels(predictions.get("labels", []))
-    annotations = _ordered_unique_labels(annotations_data.get("labels", []))
-    rejected = _ordered_unique_labels((item.get("ui_rejected_labels") or annotations_data.get("rejected_labels") or []))
+    verification_labels, _ = get_latest_verification_label_sets(item)
+    annotations = _ordered_unique_labels(annotations_data.get("labels", []) or verification_labels)
+    rejected = _ordered_unique_labels(
+        item.get("ui_rejected_labels")
+        or annotations_data.get("rejected_labels")
+        or get_item_rejected_labels(item)
+    )
     has_pending_edits = _has_pending_label_edits(annotations_data)
     assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
 

@@ -31,7 +31,7 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
     rejected_labels = [label for label in ordered_unique_labels(rejected_labels) if label not in accepted_set]
     rejected_set = set(rejected_labels)
     is_verified = bool(annotations.get("verified"))
-    explicit_review = has_explicit_review(annotations)
+    explicit_review = has_explicit_review(annotations) or bool(verified_labels or rejected_labels)
     has_pending_edits = has_pending_label_edits(annotations)
     note_text = annotations.get("notes", "") if isinstance(annotations.get("notes"), str) else ""
 

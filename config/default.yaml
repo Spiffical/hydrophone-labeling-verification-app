@@ -33,8 +33,8 @@ cache:
   max_size: 75
 
 audio:
-  # direct: serve the source file; mp3_cached: route through the ffmpeg-backed cache for better browser seeking.
-  transport: mp3_cached
+  # direct: serve the original source file; mp3_cached is an explicit fallback for browser seeking.
+  transport: direct
   mp3_bitrate: 128k
   cache_dir: /tmp/hydrophone_audio_transport
   cache_max_age: 300

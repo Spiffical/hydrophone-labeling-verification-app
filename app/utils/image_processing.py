@@ -182,8 +182,8 @@ def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> D
             y_to_hz = 1000.0
         elif max_f > 2:
             freq_plot = freq
-            y_unit = "Hz" if max_f < 1000 else "kHz"
-            y_to_hz = 1.0 if y_unit == "Hz" else 1000.0
+            y_unit = "Hz"
+            y_to_hz = 1.0
         else:
             freq_plot = freq
             y_unit = "kHz"

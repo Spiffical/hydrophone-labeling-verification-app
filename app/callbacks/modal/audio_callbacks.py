@@ -106,6 +106,7 @@ def register_modal_audio_callbacks(app):
         Input("modal-player-eq-5000-slider", "value"),
         Input("modal-player-eq-10000-slider", "value"),
         Input("modal-player-eq-16000-slider", "value"),
+        Input("modal-player-visible-filter-toggle", "value"),
         prevent_initial_call=True,
     )
     def update_modal_eq_display(
@@ -120,7 +121,10 @@ def register_modal_audio_callbacks(app):
         eq_5000,
         eq_10000,
         eq_16000,
+        visible_filter,
     ):
+        if _is_visible_filter_enabled(visible_filter):
+            return "Visible-only: spectrogram window"
         return "Full-range EQ: 20 Hz to 16 kHz"
 
     @app.callback(
@@ -151,6 +155,7 @@ def register_modal_audio_callbacks(app):
         Input("modal-player-eq-10000-slider", "value"),
         Input("modal-player-eq-16000-slider", "value"),
         Input("modal-player-gain-slider", "value"),
+        Input("modal-player-visible-filter-toggle", "value"),
         State("modal-audio-settings-store", "data"),
         prevent_initial_call=True,
     )
@@ -168,6 +173,7 @@ def register_modal_audio_callbacks(app):
         eq_10000,
         eq_16000,
         gain,
+        visible_filter,
         current_settings,
     ):
         current_settings = current_settings or {
@@ -184,6 +190,7 @@ def register_modal_audio_callbacks(app):
             "eq_10000": 0.0,
             "eq_16000": 0.0,
             "gain": 1.0,
+            "visible_filter": False,
         }
         updated = dict(current_settings)
         changed = False
@@ -230,6 +237,11 @@ def register_modal_audio_callbacks(app):
             except (TypeError, ValueError):
                 pass
 
+        visible_filter_enabled = _is_visible_filter_enabled(visible_filter)
+        if updated.get("visible_filter") != visible_filter_enabled:
+            updated["visible_filter"] = visible_filter_enabled
+            changed = True
+
         if not changed:
             raise PreventUpdate
         return updated
@@ -249,3 +261,9 @@ def register_modal_audio_callbacks(app):
         Input("image-modal", "is_open"),
         prevent_initial_call=True,
     )
+
+
+def _is_visible_filter_enabled(value):
+    if isinstance(value, (list, tuple, set)):
+        return "enabled" in value
+    return bool(value)
