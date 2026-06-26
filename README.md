@@ -1,150 +1,127 @@
-# Hydrophone Acoustic Review Suite: Unified Labeling & Verification Tool
+# Hydrophone Acoustic Review Suite
 
-A professional, high-performance web application built with Plotly Dash for the scientific analysis, labeling, and verification of hydrophone data. This tool is specifically designed to handle large-scale acoustic datasets, particularly for marine mammal research (e.g., fin whale calls).
+Dash app for labeling, verifying, and exploring hydrophone detections with spectrograms, audio playback, notes, and time-frequency bounding boxes.
 
 <div align="center">
-  <img src="app/assets/screenshot_demo.png" alt="Spectrogram Interface" width="900" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
-  <p><em>Interactive Spectrogram Verification Interface</em></p>
+  <img src="app/assets/screenshot_demo.png" alt="Spectrogram review modal with bounding-box and audio controls" width="900">
 </div>
 
-## ✨ Key Features
-
-*   **Unified Research Workflow**: Seamlessly switch between **Labeling**, **Verification**, and **Exploration** modes.
-*   **Interactive Spectrogram Analysis**: High-resolution Plotly zoom modals with live controls for colormap and frequency scale (Hz/kHz, Linear/Log).
-*   **Integrated Audio-Visual Review**: Synchronized audio playback (`.wav`/`.flac`) with custom controllers on both thumbnail and detail views.
-*   **Intelligent Data Rendering**: Automatic support for multiple MAT formats, Julian date conversion, and adaptive percentile-based color scaling.
-*   **Modern Scientific UI**: Clean, GitHub-inspired dark/light theme optimized for precision research sessions.
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-Ensure you have Python 3.9+ and a virtual environment set up:
+## Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/Spiffical/hydrophone-labeling-verification-app.git
 cd hydrophone-labeling-verification-app
 
-# Create and activate virtual environment
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
+pip install -e .
 ```
 
-### 2. Running the App
-
-The app can be launched with or without custom parameters. By default, it loads settings from `config/default.yaml`.
+For on-the-fly spectrogram generation from audio, install the optional PyTorch extra:
 
 ```bash
-# Start with default configuration (loads config/default.yaml)
-python run.py
-
-# Override with a specific configuration file
-python run.py --config config/my_research_setup.yaml
-
-# Start directly pointing to a data directory (CLI override)
-python run.py --data-dir /path/to/my/hydrophone/data
-
-# Choose a preferred server port
-python run.py --port 8060
+pip install -e ".[audio-spectrogram]"
 ```
 
-**Configuration Priority:**
-1.  **CLI Arguments**: Explicit flags like `--data-dir` or `--port` take top priority.
-2.  **Config File**: Settings defined in the specified `--config` file (defaults to `config/default.yaml`).
-3.  **Environment Variables**: `DATA_DIR` or `PORT` environment variables.
-4.  **Browse Mode**: If no data source is specified, the app starts in **Browse Mode** via the header.
+## Start
 
-### 3. Loading Data
+Use `python3 run.py` from the repository, or `hydrophone-verify` after editable install.
 
-**No configuration file is strictly required!** You can easily select your data directly through the interactive UI:
+```bash
+# Start in browse mode and choose folders in the app
+python3 run.py
 
-1.  **Open the Browser**: Click the **Browse** button in the header.
-2.  **Locate Data**: Select your root data directory (Supports Hierarchical `Date/Device` structures).
-3.  **Select Date & Device**: Use the dropdowns to filter (or select **All Devices**).
-4.  **Load**: Click **Load Data** to populate the workspace.
-5.  **Smart Discovery**: The app automatically detects spectrograms, audio, and predictions files. If your structure is unique, use the **Folder Browser** icon to manually map specific paths.
+# Start from a folder of audio files and generate spectrograms
+python3 run.py --mode label --data-dir /path/to/audio \
+  --spectrogram-source audio_generated \
+  --fft-window-sec 1.0 --fft-overlap 0.9 \
+  --freq-min-hz 5 --freq-max-hz 100
 
+# Same workflow through the installed CLI
+hydrophone-verify --mode label --data-dir /path/to/audio \
+  --spectrogram-source audio_generated \
+  --fft-window-sec 1.0 --fft-overlap 0.9 \
+  --freq-min-hz 5 --freq-max-hz 100
 
-
-## 📚 Data Organization & Usage
-
-The app supports:
-*   **Hierarchical** (Date/Device), **Device-Only**, and **Flat** folder structures
-*   **Configurable folder names** (e.g., `spectrograms/`, `mat_files/`, `audio/`)
-*   **.mat**, **.npy**, **.png** spectrograms and **.wav**, **.flac**, **.mp3** audio
-*   **Cascading Prediction Discovery**: Supports `predictions.json` or `labels.json` at the root, date, or device level. The ONC pipeline writes one `predictions.json` per date (`YYYY-MM-DD/predictions.json`) containing all devices and appends/updates it as devices are processed.
-*   **Cross-platform browsing**: Navigate to `/mnt` (WSL), `/Volumes` (macOS), or any mounted drives
-
-👉 **[Read the Full Application Usage Guide](docs/APP_USAGE_GUIDE.md)** for detailed instructions.
-
-## 🛠 Project Structure
-
-*   `app/`: Core application logic.
-    *   `callbacks/`: Dash callback functions.
-    *   `components/`: Reusable UI components (Audio players, Modals, Cards).
-    *   `utils/`: Data processing, image rendering, and file I/O utilities.
-*   `app/assets/`: Custom CSS and clientside JavaScript.
-*   `config/`: YAML configuration files.
-*   `scripts/`: Utility scripts for data management and testing.
-*   `taxonomy/`: Hierarchical label definitions.
-
-## 📊 Model Predictions Format
-
-This app consumes model predictions in a **standardized JSON format** (v2.1) that supports:
-- Raw model scores (not thresholded)
-- Hierarchical taxonomic labels
-- Multi-round expert verification
-- Full model provenance tracking (SHA256 hash of weights)
-
-**📖 Full Specification**: See [`docs/predictions_json_format.md`](docs/predictions_json_format.md)
-
-### Quick Example
-
-```json
-{
-  "schema_version": "2.1",
-  "model": {
-    "model_id": "sha256-abc123",
-    "architecture": "resnet18",
-    "output_classes": ["Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"]
-  },
-  "task_type": "whale_detection",
-  "items": [
-    {
-      "item_id": "seg_000",
-      "model_outputs": [
-        {
-          "class_hierarchy": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
-          "score": 0.87
-        }
-      ],
-      "verifications": []
-    }
-  ]
-}
+# Verification with predictions
+python3 run.py --mode verify --data-dir /path/to/data-root \
+  --predictions-json /path/to/predictions.json
 ```
 
-**For integration instructions**, see:
-- [`docs/integration_guide.md`](docs/integration_guide.md) - How to update your inference pipelines
-- [`shared/unified_prediction_tracker.py`](shared/unified_prediction_tracker.py) - Python class for generating predictions
+Useful startup flags:
 
+| Flag | Purpose |
+| --- | --- |
+| `--data-dir` | Root folder to load at startup. Can be flat, device-only, or `DATE/DEVICE`. |
+| `--audio-folder` | Audio folder override when audio is separate from `--data-dir`. |
+| `--spectrogram-source` | `existing` or `audio_generated`. |
+| `--fft-window-sec` | FFT window duration in seconds for generated spectrograms. |
+| `--fft-overlap` | FFT overlap ratio, `0` to `0.99`. |
+| `--freq-min-hz`, `--freq-max-hz` | Frequency limits for generated spectrograms. |
+| `--port`, `--host` | Server binding. |
 
-## 🧪 Testing
+The same spectrogram settings are also available from the gear icon in the app and in `config/default.yaml`.
 
-Run the test suite to ensure everything is working correctly:
+## Data
+
+Supported spectrogram files: `.mat`, `.npy`, `.png`, `.jpg`, `.jpeg`.
+
+Supported audio files: `.wav`, `.flac`, `.mp3`, `.ogg`.
+
+Supported layouts:
+
+```text
+flat-folder/
+  clip_001.wav
+  clip_002.wav
+  labels.json
+
+data-root/
+  2026-01-07/
+    ICLISTENHF0001/
+      spectrograms/ or mat_files/
+      audio/
+      predictions.json or labels.json
+```
+
+If no data path is supplied, click **Browse**, choose the root folder, review detected spectrogram/audio/prediction paths, then click **Load Data**.
+
+## Labeling And Verification
+
+Set your name and email from the top-right profile button before editing.
+
+Open a spectrogram card to review the detail modal. Use label rows to accept, reject, add, delete, or edit labels depending on the active mode. Save/confirm changes before leaving a reviewed item.
+
+## Bounding Boxes
+
+Bounding boxes store `time_start_sec`, `time_end_sec`, `freq_min_hz`, and `freq_max_hz` with the selected label.
+
+In the spectrogram modal:
+
+- Click the **+** button beside a label to start drawing a box for that label.
+- Drag on the spectrogram to create the time-frequency box.
+- Click **+** again to add another box for the same label.
+- Use the box list to assign a tag or open the box editor.
+- Use the editor to adjust label, tag, time limits, or frequency limits.
+- Delete boxes with the red `x` shown on the box.
+
+## Audio Controls
+
+Cards include play/pause and seek controls when matching audio is found. The detail modal adds playback speed, amplification, an EQ, and **Only play visible frequencies**, which filters playback to the current spectrogram frequency window.
+
+Use `--audio-transport mp3_cached` only if browser seeking is unreliable with original audio files.
+
+## Prediction Format
+
+Predictions and saved labels use the unified JSON format. See:
+
+- [`docs/predictions_json_format.md`](docs/predictions_json_format.md)
+- [`docs/integration_guide.md`](docs/integration_guide.md)
+- [`shared/unified_prediction_tracker.py`](shared/unified_prediction_tracker.py)
+
+## Test
 
 ```bash
 pytest
 ```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.

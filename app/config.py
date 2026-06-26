@@ -60,6 +60,21 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     return bool(default)
 
 
+def _coerce_float(value: Any, default: float, *, minimum: float = None, maximum: float = None) -> float:
+    try:
+        if value is None or value == "":
+            number = float(default)
+        else:
+            number = float(value)
+    except (TypeError, ValueError):
+        number = float(default)
+    if minimum is not None:
+        number = max(float(minimum), number)
+    if maximum is not None:
+        number = min(float(maximum), number)
+    return float(number)
+
+
 def load_config_file(config_path: str) -> Dict[str, Any]:
     if not config_path:
         return {}
@@ -81,6 +96,7 @@ def load_config_file(config_path: str) -> Dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified Spectrogram Labeling & Verification App")
     parser.add_argument("--config", type=str, default="config/default.yaml", help="Path to config YAML")
+    parser.add_argument("--data-dir", type=str, help="Root data directory to load at startup")
     parser.add_argument("--mode", type=str, choices=["label", "verify", "explore"], help="Initial mode")
     parser.add_argument("--host", type=str, help="Host to bind the web server")
     parser.add_argument("--port", type=int, help="Preferred port for the web server")
@@ -90,6 +106,35 @@ def parse_args() -> argparse.Namespace:
         dest="spectrogram_source",
         choices=["existing", "audio_generated"],
         help="Default spectrogram rendering source",
+    )
+    parser.add_argument(
+        "--spec-window-duration",
+        "--spec-win-dur",
+        "--fft-window-sec",
+        dest="spec_win_dur",
+        type=float,
+        help="FFT window duration in seconds for generated spectrograms",
+    )
+    parser.add_argument(
+        "--spec-overlap",
+        "--fft-overlap",
+        dest="spec_overlap",
+        type=float,
+        help="FFT window overlap ratio for generated spectrograms, from 0 to 0.99",
+    )
+    parser.add_argument(
+        "--spec-freq-min",
+        "--freq-min-hz",
+        dest="spec_freq_min",
+        type=float,
+        help="Minimum frequency in Hz for generated spectrograms",
+    )
+    parser.add_argument(
+        "--spec-freq-max",
+        "--freq-max-hz",
+        dest="spec_freq_max",
+        type=float,
+        help="Maximum frequency in Hz for generated spectrograms",
     )
 
     # Label mode
@@ -184,10 +229,36 @@ def get_config() -> Dict[str, Any]:
     def resolve_optional_path(value: Any) -> Any:
         return resolve_path(value, repo_root) if isinstance(value, str) and value else value
 
-    data_dir = resolve_optional_path(data_cfg.get("data_dir"))
+    data_dir = resolve_optional_path(args.data_dir or data_cfg.get("data_dir"))
     data_predictions_file = resolve_optional_path(args.predictions_json or data_cfg.get("predictions_file"))
-    data_spectrogram_folder = resolve_optional_path(data_cfg.get("spectrogram_folder"))
-    data_audio_folder = resolve_optional_path(data_cfg.get("audio_folder"))
+    data_spectrogram_folder = resolve_optional_path(args.label_folder or data_cfg.get("spectrogram_folder"))
+    data_audio_folder = resolve_optional_path(args.audio_folder or data_cfg.get("audio_folder"))
+    spec_win_dur = _coerce_float(
+        args.spec_win_dur if args.spec_win_dur is not None else spec_render_cfg.get("win_dur_s", 1.0),
+        1.0,
+        minimum=0.05,
+        maximum=30.0,
+    )
+    spec_overlap = _coerce_float(
+        args.spec_overlap if args.spec_overlap is not None else spec_render_cfg.get("overlap", 0.9),
+        0.9,
+        minimum=0.0,
+        maximum=0.99,
+    )
+    spec_freq_min = _coerce_float(
+        args.spec_freq_min if args.spec_freq_min is not None else spec_render_cfg.get("freq_min_hz", 5.0),
+        5.0,
+        minimum=0.0,
+        maximum=200000.0,
+    )
+    spec_freq_max = _coerce_float(
+        args.spec_freq_max if args.spec_freq_max is not None else spec_render_cfg.get("freq_max_hz", 100.0),
+        100.0,
+        minimum=0.01,
+        maximum=200000.0,
+    )
+    if spec_freq_max <= spec_freq_min:
+        spec_freq_max = max(spec_freq_min + 1.0, 100.0)
 
     return {
         "mode": mode,
@@ -226,10 +297,10 @@ def get_config() -> Dict[str, Any]:
         },
         "spectrogram_render": {
             "source": spec_source,
-            "win_dur_s": spec_render_cfg.get("win_dur_s", 1.0),
-            "overlap": spec_render_cfg.get("overlap", 0.9),
-            "freq_min_hz": spec_render_cfg.get("freq_min_hz", 5.0),
-            "freq_max_hz": spec_render_cfg.get("freq_max_hz", 100.0),
+            "win_dur_s": spec_win_dur,
+            "overlap": spec_overlap,
+            "freq_min_hz": spec_freq_min,
+            "freq_max_hz": spec_freq_max,
         },
         "server": {
             "host": args.host,

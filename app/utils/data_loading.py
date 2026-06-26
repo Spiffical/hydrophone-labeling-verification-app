@@ -14,6 +14,9 @@ from app.utils.format_converters import (
 from app.utils.unified_format_converter import is_unified_v2_format, convert_unified_v2_to_internal
 
 
+AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".ogg")
+
+
 def _find_latest_date(dashboard_root: str) -> Optional[str]:
     if not dashboard_root or not os.path.exists(dashboard_root):
         return None
@@ -68,6 +71,15 @@ def _has_spectrograms(folder: Optional[str]) -> bool:
         if glob.glob(os.path.join(folder, pattern)):
             return True
     return False
+
+
+def _find_audio_files(folder: Optional[str]) -> list:
+    if not folder or not os.path.exists(folder):
+        return []
+    files = []
+    for ext in AUDIO_EXTENSIONS:
+        files.extend(glob.glob(os.path.join(folder, f"*{ext}")))
+    return sorted(files)
 
 
 def _find_first_hydrophone(dashboard_root: str, date_str: str) -> Optional[str]:
@@ -722,7 +734,60 @@ def _collect_hierarchical_labels_map(
     return labels_map
 
 
-def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_file: Optional[str], 
+def _label_fields_from_entry(label_entry):
+    if isinstance(label_entry, dict):
+        return {
+            "labels": label_entry.get("labels", []) or [],
+            "notes": label_entry.get("notes", "") or "",
+            "annotated_by": label_entry.get("annotated_by"),
+            "annotated_at": label_entry.get("annotated_at"),
+            "verified": bool(label_entry.get("verified")),
+            "label_extents": label_entry.get("label_extents", {}) or {},
+            "box_annotations": label_entry.get("box_annotations", []) or [],
+        }
+    return {
+        "labels": label_entry or [],
+        "notes": "",
+        "annotated_by": None,
+        "annotated_at": None,
+        "verified": False,
+        "label_extents": {},
+        "box_annotations": [],
+    }
+
+
+def _build_audio_only_item(audio_path: str, existing_labels: dict, hydrophone: Optional[str], date_str: Optional[str]) -> dict:
+    filename = os.path.basename(audio_path)
+    item_id = os.path.splitext(filename)[0]
+    label_fields = _label_fields_from_entry(existing_labels.get(filename) or existing_labels.get(item_id))
+
+    return {
+        "item_id": item_id,
+        "spectrogram_path": None,
+        "mat_path": None,
+        "audio_path": audio_path,
+        "timestamps": {"start": None, "end": None},
+        "device_code": hydrophone,
+        "date": date_str,
+        "predictions": None,
+        "annotations": {
+            "labels": label_fields["labels"],
+            "annotated_by": label_fields["annotated_by"],
+            "annotated_at": label_fields["annotated_at"],
+            "verified": label_fields["verified"],
+            "notes": label_fields["notes"],
+            "label_extents": deepcopy(label_fields["label_extents"])
+            if isinstance(label_fields["label_extents"], dict)
+            else {},
+            "box_annotations": deepcopy(label_fields["box_annotations"])
+            if isinstance(label_fields["box_annotations"], list)
+            else [],
+        },
+        "metadata": {"source_folder": os.path.dirname(audio_path), "source_audio": audio_path},
+    }
+
+
+def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_file: Optional[str],
                              hydrophone: Optional[str], date_str: Optional[str] = None) -> list:
     """Load spectrogram items from a single folder."""
     if not folder or not os.path.exists(folder):
@@ -736,6 +801,13 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
     npy_files = sorted(glob.glob(os.path.join(folder, "*.npy")))
     png_files = sorted(glob.glob(os.path.join(folder, "*.png")))
     all_files = mat_files + npy_files + png_files
+
+    if not all_files:
+        audio_search_folder = audio_folder if audio_folder and os.path.exists(audio_folder) else folder
+        return [
+            _build_audio_only_item(audio_path, existing_labels, hydrophone, date_str)
+            for audio_path in _find_audio_files(audio_search_folder)
+        ]
     
     items = []
     for fpath in all_files:
@@ -743,18 +815,7 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
         item_id = os.path.splitext(filename)[0]
         
         label_entry = existing_labels.get(filename) or existing_labels.get(item_id)
-        if isinstance(label_entry, dict):
-            file_labels = label_entry.get("labels", [])
-            notes = label_entry.get("notes", "") or ""
-            annotated_by = label_entry.get("annotated_by")
-            annotated_at = label_entry.get("annotated_at")
-            verified = bool(label_entry.get("verified"))
-        else:
-            file_labels = label_entry or []
-            notes = ""
-            annotated_by = None
-            annotated_at = None
-            verified = False
+        label_fields = _label_fields_from_entry(label_entry)
         
         item = {
             "item_id": item_id,
@@ -766,11 +827,11 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
             "date": date_str,
             "predictions": None,
             "annotations": {
-                "labels": file_labels,
-                "annotated_by": annotated_by,
-                "annotated_at": annotated_at,
-                "verified": verified,
-                "notes": notes,
+                "labels": label_fields["labels"],
+                "annotated_by": label_fields["annotated_by"],
+                "annotated_at": label_fields["annotated_at"],
+                "verified": label_fields["verified"],
+                "notes": label_fields["notes"],
             },
             "metadata": {"source_folder": folder},
         }

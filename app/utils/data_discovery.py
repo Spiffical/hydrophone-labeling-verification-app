@@ -254,6 +254,11 @@ def _find_audio_folder(base_path: str, spectrogram_folder: str = None) -> Option
             for f in os.listdir(audio_path)[:10]:  # Check first 10
                 if os.path.splitext(f)[1].lower() in AUDIO_EXTENSIONS:
                     return audio_path
+
+    # Check direct audio files in the selected folder.
+    for f in os.listdir(base_path)[:20]:
+        if os.path.splitext(f)[1].lower() in AUDIO_EXTENSIONS:
+            return base_path
     
     # Check same level as spectrogram folder
     if spectrogram_folder:
@@ -633,11 +638,10 @@ def _check_flat_structure(path: str) -> Dict:
         if spec_files:
             spec_folder = path
 
-    if not spec_files:
-        return {"found": False}
-
     audio_folder = _find_audio_folder(path, spec_folder)
     audio_count = _count_audio_files(audio_folder)
+    if not spec_files and not audio_count:
+        return {"found": False}
     predictions = _find_predictions_file(path)
 
     # Check for root-level labels/predictions files
@@ -657,6 +661,9 @@ def _check_flat_structure(path: str) -> Dict:
     predictions_for_scope = predictions or root_predictions
     dates, devices = _infer_prediction_scopes(predictions_for_scope)
     ext_summary = ", ".join(f"{count} {ext}" for ext, count in spec_exts.items())
+    if not ext_summary and audio_count:
+        audio_word = "file" if audio_count == 1 else "files"
+        ext_summary = f"{audio_count} audio {audio_word}"
 
     return {
         "found": True,
@@ -670,7 +677,11 @@ def _check_flat_structure(path: str) -> Dict:
             "spectrogram_extensions": list(spec_exts.keys()),
             "spectrogram_count": len(spec_files),
             "audio_count": audio_count,
-            "message": f"Found {ext_summary}" + (f", {audio_count} audio {'file' if audio_count == 1 else 'files'}" if audio_count else ""),
+            "message": f"Found {ext_summary}" + (
+                f", {audio_count} audio {'file' if audio_count == 1 else 'files'}"
+                if spec_files and audio_count
+                else ""
+            ),
             # Include root-level file info for consistency
             "root_labels_file": root_labels,
             "root_predictions_file": root_predictions,
