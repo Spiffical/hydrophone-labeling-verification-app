@@ -2,11 +2,18 @@
 
 Dash app for labeling, verifying, and exploring hydrophone detections with spectrograms, audio playback, notes, and time-frequency bounding boxes.
 
-<div align="center">
-  <img src="app/assets/preview_main_page.png" alt="Main labeling grid with real MAT spectrograms" width="900">
-  <br>
-  <img src="app/assets/preview_detail_modal.png" alt="Spectrogram review modal with audio controls" width="900">
-</div>
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <strong>Main app page</strong><br>
+      <img src="app/assets/preview_main_page.png" alt="Main app page with real MAT spectrograms" width="100%">
+    </td>
+    <td align="center" valign="top" width="50%">
+      <strong>Spectrogram review modal</strong><br>
+      <img src="app/assets/preview_detail_modal.png" alt="Spectrogram review modal with audio controls" width="100%">
+    </td>
+  </tr>
+</table>
 
 ## Install
 
