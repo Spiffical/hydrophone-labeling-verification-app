@@ -20,7 +20,7 @@ from cachetools import LRUCache
 from concurrent.futures import ThreadPoolExecutor
 try:
     import torch
-except Exception:  # pragma: no cover - optional dependency at runtime
+except Exception:  # pragma: no cover - defensive fallback for broken installs
     torch = None
 
 from app.utils.colmap_hyd import colmap_hyd_py
@@ -451,7 +451,7 @@ def _load_audio_spectrogram_torch(
         if not _TORCH_MISSING_WARNED:
             logger.warning(
                 "PyTorch is not available in this environment. "
-                "Install torch to enable on-the-fly audio spectrogram generation."
+                "Reinstall the app dependencies to enable on-the-fly audio spectrogram generation."
             )
             _TORCH_MISSING_WARNED = True
         return None

@@ -162,6 +162,8 @@ outputs/
 *.flac
 *.png
 !app/assets/screenshot_demo.png
+!app/assets/preview_main_page.png
+!app/assets/preview_detail_modal.png
 *.json
 !app/taxonomy/*.json
 !tests/data/*.json

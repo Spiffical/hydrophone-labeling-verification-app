@@ -3,7 +3,9 @@
 Dash app for labeling, verifying, and exploring hydrophone detections with spectrograms, audio playback, notes, and time-frequency bounding boxes.
 
 <div align="center">
-  <img src="app/assets/screenshot_demo.png" alt="Spectrogram review modal with bounding-box and audio controls" width="900">
+  <img src="app/assets/preview_main_page.png" alt="Main labeling grid with real MAT spectrograms" width="900">
+  <br>
+  <img src="app/assets/preview_detail_modal.png" alt="Spectrogram review modal with audio controls" width="900">
 </div>
 
 ## Install
@@ -18,11 +20,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-For on-the-fly spectrogram generation from audio, install the optional PyTorch extra:
-
-```bash
-pip install -e ".[audio-spectrogram]"
-```
+The base install includes support for existing spectrogram files and on-the-fly generation from audio.
 
 ## Start
 
@@ -55,6 +53,7 @@ Useful startup flags:
 | --- | --- |
 | `--data-dir` | Root folder to load at startup. Can be flat, device-only, or `DATE/DEVICE`. |
 | `--audio-folder` | Audio folder override when audio is separate from `--data-dir`. |
+| `--label-folder`, `--spectrogram-folder` | Existing MAT/NPY/image spectrogram folder. `run.py` uses `--label-folder`; installed CLI also supports `--spectrogram-folder`. |
 | `--spectrogram-source` | `existing` or `audio_generated`. |
 | `--fft-window-sec` | FFT window duration in seconds for generated spectrograms. |
 | `--fft-overlap` | FFT overlap ratio, `0` to `0.99`. |
