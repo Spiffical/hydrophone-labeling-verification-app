@@ -31,7 +31,7 @@ The base install includes support for existing spectrogram files and on-the-fly 
 
 ## Start
 
-Use `python3 run.py` from the repository, or `hydrophone-verify` after editable install.
+Use `python3 run.py` from the repository.
 
 ```bash
 # Start in browse mode and choose folders in the app
@@ -39,12 +39,6 @@ python3 run.py
 
 # Start from a folder of audio files and generate spectrograms
 python3 run.py --mode label --data-dir /path/to/audio \
-  --spectrogram-source audio_generated \
-  --fft-window-sec 1.0 --fft-overlap 0.9 \
-  --freq-min-hz 5 --freq-max-hz 100
-
-# Same workflow through the installed CLI
-hydrophone-verify --mode label --data-dir /path/to/audio \
   --spectrogram-source audio_generated \
   --fft-window-sec 1.0 --fft-overlap 0.9 \
   --freq-min-hz 5 --freq-max-hz 100
@@ -60,7 +54,7 @@ Useful startup flags:
 | --- | --- |
 | `--data-dir` | Root folder to load at startup. Can be flat, device-only, or `DATE/DEVICE`. |
 | `--audio-folder` | Audio folder override when audio is separate from `--data-dir`. |
-| `--label-folder`, `--spectrogram-folder` | Existing MAT/NPY/image spectrogram folder. `run.py` uses `--label-folder`; installed CLI also supports `--spectrogram-folder`. |
+| `--label-folder` | Existing MAT/NPY/image spectrogram folder. |
 | `--spectrogram-source` | `existing` or `audio_generated`. |
 | `--fft-window-sec` | FFT window duration in seconds for generated spectrograms. |
 | `--fft-overlap` | FFT overlap ratio, `0` to `0.99`. |
