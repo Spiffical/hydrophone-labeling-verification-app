@@ -1,5 +1,9 @@
-# hierarchical labels structure for marine acoustic classification
-# based on standardized taxonomy from the provided images
+"""Marine acoustic label taxonomy and compatibility helpers.
+
+This module defines the nested label hierarchy used by the labeling UI,
+along with utilities for path formatting, validation, and legacy flat-label
+conversion.
+"""
 
 HIERARCHICAL_LABELS = {
     "Anthropophony": {
