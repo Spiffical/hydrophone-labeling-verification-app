@@ -45,19 +45,53 @@ def clean_annotation_extent(extent):
     return out
 
 
+def clean_box_tag(tag):
+    if tag is None:
+        return None
+    normalized = str(tag).strip()
+    return normalized or None
+
+
+def clean_box_annotation(entry):
+    if not isinstance(entry, dict):
+        return None
+    label = entry.get("label")
+    if not isinstance(label, str) or not label.strip():
+        return None
+    cleaned_extent = clean_annotation_extent(entry.get("annotation_extent"))
+    if not cleaned_extent:
+        return None
+    cleaned = {
+        "label": label.strip(),
+        "annotation_extent": cleaned_extent,
+    }
+    tag = clean_box_tag(entry.get("tag"))
+    if tag:
+        cleaned["tag"] = tag
+    return cleaned
+
+
+def extract_box_annotations_from_boxes(boxes):
+    annotations = []
+    for box in boxes or []:
+        cleaned = clean_box_annotation(box)
+        if cleaned:
+            annotations.append(cleaned)
+    return annotations
+
+
+def extract_box_annotation_list_map_from_boxes(boxes):
+    annotation_map = {}
+    for annotation in extract_box_annotations_from_boxes(boxes):
+        annotation_map.setdefault(annotation["label"], []).append(annotation)
+    return annotation_map
+
+
 def extract_label_extent_list_map_from_boxes(boxes):
     extent_map = {}
-    for box in boxes or []:
-        if not isinstance(box, dict):
-            continue
-        label = box.get("label")
-        if not isinstance(label, str) or not label.strip():
-            continue
-        cleaned_extent = clean_annotation_extent(box.get("annotation_extent"))
-        if not cleaned_extent:
-            continue
-        normalized = label.strip()
-        extent_map.setdefault(normalized, []).append(cleaned_extent)
+    for label, annotations in extract_box_annotation_list_map_from_boxes(boxes).items():
+        for annotation in annotations:
+            extent_map.setdefault(label, []).append(annotation["annotation_extent"])
     return extent_map
 
 

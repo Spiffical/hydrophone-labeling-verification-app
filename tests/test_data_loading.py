@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from app.config import get_config
 from app.utils.data_discovery import detect_data_structure
@@ -12,6 +13,66 @@ def test_load_label_mode(mock_config):
     assert data["summary"]["annotated"] >= 1
     assert any(item.get("audio_path") for item in data["items"])
     assert all(Path(item["mat_path"]).exists() for item in data["items"] if item.get("mat_path"))
+
+
+def test_load_label_mode_rehydrates_tagged_box_annotations(tmp_path):
+    mat_dir = tmp_path / "mat_files"
+    mat_dir.mkdir()
+    mat_name = "clip_001-spect_plotRes.mat"
+    (mat_dir / mat_name).touch()
+    labels_file = tmp_path / "labels.json"
+    extent = {
+        "type": "time_freq_box",
+        "time_start_sec": 1.25,
+        "time_end_sec": 3.75,
+        "freq_min_hz": 20,
+        "freq_max_hz": 40,
+    }
+    label = "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
+    labels_file.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.1",
+                "items": [
+                    {
+                        "item_id": "clip_001-spect_plotRes",
+                        "verifications": [
+                            {
+                                "verified_by": "tester",
+                                "verified_at": "2026-06-12T00:00:00Z",
+                                "label_decisions": [
+                                    {
+                                        "label": label,
+                                        "decision": "added",
+                                        "annotation_extent": extent,
+                                        "tag": "20Hz",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    data = load_label_mode(
+        {
+            "data": {
+                "data_dir": str(mat_dir),
+                "structure_type": "flat",
+                "labels_file": str(labels_file),
+            },
+            "label": {"folder": str(mat_dir), "output_file": str(labels_file)},
+        }
+    )
+
+    annotations = data["items"][0]["annotations"]
+    assert annotations["labels"] == [label]
+    assert annotations["label_extents"] == {label: extent}
+    assert annotations["box_annotations"] == [
+        {"label": label, "annotation_extent": extent, "tag": "20Hz"}
+    ]
 
 
 def test_load_label_mode_audio_only_flat_folder(tmp_path):
@@ -89,4 +150,3 @@ def test_load_whale_mode(mock_config):
     assert data["items"], "Expected whale items"
     assert data["summary"]["total_items"] == len(data["items"])
     assert any(item.get("predictions") for item in data["items"])
-

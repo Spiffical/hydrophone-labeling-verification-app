@@ -5,13 +5,29 @@ from datetime import datetime
 from dash import ALL, Input, Output, Patch, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
+from app.callbacks.verify.ui_update_helpers import build_verify_card_ui_updates
 from app.services.verify_modal_cache import (
     get_verify_modal_item,
     get_verify_modal_item_index,
     get_verify_modal_summary,
     update_verify_modal_item,
 )
+from app.services.annotations import extract_box_annotation_list_map_from_boxes
 from app.utils.persistence import save_verify_predictions
+
+
+def _attach_box_metadata(entry, *, box_annotations, label_extents, model_extent_map):
+    first_box = box_annotations[0] if box_annotations else None
+    extent = (
+        (first_box or {}).get("annotation_extent")
+        or (label_extents[0] if label_extents else None)
+        or model_extent_map.get(entry.get("label"))
+    )
+    if extent:
+        entry["annotation_extent"] = extent
+    if isinstance(first_box, dict) and first_box.get("tag"):
+        entry["tag"] = first_box["tag"]
+    return entry
 
 
 def register_verify_confirm_callbacks(
@@ -27,6 +43,7 @@ def register_verify_confirm_callbacks(
     _profile_actor,
     _update_item_labels,
     _build_modal_boxes_from_item,
+    _build_modal_item_actions,
     _modal_snapshot_payload,
 ):
     @app.callback(
@@ -34,24 +51,30 @@ def register_verify_confirm_callbacks(
         Output("modal-unsaved-store", "data", allow_duplicate=True),
         Output("modal-snapshot-store", "data", allow_duplicate=True),
         Output("modal-item-store", "data", allow_duplicate=True),
+        Output({"type": "verify-label-block", "item_id": ALL}, "children", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "disabled", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "color", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "outline", allow_duplicate=True),
         Input({"type": "confirm-btn", "item_id": ALL}, "n_clicks"),
-        State("verify-data-store", "data"),
         State("verify-thresholds-store", "data"),
         State({"type": "verify-actions-store", "filename": ALL}, "data"),
         State({"type": "verify-actions-store", "filename": ALL}, "id"),
         State("user-profile-store", "data"),
+        State("verify-data-cache-key-store", "data"),
+        State({"type": "verify-label-block", "item_id": ALL}, "id"),
+        State({"type": "confirm-btn", "item_id": ALL}, "id"),
         prevent_initial_call=True,
     )
     def confirm_verification(
         n_clicks_list,
-        data,
         thresholds,
         actions_list,
         actions_ids,
         profile,
+        verify_data_cache_key,
+        label_block_ids,
+        save_button_ids,
     ):
-        _require_complete_profile(profile, "confirm_verification")
-
         triggered = ctx.triggered_id
         if not n_clicks_list or not any(n_clicks_list):
             raise PreventUpdate
@@ -59,26 +82,33 @@ def register_verify_confirm_callbacks(
             raise PreventUpdate
         item_id = triggered["item_id"]
 
-        items = (data or {}).get("items", [])
+        _require_complete_profile(profile, "confirm_verification")
+
         labels_to_confirm = []
         predictions = {}
         predictions_path = None
         annotations = {}
-        active_item = None
+        active_item = get_verify_modal_item(verify_data_cache_key, item_id)
+        active_item_index = get_verify_modal_item_index(verify_data_cache_key, item_id)
+        if not isinstance(active_item, dict) or active_item_index is None:
+            raise PreventUpdate
+        summary = get_verify_modal_summary(verify_data_cache_key) or {}
         thresholds = thresholds or {"__global__": 0.5}
         threshold_used = float(thresholds.get("__global__", 0.5))
-        for item in items:
-            if item.get("item_id") == item_id:
-                active_item = item
-                annotations = item.get("annotations") or {}
-                predictions = item.get("predictions") or {}
-                predictions_path = (item.get("metadata") or {}).get("predictions_path")
-                _, _, active_labels = _get_modal_label_sets(item, "verify", thresholds)
-                labels_to_confirm = list(active_labels or [])
-                break
+        annotations = active_item.get("annotations") or {}
+        predictions = active_item.get("predictions") or {}
+        predictions_path = (active_item.get("metadata") or {}).get("predictions_path")
+        _, _, active_labels = _get_modal_label_sets(active_item, "verify", thresholds)
+        labels_to_confirm = list(active_labels or [])
 
         box_extent_map = {}
         box_extent_lists = {}
+        box_annotation_lists = {}
+        modal_boxes = _build_modal_boxes_from_item(active_item)
+        if modal_boxes:
+            box_extent_map = _extract_label_extent_map_from_boxes(modal_boxes)
+            box_extent_lists = _extract_label_extent_list_map_from_boxes(modal_boxes)
+            box_annotation_lists = extract_box_annotation_list_map_from_boxes(modal_boxes)
 
         if box_extent_lists:
             ordered = list(labels_to_confirm or [])
@@ -90,7 +120,7 @@ def register_verify_confirm_callbacks(
             labels_to_confirm = ordered
 
         if not predictions_path:
-            summary_pred = (data or {}).get("summary", {}).get("predictions_file")
+            summary_pred = summary.get("predictions_file") if isinstance(summary, dict) else None
             if isinstance(summary_pred, str) and summary_pred.endswith(".json"):
                 predictions_path = summary_pred
 
@@ -157,22 +187,28 @@ def register_verify_confirm_callbacks(
                 "decision": decision,
                 "threshold_used": threshold_for_label,
             }
+            box_annotations = box_annotation_lists.get(label) or []
             label_extents = box_extent_lists.get(label) or []
-            extent = (label_extents[0] if label_extents else None) or model_extent_map.get(label)
-            if extent:
-                entry["annotation_extent"] = extent
+            _attach_box_metadata(
+                entry,
+                box_annotations=box_annotations,
+                label_extents=label_extents,
+                model_extent_map=model_extent_map,
+            )
             label_decisions.append(entry)
-            for extra_extent in label_extents[1:]:
+            for idx, extra_extent in enumerate(label_extents[1:], start=1):
                 if not isinstance(extra_extent, dict):
                     continue
-                label_decisions.append(
-                    {
-                        "label": label,
-                        "decision": decision,
-                        "threshold_used": threshold_for_label,
-                        "annotation_extent": extra_extent,
-                    }
-                )
+                extra_entry = {
+                    "label": label,
+                    "decision": decision,
+                    "threshold_used": threshold_for_label,
+                    "annotation_extent": extra_extent,
+                }
+                extra_box = box_annotations[idx] if idx < len(box_annotations) else None
+                if isinstance(extra_box, dict) and extra_box.get("tag"):
+                    extra_entry["tag"] = extra_box["tag"]
+                label_decisions.append(extra_entry)
         for label in sorted(rejected_labels - labels_set):
             entry = {
                 "label": label,
@@ -196,21 +232,32 @@ def register_verify_confirm_callbacks(
         }
 
         updated = _update_item_labels(
-            data or {},
+            {"items": [active_item], "summary": summary},
             item_id,
             labels_to_confirm,
             mode="verify",
             user_name=profile_name,
             is_reverification=True,
             label_extents=box_extent_map or None,
+            bbox_annotations=[
+                annotation
+                for annotations_for_label in box_annotation_lists.values()
+                for annotation in annotations_for_label
+            ],
         )
-        for item in (updated or {}).get("items", []):
-            if not isinstance(item, dict) or item.get("item_id") != item_id:
-                continue
-            annotations_obj = item.get("annotations") or {}
-            annotations_obj["rejected_labels"] = sorted(rejected_labels)
-            item["annotations"] = annotations_obj
-            break
+        updated_item = next(
+            (
+                item
+                for item in (updated or {}).get("items", [])
+                if isinstance(item, dict) and item.get("item_id") == item_id
+            ),
+            None,
+        )
+        if not isinstance(updated_item, dict):
+            raise PreventUpdate
+        annotations_obj = updated_item.get("annotations") or {}
+        annotations_obj["rejected_labels"] = sorted(rejected_labels)
+        updated_item["annotations"] = annotations_obj
 
         stored_verification = save_verify_predictions(
             predictions_path,
@@ -219,22 +266,40 @@ def register_verify_confirm_callbacks(
             source_item=active_item,
         )
         if stored_verification:
-            for item in (updated or {}).get("items", []):
-                if item.get("item_id") == item_id:
-                    verifications = item.get("verifications")
-                    if not isinstance(verifications, list):
-                        verifications = []
-                    verifications.append(stored_verification)
-                    item["verifications"] = verifications
-                    break
-        return updated, no_update, no_update, no_update
+            verifications = updated_item.get("verifications")
+            if not isinstance(verifications, list):
+                verifications = []
+            verifications.append(stored_verification)
+            updated_item["verifications"] = verifications
+
+        update_verify_modal_item(verify_data_cache_key, updated_item)
+        patch = Patch()
+        patch["items"][active_item_index] = updated_item
+        next_summary = get_verify_modal_summary(verify_data_cache_key)
+        if isinstance(next_summary, dict):
+            patch["summary"] = next_summary
+        direct_ui_updates = build_verify_card_ui_updates(
+            item_id,
+            updated_item,
+            label_block_ids,
+            save_button_ids,
+            predicted_labels=predicted_labels,
+            pending=False,
+        )
+        return patch, no_update, no_update, no_update, *direct_ui_updates
 
     @app.callback(
         Output("modal-unsaved-store", "data", allow_duplicate=True),
         Output("modal-snapshot-store", "data", allow_duplicate=True),
         Output("modal-item-store", "data", allow_duplicate=True),
+        Output("modal-item-actions", "children", allow_duplicate=True),
+        Output("verify-data-store", "data", allow_duplicate=True),
         Output("verify-modal-synced-item-ids-store", "data", allow_duplicate=True),
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output({"type": "verify-label-block", "item_id": ALL}, "children", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "disabled", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "color", allow_duplicate=True),
+        Output({"type": "confirm-btn", "item_id": ALL}, "outline", allow_duplicate=True),
         Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
         State("modal-item-store", "data"),
         State("verify-thresholds-store", "data"),
@@ -244,6 +309,9 @@ def register_verify_confirm_callbacks(
         State("user-profile-store", "data"),
         State("verify-data-cache-key-store", "data"),
         State("verify-modal-synced-item-ids-store", "data"),
+        State("modal-active-box-label", "data"),
+        State({"type": "verify-label-block", "item_id": ALL}, "id"),
+        State({"type": "confirm-btn", "item_id": ALL}, "id"),
         prevent_initial_call=True,
     )
     def confirm_modal_verification(
@@ -256,8 +324,10 @@ def register_verify_confirm_callbacks(
         profile,
         verify_data_cache_key,
         pending_sync_item_ids,
+        active_box_label,
+        label_block_ids,
+        save_button_ids,
     ):
-        _require_complete_profile(profile, "confirm_verification")
         if not modal_confirm_clicks_list or not any(modal_confirm_clicks_list):
             raise PreventUpdate
         if not isinstance(modal_item, dict):
@@ -266,6 +336,8 @@ def register_verify_confirm_callbacks(
         item_id = (modal_item.get("item_id") or "").strip()
         if not item_id:
             raise PreventUpdate
+
+        _require_complete_profile(profile, "confirm_verification")
 
         item = modal_item
         predictions = item.get("predictions") or {}
@@ -277,12 +349,17 @@ def register_verify_confirm_callbacks(
 
         box_extent_map = {}
         box_extent_lists = {}
+        box_annotation_lists = {}
         if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
             modal_boxes = modal_bbox_store.get("boxes") or []
             box_extent_map = _extract_label_extent_map_from_boxes(modal_boxes)
             box_extent_lists = _extract_label_extent_list_map_from_boxes(modal_boxes)
+            box_annotation_lists = extract_box_annotation_list_map_from_boxes(modal_boxes)
         else:
             modal_boxes = _build_modal_boxes_from_item(item)
+            box_extent_map = _extract_label_extent_map_from_boxes(modal_boxes)
+            box_extent_lists = _extract_label_extent_list_map_from_boxes(modal_boxes)
+            box_annotation_lists = extract_box_annotation_list_map_from_boxes(modal_boxes)
 
         if box_extent_lists:
             ordered = list(labels_to_confirm or [])
@@ -357,22 +434,28 @@ def register_verify_confirm_callbacks(
                 "decision": decision,
                 "threshold_used": threshold_for_label,
             }
+            box_annotations = box_annotation_lists.get(label) or []
             label_extents = box_extent_lists.get(label) or []
-            extent = (label_extents[0] if label_extents else None) or model_extent_map.get(label)
-            if extent:
-                entry["annotation_extent"] = extent
+            _attach_box_metadata(
+                entry,
+                box_annotations=box_annotations,
+                label_extents=label_extents,
+                model_extent_map=model_extent_map,
+            )
             label_decisions.append(entry)
-            for extra_extent in label_extents[1:]:
+            for idx, extra_extent in enumerate(label_extents[1:], start=1):
                 if not isinstance(extra_extent, dict):
                     continue
-                label_decisions.append(
-                    {
-                        "label": label,
-                        "decision": decision,
-                        "threshold_used": threshold_for_label,
-                        "annotation_extent": extra_extent,
-                    }
-                )
+                extra_entry = {
+                    "label": label,
+                    "decision": decision,
+                    "threshold_used": threshold_for_label,
+                    "annotation_extent": extra_extent,
+                }
+                extra_box = box_annotations[idx] if idx < len(box_annotations) else None
+                if isinstance(extra_box, dict) and extra_box.get("tag"):
+                    extra_entry["tag"] = extra_box["tag"]
+                label_decisions.append(extra_entry)
         for label in sorted(rejected_labels - labels_set):
             entry = {
                 "label": label,
@@ -403,6 +486,11 @@ def register_verify_confirm_callbacks(
             user_name=profile_name,
             is_reverification=True,
             label_extents=box_extent_map or None,
+            bbox_annotations=[
+                annotation
+                for annotations_for_label in box_annotation_lists.values()
+                for annotation in annotations_for_label
+            ],
         )
         updated_item = next(
             (
@@ -432,19 +520,40 @@ def register_verify_confirm_callbacks(
             verifications.append(stored_verification)
             updated_item["verifications"] = verifications
 
-        update_verify_modal_item(verify_data_cache_key, updated_item)
+        active_item_index = update_verify_modal_item(verify_data_cache_key, updated_item)
+        verify_store_update = no_update
 
         snapshot_boxes = modal_boxes if modal_boxes else _build_modal_boxes_from_item(updated_item)
         next_pending_ids = [value for value in (pending_sync_item_ids or []) if isinstance(value, str) and value]
-        if item_id not in next_pending_ids:
+        if active_item_index is not None:
+            next_pending_ids = [value for value in next_pending_ids if value != item_id]
+        elif item_id not in next_pending_ids:
             next_pending_ids.append(item_id)
+        direct_ui_updates = build_verify_card_ui_updates(
+            item_id,
+            updated_item,
+            label_block_ids,
+            save_button_ids,
+            predicted_labels=predicted_labels,
+            pending=False,
+        )
+        modal_actions_update = _build_modal_item_actions(
+            updated_item,
+            "verify",
+            thresholds,
+            boxes=snapshot_boxes,
+            active_box_label=active_box_label,
+        )
 
         return (
             {"dirty": False, "item_id": item_id},
             _modal_snapshot_payload("verify", item_id, updated_item, snapshot_boxes),
             updated_item,
+            modal_actions_update,
+            verify_store_update,
             next_pending_ids,
             False,
+            *direct_ui_updates,
         )
 
     @app.callback(

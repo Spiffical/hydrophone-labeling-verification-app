@@ -4,7 +4,7 @@ import colorsys
 import hashlib
 import json
 
-from app.services.annotations import clean_annotation_extent, safe_float
+from app.services.annotations import clean_annotation_extent, clean_box_annotation, clean_box_tag, safe_float
 
 
 def bbox_debug_box_summary(boxes):
@@ -18,6 +18,7 @@ def bbox_debug_box_summary(boxes):
             {
                 "idx": idx,
                 "label": box.get("label"),
+                "tag": box.get("tag"),
                 "source": box.get("source"),
                 "decision": box.get("decision"),
                 "extent_type": extent.get("type"),
@@ -36,6 +37,7 @@ def modal_box_edit_revision(boxes, bump=None):
         normalized.append(
             {
                 "label": (box.get("label") or "").strip(),
+                "tag": clean_box_tag(box.get("tag")) or "",
                 "source": box.get("source"),
                 "decision": box.get("decision"),
                 "annotation_extent": clean_annotation_extent(box.get("annotation_extent")) or {},
@@ -248,10 +250,29 @@ def build_modal_boxes_from_item(item):
     if not isinstance(item, dict):
         return []
 
-    annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
-    label_extents = annotations.get("label_extents") if isinstance(annotations, dict) else None
     annotation_boxes = []
-    if isinstance(label_extents, dict):
+    annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
+    box_annotations = annotations.get("box_annotations") if isinstance(annotations, dict) else None
+    if isinstance(box_annotations, list):
+        for entry in box_annotations:
+            cleaned = clean_box_annotation(entry)
+            if not cleaned:
+                continue
+            extent = cleaned.get("annotation_extent")
+            if not extent or extent.get("type") == "clip":
+                continue
+            annotation_boxes.append(
+                {
+                    "label": cleaned["label"],
+                    "tag": cleaned.get("tag"),
+                    "annotation_extent": extent,
+                    "source": "label",
+                    "decision": "added",
+                }
+            )
+
+    label_extents = annotations.get("label_extents") if isinstance(annotations, dict) else None
+    if not annotation_boxes and isinstance(label_extents, dict):
         for label, extent in label_extents.items():
             cleaned = clean_annotation_extent(extent)
             if not label or not cleaned or cleaned.get("type") == "clip":
@@ -282,6 +303,7 @@ def build_modal_boxes_from_item(item):
             verification_boxes.append(
                 {
                     "label": label,
+                    "tag": clean_box_tag(decision.get("tag")),
                     "annotation_extent": extent,
                     "source": "verification",
                     "decision": decision.get("decision", "accepted"),
@@ -305,6 +327,7 @@ def build_modal_boxes_from_item(item):
             model_boxes.append(
                 {
                     "label": label,
+                    "tag": clean_box_tag(output.get("tag")),
                     "annotation_extent": extent,
                     "source": "model",
                     "decision": "accepted",

@@ -109,6 +109,7 @@ def save_labels(
     verified: Optional[bool] = None,
     metadata: Optional[dict] = None,
     label_extents: Optional[Dict[str, dict]] = None,
+    bbox_annotations: Optional[List[Dict]] = None,
 ) -> bool:
     """
     Save or update labels for a specific file using unified verifications format.
@@ -223,15 +224,42 @@ def save_labels(
 
         label_list = labels if isinstance(labels, list) else []
         extent_map = label_extents if isinstance(label_extents, dict) else {}
+        box_annotations = bbox_annotations if isinstance(bbox_annotations, list) else []
+        box_entries_by_label = {}
+        for annotation in box_annotations:
+            if not isinstance(annotation, dict):
+                continue
+            label = annotation.get("label")
+            extent = annotation.get("annotation_extent")
+            if not isinstance(label, str) or not label.strip() or not isinstance(extent, dict):
+                continue
+            entry = {"annotation_extent": extent}
+            tag = annotation.get("tag")
+            if isinstance(tag, str) and tag.strip():
+                entry["tag"] = tag.strip()
+            box_entries_by_label.setdefault(label.strip(), []).append(entry)
 
         if label_list or note_text:
             label_decisions = []
             for lbl in label_list:
                 entry = {"label": lbl, "decision": "added", "threshold_used": None}
-                extent = extent_map.get(lbl)
-                if isinstance(extent, dict):
-                    entry["annotation_extent"] = extent
+                box_entries = box_entries_by_label.get(lbl) or []
+                if box_entries:
+                    first_box = box_entries[0]
+                    entry["annotation_extent"] = first_box["annotation_extent"]
+                    if first_box.get("tag"):
+                        entry["tag"] = first_box["tag"]
+                else:
+                    extent = extent_map.get(lbl)
+                    if isinstance(extent, dict):
+                        entry["annotation_extent"] = extent
                 label_decisions.append(entry)
+                for extra_box in box_entries[1:]:
+                    extra_entry = {"label": lbl, "decision": "added", "threshold_used": None}
+                    extra_entry["annotation_extent"] = extra_box["annotation_extent"]
+                    if extra_box.get("tag"):
+                        extra_entry["tag"] = extra_box["tag"]
+                    label_decisions.append(extra_entry)
 
             new_verification = {
                 "verified_at": now,

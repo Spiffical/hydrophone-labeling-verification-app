@@ -3,6 +3,8 @@
 import json
 from copy import deepcopy
 
+from app.services.annotations import clean_box_annotation, extract_box_annotations_from_boxes
+
 
 def flatten_callback_inputs(inputs_list):
     """Flatten Dash ctx.inputs_list into a list of dict entries."""
@@ -170,3 +172,24 @@ def update_boxes_and_extents_for_action(
     elif action in {"reject", "delete"}:
         label_extents.pop(label, None)
     return next_bbox_store, label_extents
+
+
+def box_annotations_after_label_action(*, action, label, annotations_obj, next_bbox_store):
+    """Keep stored bbox annotations in sync when labels are accepted/rejected/deleted."""
+    if isinstance(next_bbox_store, dict):
+        return extract_box_annotations_from_boxes(next_bbox_store.get("boxes") or [])
+
+    raw_annotations = annotations_obj.get("box_annotations") if isinstance(annotations_obj, dict) else None
+    box_annotations = [
+        cleaned
+        for cleaned in (clean_box_annotation(entry) for entry in (raw_annotations or []))
+        if cleaned
+    ]
+    if action in {"reject", "delete"}:
+        target = (label or "").strip()
+        box_annotations = [
+            entry
+            for entry in box_annotations
+            if (entry.get("label") or "").strip() != target
+        ]
+    return box_annotations

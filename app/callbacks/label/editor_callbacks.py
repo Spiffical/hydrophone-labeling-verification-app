@@ -22,6 +22,7 @@ def register_label_editor_callbacks(
     _update_item_notes,
     save_label_mode,
     _build_modal_boxes_from_item,
+    _build_modal_item_actions,
     _modal_snapshot_payload,
     _parse_verify_target,
     _get_modal_label_sets,
@@ -47,6 +48,7 @@ def register_label_editor_callbacks(
         _update_item_notes=_update_item_notes,
         save_label_mode=save_label_mode,
         _build_modal_boxes_from_item=_build_modal_boxes_from_item,
+        _build_modal_item_actions=_build_modal_item_actions,
         _modal_snapshot_payload=_modal_snapshot_payload,
     )
 

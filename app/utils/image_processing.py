@@ -1,8 +1,10 @@
 import base64
+from datetime import datetime
 from io import BytesIO
 import logging
 import math
 import os
+import re
 import threading
 from typing import Any, Dict, Optional, Tuple
 
@@ -34,6 +36,10 @@ image_cache = LRUCache(maxsize=DEFAULT_CACHE_MAX_SIZE * 2)
 
 SPECTROGRAM_SOURCE_EXISTING = "existing"
 SPECTROGRAM_SOURCE_AUDIO_GENERATED = "audio_generated"
+SPECTROGRAM_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+SPECTROGRAM_FILENAME_TIME_RANGE_RE = re.compile(
+    r"(?P<start>\d{8}T\d{6}(?:\.\d+)?Z)_(?P<end>\d{8}T\d{6}(?:\.\d+)?Z)"
+)
 MODAL_TRANSPORT_FLOAT64 = "float64"
 MODAL_TRANSPORT_FLOAT32 = "float32"
 MODAL_TRANSPORT_UINT16 = "uint16"
@@ -1351,6 +1357,227 @@ def _build_modal_heatmap_transport(
     return np.asarray(psd), float(zmin), float(zmax), {"title": "dB/Hz"}
 
 
+def _image_file_to_data_uri(image_path: str) -> Optional[str]:
+    if not image_path:
+        return None
+    ext = os.path.splitext(image_path)[1].lower()
+    if ext not in SPECTROGRAM_IMAGE_EXTENSIONS or not os.path.exists(image_path):
+        return None
+
+    mime_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }.get(ext, "application/octet-stream")
+    with open(image_path, "rb") as handle:
+        encoded = base64.b64encode(handle.read()).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _parse_compact_utc_datetime(value: Any) -> Optional[datetime]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    match = re.fullmatch(r"(\d{8})T(\d{6})(\.\d+)?Z", text)
+    if not match:
+        return None
+    date_part, time_part, fraction = match.groups()
+    iso_text = (
+        f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+        f"T{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+        f"{fraction or ''}+00:00"
+    )
+    try:
+        return datetime.fromisoformat(iso_text)
+    except ValueError:
+        return None
+
+
+def _duration_from_filename_time_range(path_or_id: Any) -> Optional[float]:
+    if path_or_id in (None, ""):
+        return None
+    match = SPECTROGRAM_FILENAME_TIME_RANGE_RE.search(os.path.basename(str(path_or_id)))
+    if not match:
+        return None
+    start = _parse_compact_utc_datetime(match.group("start"))
+    end = _parse_compact_utc_datetime(match.group("end"))
+    if start is None or end is None:
+        return None
+    duration = (end - start).total_seconds()
+    if duration <= 0:
+        return None
+    return float(duration)
+
+
+def _resolve_item_duration_seconds(item: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not isinstance(item, dict):
+        return None
+
+    for key in ("duration_s", "duration_sec", "duration_seconds", "duration"):
+        duration = _optional_float(item.get(key))
+        if duration is not None and np.isfinite(duration) and duration > 0:
+            return float(duration)
+
+    time_pairs = (
+        ("t0", "t1"),
+        ("start", "end"),
+        ("start_time", "end_time"),
+        ("audio_start_time", "audio_end_time"),
+    )
+    for start_key, end_key in time_pairs:
+        start = _parse_datetime(item.get(start_key))
+        end = _parse_datetime(item.get(end_key))
+        if start is None or end is None:
+            continue
+        duration = (end - start).total_seconds()
+        if duration > 0:
+            return float(duration)
+
+    for key in ("spectrogram_path", "item_id", "filename"):
+        duration = _duration_from_filename_time_range(item.get(key))
+        if duration is not None:
+            return duration
+
+    return None
+
+
+def create_image_file_figure(
+    image_path: Optional[str],
+    *,
+    x_max_seconds: Optional[float] = None,
+) -> Optional[go.Figure]:
+    """Create a modal-safe Plotly figure from an existing spectrogram image file."""
+    data_uri = _image_file_to_data_uri(image_path or "")
+    if data_uri is None:
+        return None
+
+    x_max = float(x_max_seconds) if x_max_seconds and x_max_seconds > 0 else 1.0
+    y_min = 0.0
+    y_max = 1.0
+    image_path_abs = os.path.abspath(image_path or "")
+    try:
+        stat = os.stat(image_path_abs)
+        revision = f"{image_path_abs}|{stat.st_size}|{stat.st_mtime_ns}"
+    except OSError:
+        revision = image_path_abs
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[0.0, x_max],
+            y=[y_min, y_max],
+            mode="markers",
+            marker=dict(opacity=0.0, size=1),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    fig.add_layout_image(
+        dict(
+            source=data_uri,
+            xref="x",
+            yref="y",
+            x=0.0,
+            y=y_max,
+            sizex=x_max,
+            sizey=y_max - y_min,
+            sizing="stretch",
+            opacity=1.0,
+            layer="below",
+        )
+    )
+    fig.add_shape(
+        type="line",
+        x0=0,
+        x1=0,
+        y0=0,
+        y1=1,
+        yref="paper",
+        editable=False,
+        name="playback-marker",
+        line=dict(color="rgba(255, 0, 0, 0)", width=2, dash="solid"),
+    )
+    fig.update_layout(
+        title=dict(text=""),
+        xaxis=dict(
+            title="Time (seconds)" if x_max != 1.0 else "Image x",
+            range=[0.0, x_max],
+            showgrid=False,
+            zeroline=False,
+            tickformat=".2f",
+        ),
+        yaxis=dict(
+            title="Image y",
+            range=[y_min, y_max],
+            showgrid=False,
+            zeroline=False,
+        ),
+        margin=dict(l=40, r=20, t=20, b=40),
+        height=500,
+        dragmode="pan",
+        clickmode="event+select",
+        template="plotly_white",
+        meta={
+            "x_to_seconds": 1.0,
+            "y_to_hz": 1.0,
+            "x_min": 0.0,
+            "x_max": x_max,
+            "y_min": y_min,
+            "y_max": y_max,
+            "data_y_min_hz": y_min,
+            "data_y_max_hz": y_max,
+            "positive_y_min_hz": 0.001,
+            "display_y_min_hz": y_min,
+            "display_y_max_hz": y_max,
+            "auto_color_min": 0.0,
+            "auto_color_max": 1.0,
+            "data_color_min": 0.0,
+            "data_color_max": 1.0,
+            "display_color_min": 0.0,
+            "display_color_max": 1.0,
+            "x_unit": "seconds" if x_max != 1.0 else "image",
+            "y_unit": "image",
+            "transport_mode": "image_file",
+            "render_source": "image_file",
+            "render_reason": "",
+        },
+        uirevision=revision,
+    )
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.01,
+        y=0.99,
+        xanchor="left",
+        yanchor="top",
+        showarrow=False,
+        text="Source: existing image file",
+        font=dict(size=11, color="#8b949e"),
+        bgcolor="rgba(0,0,0,0.25)",
+        bordercolor="rgba(120,120,120,0.4)",
+        borderwidth=1,
+        borderpad=4,
+    )
+    return fig
+
+
 def create_spectrogram_figure(
     spectrogram_data,
     colormap_value,
@@ -1536,3 +1763,43 @@ def create_spectrogram_figure(
     )
 
     return fig
+
+
+def create_item_spectrogram_figure(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    colormap_value,
+    y_axis_scale="linear",
+    *,
+    transport_mode: Optional[str] = None,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
+) -> Tuple[go.Figure, Optional[Dict[str, np.ndarray]]]:
+    spectrogram = resolve_item_spectrogram(item, cfg)
+    if spectrogram is not None:
+        return (
+            create_spectrogram_figure(
+                spectrogram,
+                colormap_value,
+                y_axis_scale,
+                cfg=cfg,
+                transport_mode=transport_mode,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
+                color_min=color_min,
+                color_max=color_max,
+            ),
+            spectrogram,
+        )
+
+    image_path = item.get("spectrogram_path") if isinstance(item, dict) else None
+    image_fig = create_image_file_figure(
+        image_path,
+        x_max_seconds=_resolve_item_duration_seconds(item),
+    )
+    if image_fig is not None:
+        return image_fig, None
+
+    return create_spectrogram_figure(None, colormap_value, y_axis_scale, cfg=cfg), None

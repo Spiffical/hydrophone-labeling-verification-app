@@ -1,11 +1,24 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.services.bbox_tags import get_bbox_tag_options
+from taxonomy.hierarchical_labels import get_all_paths, path_to_string
 
-def create_spectrogram_modal():
+
+def _classification_options():
+    return [
+        {"label": path_to_string(path), "value": path_to_string(path)}
+        for path in get_all_paths()
+    ]
+
+
+def create_spectrogram_modal(config=None):
     """
     Create a large modal for zoomed-in spectrogram view with Plotly interactivity.
     """
+    tag_options = get_bbox_tag_options(config)
+    classification_options = _classification_options()
+
     main_modal = dbc.Modal(
         [
             dbc.ModalHeader(
@@ -273,8 +286,16 @@ def create_spectrogram_modal():
                             config={
                                 'displayModeBar': True,
                                 'displaylogo': False,
-                                'modeBarButtonsToAdd': ['drawrect', 'eraseshape'],
-                                'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+                                'modeBarButtonsToRemove': [
+                                    'lasso2d',
+                                    'select2d',
+                                    'drawline',
+                                    'drawopenpath',
+                                    'drawclosedpath',
+                                    'drawcircle',
+                                    'drawrect',
+                                    'eraseshape',
+                                ],
                                 # Keep shape editing enabled, but disable text/title editing.
                                 'editable': False,
                                 'edits': {
@@ -343,6 +364,84 @@ def create_spectrogram_modal():
         className="spectrogram-zoom-modal"
     )
 
+    bbox_editor_modal = dbc.Modal(
+        [
+            dbc.ModalHeader(dbc.ModalTitle("Edit Bounding Box")),
+            dbc.ModalBody(
+                [
+                    dcc.Store(id="bbox-editor-index-store", data=None),
+                    html.Div(id="bbox-editor-meta", className="modal-bbox-editor-meta mb-2"),
+                    dbc.Label("Classification", html_for="bbox-editor-label-dropdown", className="small fw-semibold"),
+                    dcc.Dropdown(
+                        id="bbox-editor-label-dropdown",
+                        options=classification_options,
+                        clearable=False,
+                        searchable=True,
+                        className="control-dropdown mb-3",
+                    ),
+                    dbc.Label("Tag", html_for="bbox-editor-tag-dropdown", className="small fw-semibold"),
+                    dcc.Dropdown(
+                        id="bbox-editor-tag-dropdown",
+                        options=tag_options,
+                        clearable=True,
+                        searchable=False,
+                        placeholder="Select tag",
+                        className="control-dropdown mb-3",
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Label("Start time (s)", html_for="bbox-editor-time-start-input", className="small fw-semibold"),
+                                    dbc.Input(id="bbox-editor-time-start-input", type="number", step="any"),
+                                ],
+                                width=6,
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Label("End time (s)", html_for="bbox-editor-time-end-input", className="small fw-semibold"),
+                                    dbc.Input(id="bbox-editor-time-end-input", type="number", step="any"),
+                                ],
+                                width=6,
+                            ),
+                        ],
+                        className="g-2 mb-3",
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Label("Min frequency (Hz)", html_for="bbox-editor-freq-min-input", className="small fw-semibold"),
+                                    dbc.Input(id="bbox-editor-freq-min-input", type="number", step="any"),
+                                ],
+                                width=6,
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Label("Max frequency (Hz)", html_for="bbox-editor-freq-max-input", className="small fw-semibold"),
+                                    dbc.Input(id="bbox-editor-freq-max-input", type="number", step="any"),
+                                ],
+                                width=6,
+                            ),
+                        ],
+                        className="g-2",
+                    ),
+                    html.Div(id="bbox-editor-validation", className="modal-bbox-editor-validation mt-2"),
+                ]
+            ),
+            dbc.ModalFooter(
+                [
+                    dbc.Button("Cancel", id="bbox-editor-cancel", color="secondary", n_clicks=0),
+                    dbc.Button("Apply", id="bbox-editor-apply", color="primary", n_clicks=0),
+                ]
+            ),
+        ],
+        id="bbox-editor-modal",
+        is_open=False,
+        centered=True,
+        size="md",
+    )
+
     unsaved_changes_modal = dbc.Modal(
         [
             dbc.ModalHeader("Unsaved Changes"),
@@ -399,4 +498,4 @@ def create_spectrogram_modal():
         **{"aria-hidden": "true"},
     )
 
-    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal])
+    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal, bbox_editor_modal])

@@ -20,6 +20,7 @@ def register_modal_lifecycle_callbacks(
     _build_modal_item_actions,
     _persist_modal_item_before_exit,
     _replace_item_in_data,
+    _filter_predictions,
 ):
     register_modal_lifecycle_navigation_callbacks(
         app,
@@ -36,4 +37,6 @@ def register_modal_lifecycle_callbacks(
         app,
         _persist_modal_item_before_exit=_persist_modal_item_before_exit,
         _replace_item_in_data=_replace_item_in_data,
+        _build_modal_item_actions=_build_modal_item_actions,
+        _filter_predictions=_filter_predictions,
     )

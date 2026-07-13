@@ -49,3 +49,7 @@ spectrogram_render:
   overlap: 0.9              # overlap ratio [0, 0.99] (audio_generated mode)
   freq_min_hz: 5.0          # min displayed frequency for generated spectrograms
   freq_max_hz: 100.0        # max displayed frequency for generated spectrograms
+
+bounding_box_tags:
+  options_file: config/bounding_box_tags.yaml
+  active_set: fin_whale

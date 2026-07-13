@@ -8,6 +8,20 @@ from dash.exceptions import PreventUpdate
 logger = logging.getLogger(__name__)
 
 
+def _trigger_value_has_user_action(value):
+    if value is None or value is False:
+        return False
+    if isinstance(value, (int, float)):
+        return value > 0
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(_trigger_value_has_user_action(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_trigger_value_has_user_action(item) for item in value)
+    return bool(value)
+
+
 def register_ui_callbacks(
     app,
     *,
@@ -135,7 +149,9 @@ def register_ui_callbacks(
         if (mode or "label") == "explore":
             raise PreventUpdate
 
-        prop_id = (ctx.triggered[0] or {}).get("prop_id", "")
+        triggered = ctx.triggered[0] or {}
+        prop_id = triggered.get("prop_id", "")
+        trigger_value = triggered.get("value")
         if prop_id.endswith(".relayoutData"):
             relayout = modal_graph_relayout if isinstance(modal_graph_relayout, dict) else {}
             keys = set(relayout.keys())
@@ -150,6 +166,8 @@ def register_ui_callbacks(
             points = click_data.get("points")
             if not (isinstance(points, list) and points):
                 raise PreventUpdate
+        elif not _trigger_value_has_user_action(trigger_value):
+            raise PreventUpdate
 
         name, email = profile_name_email(profile)
         return (

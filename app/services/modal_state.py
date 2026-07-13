@@ -8,6 +8,8 @@ from dash import no_update
 
 from app.services.annotations import (
     clean_annotation_extent,
+    extract_box_annotation_list_map_from_boxes,
+    extract_box_annotations_from_boxes,
     extract_label_extent_list_map_from_boxes,
     extract_label_extent_map_from_boxes,
     ordered_unique_labels,
@@ -193,9 +195,16 @@ def persist_modal_item_before_exit(
         note_text = annotations_obj.get("notes", "") if isinstance(annotations_obj.get("notes"), str) else ""
 
         label_extents = {}
+        bbox_annotations = []
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
-            label_extents = extract_label_extent_map_from_boxes(bbox_store.get("boxes") or [])
+            modal_boxes = bbox_store.get("boxes") or []
+            label_extents = extract_label_extent_map_from_boxes(modal_boxes)
+            bbox_annotations = extract_box_annotations_from_boxes(modal_boxes)
         else:
+            existing_box_annotations = annotations_obj.get("box_annotations")
+            if isinstance(existing_box_annotations, list):
+                bbox_annotations = extract_box_annotations_from_boxes(existing_box_annotations)
+                label_extents = extract_label_extent_map_from_boxes(existing_box_annotations)
             existing_extents = annotations_obj.get("label_extents")
             if isinstance(existing_extents, dict):
                 for label, extent in existing_extents.items():
@@ -215,6 +224,7 @@ def persist_modal_item_before_exit(
             mode="label",
             user_name=profile_name,
             label_extents=label_extents or None,
+            bbox_annotations=bbox_annotations,
         )
         updated = update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
 
@@ -230,6 +240,7 @@ def persist_modal_item_before_exit(
             annotated_by=profile_name,
             notes=note_text,
             label_extents=label_extents or None,
+            bbox_annotations=bbox_annotations or None,
         )
         updated = update_item_labels(
             updated or {},
@@ -239,6 +250,7 @@ def persist_modal_item_before_exit(
             user_name=profile_name,
             is_reverification=True,
             label_extents=label_extents or None,
+            bbox_annotations=bbox_annotations,
         )
         return updated, no_update, no_update
 
@@ -288,11 +300,18 @@ def persist_modal_item_before_exit(
 
         box_extent_map = {}
         box_extent_lists = {}
+        box_annotation_lists = {}
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
             modal_boxes = bbox_store.get("boxes") or []
             box_extent_map = extract_label_extent_map_from_boxes(modal_boxes)
             box_extent_lists = extract_label_extent_list_map_from_boxes(modal_boxes)
+            box_annotation_lists = extract_box_annotation_list_map_from_boxes(modal_boxes)
         else:
+            existing_box_annotations = annotations_obj.get("box_annotations")
+            if isinstance(existing_box_annotations, list):
+                box_annotation_lists = extract_box_annotation_list_map_from_boxes(existing_box_annotations)
+                box_extent_map = extract_label_extent_map_from_boxes(existing_box_annotations)
+                box_extent_lists = extract_label_extent_list_map_from_boxes(existing_box_annotations)
             existing_extents = annotations_obj.get("label_extents")
             if isinstance(existing_extents, dict):
                 for label, extent in existing_extents.items():
@@ -331,22 +350,32 @@ def persist_modal_item_before_exit(
                 "decision": decision,
                 "threshold_used": threshold_used,
             }
+            box_annotations = box_annotation_lists.get(label) or []
             label_extents = box_extent_lists.get(label) or []
-            extent = (label_extents[0] if label_extents else None) or model_extent_map.get(label)
+            first_box = box_annotations[0] if box_annotations else None
+            extent = (
+                (first_box or {}).get("annotation_extent")
+                or (label_extents[0] if label_extents else None)
+                or model_extent_map.get(label)
+            )
             if extent:
                 entry["annotation_extent"] = extent
+            if isinstance(first_box, dict) and first_box.get("tag"):
+                entry["tag"] = first_box["tag"]
             label_decisions.append(entry)
-            for extra_extent in label_extents[1:]:
+            for idx, extra_extent in enumerate(label_extents[1:], start=1):
                 if not isinstance(extra_extent, dict):
                     continue
-                label_decisions.append(
-                    {
-                        "label": label,
-                        "decision": decision,
-                        "threshold_used": threshold_used,
-                        "annotation_extent": extra_extent,
-                    }
-                )
+                extra_entry = {
+                    "label": label,
+                    "decision": decision,
+                    "threshold_used": threshold_used,
+                    "annotation_extent": extra_extent,
+                }
+                extra_box = box_annotations[idx] if idx < len(box_annotations) else None
+                if isinstance(extra_box, dict) and extra_box.get("tag"):
+                    extra_entry["tag"] = extra_box["tag"]
+                label_decisions.append(extra_entry)
 
         for label in sorted(rejected_labels - labels_set):
             entry = {
@@ -394,6 +423,7 @@ def persist_modal_item_before_exit(
             user_name=profile_name,
             is_reverification=True,
             label_extents=box_extent_map or None,
+            bbox_annotations=extract_box_annotations_from_boxes(modal_boxes) if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id else None,
         )
         for item in (updated or {}).get("items", []):
             if not isinstance(item, dict) or item.get("item_id") != item_id:

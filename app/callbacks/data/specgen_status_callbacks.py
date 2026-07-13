@@ -6,6 +6,8 @@ import time
 from dash import Input, Output, State, ctx
 from dash.exceptions import PreventUpdate
 
+from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
+
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -64,9 +66,11 @@ def register_specgen_status_callbacks(
         State("label-yaxis-max-input", "value"),
         State("label-colorbar-min-input", "value"),
         State("label-colorbar-max-input", "value"),
-        State("verify-data-store", "data"),
+        State("verify-data-cache-key-store", "data"),
+        State("verify-data-cache-revision-store", "data"),
         State("verify-thresholds-store", "data"),
         State("verify-class-filter", "data"),
+        State("verify-status-filter", "value"),
         State("verify-colormap-toggle", "value"),
         State("verify-yaxis-toggle", "value"),
         State("verify-yaxis-min-input", "value"),
@@ -92,9 +96,11 @@ def register_specgen_status_callbacks(
         label_y_axis_max_hz,
         label_color_min,
         label_color_max,
-        verify_data,
+        verify_cache_key,
+        verify_cache_revision,
         verify_thresholds,
         verify_class_filter,
+        verify_status_filter,
         verify_use_hydrophone_colormap,
         verify_use_log_y_axis,
         verify_y_axis_min_hz,
@@ -111,6 +117,7 @@ def register_specgen_status_callbacks(
         cfg,
     ):
         cfg = cfg or {}
+        _ = verify_cache_revision
         if not isinstance(specgen_request, dict):
             return None
 
@@ -129,34 +136,30 @@ def register_specgen_status_callbacks(
         y_axis_max_hz = None
         color_min = None
         color_max = None
+        page_items_override = None
+        page_index_override = None
+        total_pages_override = None
 
         if request_mode == "verify":
-            verify_data = verify_data or {"items": []}
-            items = verify_data.get("items", []) or []
             verify_thresholds = verify_thresholds or {"__global__": 0.5}
-            available_values = _build_verify_filter_paths(_extract_verify_leaf_classes(items))
+            available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
             available_value_set = set(available_values)
             selected_filters = _normalize_verify_class_filter(verify_class_filter)
             if not available_values:
                 selected_filters = None
             if selected_filters is not None:
                 selected_filters = [value for value in selected_filters if value in available_value_set]
-
-            filtered_items = []
-            for item in items:
-                if not item:
-                    continue
-                annotations = item.get("annotations") or {}
-                is_verified = bool(annotations.get("verified"))
-                predictions = item.get("predictions") or {}
-                predicted_labels = _filter_predictions(predictions, verify_thresholds)
-                if not is_verified and not predicted_labels:
-                    continue
-                if not _predicted_labels_match_filter(predicted_labels, selected_filters):
-                    continue
-                filtered_items.append(item)
-
-            items = filtered_items
+            filtered_page = get_filtered_verify_items_page(
+                verify_cache_key,
+                verify_thresholds,
+                selected_filters,
+                request_page,
+                items_per_page,
+                verify_status_filter,
+            )
+            page_items_override = filtered_page["items"]
+            page_index_override = filtered_page["page_index"]
+            total_pages_override = filtered_page["total_pages"]
             colormap = "hydrophone" if verify_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if verify_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
             y_axis_min_hz = verify_y_axis_min_hz
@@ -182,7 +185,12 @@ def register_specgen_status_callbacks(
             color_min = label_color_min
             color_max = label_color_max
 
-        page_items, page_index, total_pages = _slice_page(items, request_page, items_per_page)
+        if page_items_override is not None:
+            page_items = page_items_override
+            page_index = page_index_override if page_index_override is not None else request_page
+            total_pages = total_pages_override if total_pages_override is not None else 1
+        else:
+            page_items, page_index, total_pages = _slice_page(items, request_page, items_per_page)
         status = _estimate_page_audio_generation_work(
             page_items,
             cfg,
@@ -280,9 +288,11 @@ def register_specgen_status_callbacks(
 
     @app.callback(
         Output("verify-page-specgen-store", "data"),
-        Input("verify-data-store", "data"),
+        Input("verify-data-cache-key-store", "data"),
+        Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
         Input("verify-yaxis-toggle", "value"),
@@ -296,9 +306,11 @@ def register_specgen_status_callbacks(
         Input("specgen-overlay-poll", "n_intervals"),
     )
     def compute_verify_status(
-        data,
+        verify_cache_key,
+        verify_cache_revision,
         thresholds,
         class_filter,
+        status_filter,
         current_page,
         use_hydrophone_colormap,
         use_log_y_axis,
@@ -312,7 +324,7 @@ def register_specgen_status_callbacks(
         poll_tick,
     ):
         cfg = cfg or {}
-        _ = poll_tick
+        _ = poll_tick, verify_cache_revision
         triggered_id = ctx.triggered_id
         request_mode = (specgen_request or {}).get("mode") if isinstance(specgen_request, dict) else None
         request_page = (specgen_request or {}).get("page") if isinstance(specgen_request, dict) else None
@@ -322,31 +334,15 @@ def register_specgen_status_callbacks(
             raise PreventUpdate
         if triggered_id == "specgen-overlay-poll" and (active_mode != "verify" or source != "audio_generated"):
             raise PreventUpdate
-        data = data or {"items": []}
-        items = data.get("items", []) or []
         thresholds = thresholds or {"__global__": 0.5}
 
-        available_values = _build_verify_filter_paths(_extract_verify_leaf_classes(items))
+        available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
         available_value_set = set(available_values)
         selected_filters = _normalize_verify_class_filter(class_filter)
         if not available_values:
             selected_filters = None
         if selected_filters is not None:
             selected_filters = [value for value in selected_filters if value in available_value_set]
-
-        filtered_items = []
-        for item in items:
-            if not item:
-                continue
-            annotations = item.get("annotations") or {}
-            is_verified = bool(annotations.get("verified"))
-            predictions = item.get("predictions") or {}
-            predicted_labels = _filter_predictions(predictions, thresholds)
-            if not is_verified and not predicted_labels:
-                continue
-            if not _predicted_labels_match_filter(predicted_labels, selected_filters):
-                continue
-            filtered_items.append(item)
 
         display_cfg = cfg.get("display", {})
         colormap = "hydrophone" if use_hydrophone_colormap else display_cfg.get("colormap", "default")
@@ -355,7 +351,17 @@ def register_specgen_status_callbacks(
         effective_page = _coerce_page_index(current_page)
         if request_mode == "verify" and request_page is not None and triggered_id in {"specgen-overlay-request-store", "specgen-overlay-poll"}:
             effective_page = _coerce_page_index(request_page)
-        page_items, page_index, total_pages = _slice_page(filtered_items, effective_page, items_per_page)
+        filtered_page = get_filtered_verify_items_page(
+            verify_cache_key,
+            thresholds,
+            selected_filters,
+            effective_page,
+            items_per_page,
+            status_filter,
+        )
+        page_items = filtered_page["items"]
+        page_index = filtered_page["page_index"]
+        total_pages = filtered_page["total_pages"]
 
         status = _estimate_page_audio_generation_work(
             page_items,

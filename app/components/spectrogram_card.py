@@ -3,7 +3,13 @@ from dash import html
 import dash_bootstrap_components as dbc
 from app.components.audio_player import create_audio_player
 from app.components.note_editor import create_note_editor
-from app.services.verification import get_item_rejected_labels, get_latest_verification_label_sets
+from app.services.verification import (
+    get_item_rejected_labels,
+    get_latest_verification_label_sets,
+    has_explicit_label_state,
+)
+
+_TRANSPARENT_IMAGE_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 
 
 def _label_badges(labels, color="primary"):
@@ -218,6 +224,32 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
     return html.Div(badges, className="verify-badge-list")
 
 
+def create_verify_label_block_children(item_id, item, predicted_labels=None):
+    predictions = item.get("predictions") or {}
+    annotations_data = item.get("annotations") or {}
+    predicted = _ordered_unique_labels(
+        predicted_labels if predicted_labels is not None else predictions.get("labels", [])
+    )
+    verification_labels, _ = get_latest_verification_label_sets(item)
+    explicit_label_state = has_explicit_label_state(annotations_data)
+    annotation_labels = _ordered_unique_labels(annotations_data.get("labels", []))
+    annotations = (
+        annotation_labels
+        if explicit_label_state
+        else _ordered_unique_labels(annotation_labels or verification_labels)
+    )
+    ui_rejected = item.get("ui_rejected_labels")
+    rejected = _ordered_unique_labels(
+        ui_rejected if isinstance(ui_rejected, list) else get_item_rejected_labels(item)
+    )
+    has_pending_edits = _has_pending_label_edits(annotations_data)
+    assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
+    return [
+        html.Small("Labels", className="text-muted mb-1 d-block"),
+        _render_verify_badges(item_id, predicted, annotations, rejected, assume_verified=assume_verified),
+    ]
+
+
 def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label") -> dbc.Card:
     item_id = item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
     audio_path = item.get("audio_path")
@@ -227,11 +259,16 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     note_text = annotations_data.get("notes", "") if isinstance(annotations_data.get("notes"), str) else ""
     predicted = _ordered_unique_labels(predictions.get("labels", []))
     verification_labels, _ = get_latest_verification_label_sets(item)
-    annotations = _ordered_unique_labels(annotations_data.get("labels", []) or verification_labels)
+    explicit_label_state = has_explicit_label_state(annotations_data)
+    annotation_labels = _ordered_unique_labels(annotations_data.get("labels", []))
+    annotations = (
+        annotation_labels
+        if explicit_label_state
+        else _ordered_unique_labels(annotation_labels or verification_labels)
+    )
+    ui_rejected = item.get("ui_rejected_labels")
     rejected = _ordered_unique_labels(
-        item.get("ui_rejected_labels")
-        or annotations_data.get("rejected_labels")
-        or get_item_rejected_labels(item)
+        ui_rejected if isinstance(ui_rejected, list) else get_item_rejected_labels(item)
     )
     has_pending_edits = _has_pending_label_edits(annotations_data)
     assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
@@ -239,9 +276,10 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     # Make image clickable for modal zoom
     image = html.Div([
         html.Img(
-            src=image_src or "",
+            src=_TRANSPARENT_IMAGE_SRC,
             id={"type": "spectrogram-image", "item_id": item_id},
             className="spectrogram-image",
+            **{"data-src": image_src or "", "data-lazy-spectrogram": "true"},
             style={"width": "100%", "borderRadius": "10px", "cursor": "pointer"},
         ) if image_src else html.Div(
             "Image unavailable",
@@ -258,18 +296,20 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
 
     badges = []
     if mode == "verify":
-        badges.append(html.Div([
-            html.Small("Labels", className="text-muted mb-1 d-block"),
-            _render_verify_badges(item_id, predicted, annotations, rejected, assume_verified=assume_verified),
-        ]))
+        badges.append(
+            html.Div(
+                create_verify_label_block_children(item_id, item, predicted_labels=predicted),
+                id={"type": "verify-label-block", "item_id": item_id},
+            )
+        )
     elif mode == "label":
-        label_display = annotations or predicted
+        label_display = annotations if explicit_label_state else annotations or predicted
         badges.append(html.Div([
             html.Small("Labels", className="text-muted mb-1 d-block"),
             _render_label_badges_with_delete(item_id, label_display),
         ]))
     else:
-        label_display = annotations or predicted
+        label_display = annotations if explicit_label_state else annotations or predicted
         badges.append(html.Div([
             html.Small("Labels", className="text-muted mb-1 d-block"),
             _render_label_badges_readonly(label_display),

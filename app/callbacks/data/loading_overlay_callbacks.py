@@ -208,10 +208,57 @@ def register_loading_overlay_callbacks(app):
                 if (m === "explore") return exploreReady || null;
                 return labelReady || null;
             }
+            function isFastFilterRequest(req) {
+                var trigger = String((req || {}).trigger_id || "");
+                return trigger === "verify-thresholds-store" ||
+                    trigger === "verify-class-filter" ||
+                    trigger === "verify-status-filter";
+            }
+            function sameVerifyFilterState(a, b) {
+                a = a || {};
+                b = b || {};
+                if (Math.abs(asFloat(a.threshold, 0.5) - asFloat(b.threshold, 0.5)) > 1e-9) {
+                    return false;
+                }
+                if (String(a.status_filter || "all") !== String(b.status_filter || "all")) {
+                    return false;
+                }
+                var aFilter = Array.isArray(a.class_filter) ? a.class_filter.map(String).sort() : null;
+                var bFilter = Array.isArray(b.class_filter) ? b.class_filter.map(String).sort() : null;
+                if (aFilter === null || bFilter === null) {
+                    return aFilter === null && bFilter === null;
+                }
+                if (aFilter.length !== bFilter.length) {
+                    return false;
+                }
+                for (var f = 0; f < aFilter.length; f += 1) {
+                    if (aFilter[f] !== bFilter[f]) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             function selectorForMode(m) {
                 if (m === "verify") return "#verify-grid img.spectrogram-image";
                 if (m === "explore") return "#explore-grid img.spectrogram-image";
                 return "#label-grid img.spectrogram-image";
+            }
+            if (!request || typeof request !== "object") {
+                return true;
+            }
+            function isTransparentPlaceholderSrc(src) {
+                return String(src || "").indexOf("data:image/gif;base64,R0lGODlhAQABA") === 0;
+            }
+            function isDeferredLazySpectrogram(img) {
+                if (!img || !img.getAttribute) return false;
+                var deferredSrc = String(img.getAttribute("data-src") || "").trim();
+                if (!deferredSrc) return false;
+                var src = String(img.getAttribute("src") || "");
+                return (
+                    img.getAttribute("data-lazy-spectrogram") === "true" &&
+                    !img.__spectrogramLazyActivated &&
+                    (!src || isTransparentPlaceholderSrc(src) || src !== deferredSrc)
+                );
             }
             function expectedIdsFromReady(readyPayload) {
                 var ids = (readyPayload && Array.isArray(readyPayload.item_ids)) ? readyPayload.item_ids : [];
@@ -239,7 +286,10 @@ def register_loading_overlay_callbacks(app):
                 var loaded = 0;
                 for (var i = 0; i < imgs.length; i += 1) {
                     var img = imgs[i];
-                    if (!!img.complete && asInt(img.naturalWidth, 0) > 0) {
+                    var src = String(img.getAttribute("src") || "");
+                    if (isDeferredLazySpectrogram(img)) {
+                        loaded += 1;
+                    } else if (!!img.complete && !isTransparentPlaceholderSrc(src) && asInt(img.naturalWidth, 0) > 1) {
                         loaded += 1;
                     }
                 }
@@ -262,26 +312,6 @@ def register_loading_overlay_callbacks(app):
                 return false;
             }
 
-            if (!request || typeof request !== "object") {
-                var activeReady = readyForMode(activeMode);
-                if (
-                    activeStatus &&
-                    typeof activeStatus === "object" &&
-                    activeReady &&
-                    typeof activeReady === "object"
-                ) {
-                    var activeReadyPage = asInt(activeReady.page, -1);
-                    var activeStatusPage = asInt(activeStatus.page_index, -2);
-                    if (activeReadyPage === activeStatusPage) {
-                        var activeDom = domStatsForMode(activeMode, activeReady);
-                        if (activeDom.expected > 0 && activeDom.pending > 0) {
-                            return false;
-                        }
-                    }
-                }
-                return true;
-            }
-
             var reqMode = String(request.mode || activeMode);
             var reqStatus = statusForMode(reqMode);
             var reqReady = readyForMode(reqMode);
@@ -294,7 +324,7 @@ def register_loading_overlay_callbacks(app):
                 if (reqReady && typeof reqReady === "object") {
                     var reqReadyPageMissing = asInt(reqReady.page, -1);
                     var reqReadyAtMissing = asFloat(reqReady.rendered_at, 0.0) * 1000.0;
-                    if (reqReadyPageMissing === asInt(request.page, -2) && reqReadyAtMissing >= (requestedAtMs - requestTimingSlackMs)) {
+                    if (reqReadyPageMissing === asInt(request.page, -2)) {
                         var reqMissingDom = domStatsForMode(reqMode, reqReady);
                         if (reqMissingDom.is_ready) {
                             return true;
@@ -320,12 +350,26 @@ def register_loading_overlay_callbacks(app):
             var readyPage = asInt(reqReady.page, -1);
             var statusPage = asInt(reqStatus.page_index, -2);
             var readyAtMs = asFloat(reqReady.rendered_at, 0.0) * 1000.0;
-            if (readyPage === statusPage && readyAtMs >= (requestedAtMs - requestTimingSlackMs)) {
+            if (readyPage === statusPage) {
                 var reqDom = domStatsForMode(reqMode, reqReady);
                 var reqEligible = Math.max(
                     asInt(reqStatus.pending, 0),
                     asInt(reqStatus.eligible, asInt(reqStatus.total, 0))
                 );
+                if (
+                    isFastFilterRequest(request) &&
+                    sameVerifyFilterState(request.verify_filter_state || null, (reqReady || {}).verify_filter_state || null)
+                ) {
+                    return true;
+                }
+                if (
+                    isFastFilterRequest(request) &&
+                    reqDom.expected > 0 &&
+                    reqDom.ids_match &&
+                    reqDom.total >= reqDom.expected
+                ) {
+                    return true;
+                }
                 if (reqDom.expected > 0) {
                     return reqDom.is_ready;
                 }
@@ -357,6 +401,9 @@ def register_loading_overlay_callbacks(app):
             verifyPrevClicks,
             verifyNextClicks,
             verifyGotoClicks,
+            verifyThresholds,
+            verifyClassFilter,
+            verifyStatusFilter,
             explorePrevClicks,
             exploreNextClicks,
             exploreGotoClicks,
@@ -393,6 +440,9 @@ def register_loading_overlay_callbacks(app):
                 triggerId !== "verify-prev-page" &&
                 triggerId !== "verify-next-page" &&
                 triggerId !== "verify-goto-page" &&
+                triggerId !== "verify-thresholds-store" &&
+                triggerId !== "verify-class-filter" &&
+                triggerId !== "verify-status-filter" &&
                 triggerId !== "explore-prev-page" &&
                 triggerId !== "explore-next-page" &&
                 triggerId !== "explore-goto-page"
@@ -424,17 +474,35 @@ def register_loading_overlay_callbacks(app):
                 }
                 return eligible;
             }
+            function verifyFilterState(thresholds, classFilter, statusFilter) {
+                var threshold = asFloat(((thresholds || {}).__global__), 0.5);
+                var filterValues = Array.isArray(classFilter)
+                    ? classFilter.map(function(value) { return String(value || ""); }).filter(Boolean).sort()
+                    : null;
+                return {
+                    threshold: threshold,
+                    class_filter: filterValues,
+                    status_filter: String(statusFilter || "all")
+                };
+            }
             function syncOverlayEstimate(request) {
                 var overlayEl = document.getElementById("specgen-page-loading-overlay");
                 var titleEl = document.getElementById("specgen-load-title");
                 var subtitleEl = document.getElementById("specgen-load-subtitle");
                 var progressEl = document.getElementById("specgen-load-progress-text");
                 var fillEl = document.getElementById("specgen-load-progress-fill");
+                var trigger = String((request || {}).trigger_id || "");
+                var overlayTitle = (
+                    trigger === "verify-thresholds-store" ||
+                    trigger === "verify-class-filter" ||
+                    trigger === "verify-status-filter"
+                ) ? "Updating spectrograms..." : "Generating spectrograms...";
+                window.__specgenOverlayTitle = overlayTitle;
                 if (overlayEl) {
                     overlayEl.style.display = "flex";
                 }
                 if (titleEl) {
-                    titleEl.textContent = "Generating spectrograms...";
+                    titleEl.textContent = overlayTitle;
                 }
                 var estimatedEligible = asInt((request || {}).estimated_eligible, -1);
                 var estimatedPending = asInt((request || {}).estimated_pending, -1);
@@ -497,6 +565,16 @@ def register_loading_overlay_callbacks(app):
             }
 
             var activeMode = String(mode || "label");
+            if (
+                (
+                    triggerId === "verify-thresholds-store" ||
+                    triggerId === "verify-class-filter" ||
+                    triggerId === "verify-status-filter"
+                ) &&
+                activeMode !== "verify"
+            ) {
+                return dc.no_update;
+            }
             var page = activeMode === "verify"
                 ? asInt(verifyPage, 0)
                 : activeMode === "explore"
@@ -560,7 +638,10 @@ def register_loading_overlay_callbacks(app):
                 trigger_id: triggerId,
                 requested_at_ms: nowMs,
                 estimated_eligible: estimatedEligible,
-                estimated_pending: estimatedEligible
+                estimated_pending: estimatedEligible,
+                verify_filter_state: activeMode === "verify"
+                    ? verifyFilterState(verifyThresholds, verifyClassFilter, verifyStatusFilter)
+                    : null
             };
             window.__specgenOverlayLatestRequest = request;
             syncOverlayEstimate(request);
@@ -575,6 +656,9 @@ def register_loading_overlay_callbacks(app):
         Input("verify-prev-page", "n_clicks"),
         Input("verify-next-page", "n_clicks"),
         Input("verify-goto-page", "n_clicks"),
+        Input("verify-thresholds-store", "data"),
+        Input("verify-class-filter", "data"),
+        Input("verify-status-filter", "value"),
         Input("explore-prev-page", "n_clicks"),
         Input("explore-next-page", "n_clicks"),
         Input("explore-goto-page", "n_clicks"),
@@ -702,7 +786,8 @@ def register_loading_overlay_callbacks(app):
                         fillStyle = {width: String(pct) + "%"};
                         fillClass = "specgen-load-progress-fill specgen-load-progress-fill--determinate";
                     }
-                    if (titleEl) titleEl.textContent = "Generating spectrograms...";
+                    var overlayTitle = window.__specgenOverlayTitle || "Generating spectrograms...";
+                    if (titleEl) titleEl.textContent = overlayTitle;
                     if (subtitleEl) subtitleEl.textContent = subtitle || "Preparing spectrograms for this page...";
                     if (progressEl) progressEl.textContent = progressText;
                     if (fillEl) {
@@ -712,7 +797,7 @@ def register_loading_overlay_callbacks(app):
                     armVisibleImageProgress(extra || {});
                     return [
                         {display: "flex"},
-                        "Generating spectrograms...",
+                        overlayTitle,
                         subtitle || "Preparing spectrograms for this page...",
                         progressText,
                         fillStyle,
@@ -724,6 +809,20 @@ def register_loading_overlay_callbacks(app):
                     if (m === "explore") return "#explore-grid img.spectrogram-image";
                     return "#label-grid img.spectrogram-image";
                 }
+                function isTransparentPlaceholderSrc(src) {
+                    return String(src || "").indexOf("data:image/gif;base64,R0lGODlhAQABA") === 0;
+                }
+                function isDeferredLazySpectrogram(img) {
+                    if (!img || !img.getAttribute) return false;
+                    var deferredSrc = String(img.getAttribute("data-src") || "").trim();
+                    if (!deferredSrc) return false;
+                    var src = String(img.getAttribute("src") || "");
+                    return (
+                        img.getAttribute("data-lazy-spectrogram") === "true" &&
+                        !img.__spectrogramLazyActivated &&
+                        (!src || src.indexOf("data:image/gif;base64,R0lGODlhAQABA") === 0 || src !== deferredSrc)
+                    );
+                }
                 function visibleImageStatsForMode(m, eligibleHint) {
                     var imgs = Array.from(document.querySelectorAll(selectorForMode(m)));
                     var expected = Math.max(asInt(eligibleHint, 0), imgs.length);
@@ -733,9 +832,11 @@ def register_loading_overlay_callbacks(app):
                         var img = imgs[i];
                         var complete = !!img.complete;
                         var naturalWidth = asInt(img.naturalWidth, 0);
-                        if (complete && naturalWidth > 0) {
+                        if (isDeferredLazySpectrogram(img)) {
                             loaded += 1;
-                        } else if (complete && String(img.getAttribute("src") || "")) {
+                        } else if (complete && !isTransparentPlaceholderSrc(img.getAttribute("src") || "") && naturalWidth > 1) {
+                            loaded += 1;
+                        } else if (complete && String(img.getAttribute("src") || "") && !isTransparentPlaceholderSrc(img.getAttribute("src") || "")) {
                             failed += 1;
                         }
                     }
@@ -839,7 +940,14 @@ def register_loading_overlay_callbacks(app):
                         var imgs = Array.from(document.querySelectorAll(selectorForMode(modeName)));
                         var retried = 0;
                         imgs.forEach(function(img) {
-                            if (!!img.complete && asInt(img.naturalWidth, 0) > 0) {
+                            if (isDeferredLazySpectrogram(img)) {
+                                return;
+                            }
+                            if (
+                                !!img.complete &&
+                                !isTransparentPlaceholderSrc(img.getAttribute("src") || "") &&
+                                asInt(img.naturalWidth, 0) > 1
+                            ) {
                                 return;
                             }
                             var retryCount = asInt(img.__specgenRetryCount, 0);
@@ -924,9 +1032,11 @@ def register_loading_overlay_callbacks(app):
                         var img = imgs[i];
                         var complete = !!img.complete;
                         var naturalWidth = asInt(img.naturalWidth, 0);
-                        if (complete && naturalWidth > 0) {
+                        if (isDeferredLazySpectrogram(img)) {
                             loaded += 1;
-                        } else if (complete && String(img.getAttribute("src") || "")) {
+                        } else if (complete && !isTransparentPlaceholderSrc(img.getAttribute("src") || "") && naturalWidth > 1) {
+                            loaded += 1;
+                        } else if (complete && String(img.getAttribute("src") || "") && !isTransparentPlaceholderSrc(img.getAttribute("src") || "")) {
                             failed += 1;
                         }
                     }
@@ -958,13 +1068,16 @@ def register_loading_overlay_callbacks(app):
                     }
                     var pageIndex = asInt(readyPayload.page, -1);
                     var atMs = asFloat(readyPayload.rendered_at, 0.0) * 1000.0;
-                    var fresh = atMs >= (requestedAtMs - requestTimingSlackMs);
+                    var pageMatches = pageIndex === reqPage;
+                    // Browser and server clocks can differ by minutes on ONCVM/clients.
+                    // Page identity plus DOM item matching below is the reliable freshness check.
+                    var fresh = pageMatches || atMs >= (requestedAtMs - requestTimingSlackMs);
                     return {
                         payload: readyPayload,
                         page: pageIndex,
                         at_ms: atMs,
                         fresh: fresh,
-                        matches_request: fresh && pageIndex === reqPage
+                        matches_request: pageMatches
                     };
                 }
                 function overlaySubtitleFor(kind, pending, done, eligible) {
@@ -982,6 +1095,9 @@ def register_loading_overlay_callbacks(app):
                 }
                 function requestStatusForMode(m, req) {
                     var liveStatus = statusForMode(m);
+                    if (isFastFilterRequest(req)) {
+                        return liveStatus || null;
+                    }
                     if (!previewStatus || typeof previewStatus !== "object") {
                         return liveStatus || null;
                     }
@@ -1015,6 +1131,45 @@ def register_loading_overlay_callbacks(app):
                     if (m === "explore") return exploreReady || null;
                     return labelReady || null;
                 }
+                function isFastFilterRequest(req) {
+                    var trigger = String((req || {}).trigger_id || "");
+                    return trigger === "verify-thresholds-store" ||
+                        trigger === "verify-class-filter" ||
+                        trigger === "verify-status-filter";
+                }
+                function sameVerifyFilterState(a, b) {
+                    a = a || {};
+                    b = b || {};
+                    if (Math.abs(asFloat(a.threshold, 0.5) - asFloat(b.threshold, 0.5)) > 1e-9) {
+                        return false;
+                    }
+                    if (String(a.status_filter || "all") !== String(b.status_filter || "all")) {
+                        return false;
+                    }
+                    var aFilter = Array.isArray(a.class_filter) ? a.class_filter.map(String).sort() : null;
+                    var bFilter = Array.isArray(b.class_filter) ? b.class_filter.map(String).sort() : null;
+                    if (aFilter === null || bFilter === null) {
+                        return aFilter === null && bFilter === null;
+                    }
+                    if (aFilter.length !== bFilter.length) {
+                        return false;
+                    }
+                    for (var f = 0; f < aFilter.length; f += 1) {
+                        if (aFilter[f] !== bFilter[f]) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                function fastFilterReadyMatches(req, readyInfo) {
+                    if (!isFastFilterRequest(req)) {
+                        return false;
+                    }
+                    var readyPayload = (readyInfo && readyInfo.payload && typeof readyInfo.payload === "object")
+                        ? readyInfo.payload
+                        : {};
+                    return sameVerifyFilterState(req.verify_filter_state || null, readyPayload.verify_filter_state || null);
+                }
 
                 var activeRequest = (request && typeof request === "object")
                     ? request
@@ -1026,6 +1181,11 @@ def register_loading_overlay_callbacks(app):
                     return hide("visible-images-ready", domReadyFlag);
                 }
                 if (!activeRequest || typeof activeRequest !== "object") {
+                    if (String(window.__specgenOverlayTitle || "").indexOf("Updating spectrograms") === 0) {
+                        return hide("no-request-fast-filter", {
+                            mode: String(mode || "label")
+                        });
+                    }
                     var fallbackMode = String(mode || "label");
                     var fallbackStatus = statusForMode(fallbackMode);
                     var fallbackReadyPayload = readyForMode(fallbackMode);
@@ -1189,6 +1349,45 @@ def register_loading_overlay_callbacks(app):
                     is_ready: false
                 };
 
+                if (
+                    isFastFilterRequest(activeRequest) &&
+                    readyInfo.matches_request &&
+                    fastFilterReadyMatches(activeRequest, readyInfo)
+                ) {
+                    return hide("filter-rendered", {
+                        mode: activeMode,
+                        request_page: requestPage,
+                        ready_page: readyInfo.page,
+                        item_count: asInt((readyInfo.payload || {}).item_count, 0),
+                        dom_total: domStats.total,
+                        dom_loaded: domStats.loaded,
+                        dom_expected: domStats.expected,
+                        dom_pending: domStats.pending,
+                        dom_ids_match: domStats.ids_match,
+                        trigger_id: activeRequest.trigger_id || null
+                    });
+                }
+
+                if (
+                    isFastFilterRequest(activeRequest) &&
+                    readyInfo.matches_request &&
+                    domStats.expected > 0 &&
+                    domStats.ids_match &&
+                    domStats.total >= domStats.expected
+                ) {
+                    return hide("filter-cards-rendered", {
+                        mode: activeMode,
+                        request_page: requestPage,
+                        ready_page: readyInfo.page,
+                        dom_total: domStats.total,
+                        dom_loaded: domStats.loaded,
+                        dom_expected: domStats.expected,
+                        dom_pending: domStats.pending,
+                        dom_ids_match: domStats.ids_match,
+                        trigger_id: activeRequest.trigger_id || null
+                    });
+                }
+
                 if (readyInfo.matches_request && domStats.is_ready) {
                     return hide("page-images-ready", {
                         mode: activeMode,
@@ -1274,9 +1473,11 @@ def register_loading_overlay_callbacks(app):
                     statusPending,
                     asInt(st.eligible, asInt(st.total, statusPending))
                 );
-                var statusFresh = statusAtMs >= (requestedAtMs - requestTimingSlackMs);
+                // Do not compare server-side computed_at with browser Date.now().
+                // They may be on different clocks; page + params identify the request.
+                var statusFresh = statusAtMs > 0.0;
                 var statusParamsAligned = paramsMatch(requestParams, st.params || null);
-                var statusCurrent = statusFresh && statusParamsAligned && statusPage === requestPage;
+                var statusCurrent = statusParamsAligned && statusPage === requestPage;
                 var effectiveEligible = statusEligible;
                 var effectivePending = statusPending;
                 var overlayKind = "audio";

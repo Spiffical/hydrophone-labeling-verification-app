@@ -1,7 +1,7 @@
 import json
 import os
 import tempfile
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from filelock import FileLock
 
@@ -16,11 +16,21 @@ def read_json(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def write_json(path: str, data: Dict[str, Any]) -> None:
+def write_json(
+    path: str,
+    data: Dict[str, Any],
+    *,
+    indent: Optional[int] = 2,
+    sort_keys: bool = True,
+) -> None:
     if not path:
         raise ValueError("path is required")
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    dump_kwargs = {"sort_keys": sort_keys}
+    if indent is None:
+        dump_kwargs["separators"] = (",", ":")
+    else:
+        dump_kwargs["indent"] = indent
     with _file_lock:
         with open(path, "w") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-
+            json.dump(data, f, **dump_kwargs)

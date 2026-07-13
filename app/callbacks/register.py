@@ -27,6 +27,7 @@ from app.callbacks.common.tab_context import (
 )
 from app.callbacks.modal.helpers import (
     BBOX_DELETE_TRACE_NAME as _BBOX_DELETE_TRACE_NAME,
+    BBOX_EDIT_TRACE_NAME as _BBOX_EDIT_TRACE_NAME,
     apply_modal_boxes_to_figure as _apply_modal_boxes_to_figure,
     build_modal_item_actions as _build_modal_item_actions,
     create_folder_display as _create_folder_display,
@@ -36,6 +37,7 @@ from app.components.hierarchical_selector import create_hierarchical_selector
 from app.components.spectrogram_card import create_spectrogram_card
 from app.services.annotations import (
     clean_annotation_extent as _clean_annotation_extent,
+    extract_box_annotations_from_boxes as _extract_box_annotations_from_boxes,
     extract_label_extent_list_map_from_boxes as _extract_label_extent_list_map_from_boxes,
     extract_label_extent_map_from_boxes as _extract_label_extent_map_from_boxes,
     ordered_unique_labels as _ordered_unique_labels,
@@ -184,6 +186,7 @@ def register_callbacks(app, config):
         "parse_verify_target": _parse_verify_target,
         "get_modal_label_sets": _get_modal_label_sets,
         "clean_annotation_extent": _clean_annotation_extent,
+        "extract_box_annotations_from_boxes": _extract_box_annotations_from_boxes,
         "has_pending_label_edits": _has_pending_label_edits,
         "extract_label_extent_list_map_from_boxes": _extract_label_extent_list_map_from_boxes,
         "get_item_rejected_labels": _get_item_rejected_labels,
@@ -204,5 +207,6 @@ def register_callbacks(app, config):
         "shape_to_extent": _shape_to_extent,
         "extent_to_shape": _extent_to_shape,
         "bbox_delete_trace_name": _BBOX_DELETE_TRACE_NAME,
+        "bbox_edit_trace_name": _BBOX_EDIT_TRACE_NAME,
     }
     register_all_callback_sections(app, config=config, deps=deps)

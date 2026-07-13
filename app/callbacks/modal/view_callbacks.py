@@ -12,7 +12,7 @@ from app.callbacks.modal.display_helpers import (
     build_modal_display_range_ui,
     resolve_mode_y_axis_limits,
 )
-from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
+from app.utils.image_processing import create_item_spectrogram_figure
 
 
 def _coerce_float(value):
@@ -272,7 +272,6 @@ def register_modal_view_callbacks(
             raise PreventUpdate
 
         start = time.perf_counter()
-        spectrogram = resolve_item_spectrogram(modal_item, cfg)
         inherited_y_axis_min_hz, inherited_y_axis_max_hz = resolve_mode_y_axis_limits(
             mode,
             label_min=label_y_axis_min_hz,
@@ -288,11 +287,11 @@ def register_modal_view_callbacks(
         effective_y_axis_max_hz = (
             modal_y_axis_max_hz if _coerce_float(modal_y_axis_max_hz) is not None else inherited_y_axis_max_hz
         )
-        fig = create_spectrogram_figure(
-            spectrogram,
+        fig, spectrogram = create_item_spectrogram_figure(
+            modal_item,
+            cfg,
             colormap,
             y_axis_scale,
-            cfg=cfg,
             y_axis_min_hz=effective_y_axis_min_hz,
             y_axis_max_hz=effective_y_axis_max_hz,
             color_min=color_min,
@@ -657,6 +656,7 @@ def register_modal_view_callbacks(
         Input("verify-thresholds-store", "data"),
         Input("modal-bbox-store", "data"),
         Input("modal-active-box-label", "data"),
+        State("config-store", "data"),
         prevent_initial_call=True,
     )
     def refresh_modal_item_actions(
@@ -665,6 +665,7 @@ def register_modal_view_callbacks(
         thresholds,
         bbox_store,
         active_box_label,
+        cfg,
     ):
         if not isinstance(modal_item, dict):
             raise PreventUpdate
@@ -680,4 +681,5 @@ def register_modal_view_callbacks(
             thresholds or {"__global__": 0.5},
             boxes=boxes,
             active_box_label=active_box_label,
+            config=cfg,
         )

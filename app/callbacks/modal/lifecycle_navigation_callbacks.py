@@ -17,7 +17,7 @@ from app.components.audio_player import (
 )
 from app.services.verify_modal_cache import get_verify_modal_item
 from app.utils.audio_transport import prewarm_audio_delivery_paths
-from app.utils.image_processing import create_spectrogram_figure, resolve_item_spectrogram
+from app.utils.image_processing import create_item_spectrogram_figure
 
 
 def _coerce_float(value):
@@ -280,7 +280,6 @@ def register_modal_lifecycle_navigation_callbacks(
         if not isinstance(source_item, dict):
             raise PreventUpdate
 
-        spectrogram = resolve_item_spectrogram(source_item, cfg)
         y_axis_min_hz, y_axis_max_hz = resolve_mode_y_axis_limits(
             mode,
             label_min=label_y_axis_min_hz,
@@ -296,11 +295,11 @@ def register_modal_lifecycle_navigation_callbacks(
         effective_y_axis_max_hz = (
             modal_y_axis_max_hz if _coerce_float(modal_y_axis_max_hz) is not None else y_axis_max_hz
         )
-        fig = create_spectrogram_figure(
-            spectrogram,
+        fig, spectrogram = create_item_spectrogram_figure(
+            source_item,
+            cfg,
             colormap,
             y_axis_scale,
-            cfg=cfg,
             y_axis_min_hz=effective_y_axis_min_hz,
             y_axis_max_hz=effective_y_axis_max_hz,
             color_min=color_min,
@@ -394,6 +393,7 @@ def register_modal_lifecycle_navigation_callbacks(
             thresholds or {"__global__": 0.5},
             boxes=modal_boxes,
             active_box_label=default_box_label,
+            config=cfg,
         )
 
         if not page_item_ids:

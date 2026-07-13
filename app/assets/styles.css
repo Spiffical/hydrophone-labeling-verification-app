@@ -508,12 +508,17 @@ body {
     cursor: pointer;
 }
 
-.verify-class-filter-panel {
+.verify-class-filter-panel,
+.verify-status-filter-panel {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     background: var(--surface-2);
     padding: 10px 12px;
     min-height: 66px;
+}
+
+.verify-status-filter-select {
+    width: 100%;
 }
 
 .verify-class-filter-dropdown {
@@ -1980,25 +1985,28 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     position: fixed;
     inset: 0;
     display: none;
-    align-items: center;
-    justify-content: center;
-    background: rgba(248, 250, 252, 0.78);
-    backdrop-filter: blur(2px);
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 18px;
+    background: transparent;
+    backdrop-filter: none;
+    pointer-events: none;
     z-index: 1999;
 }
 
 .theme-dark .specgen-page-overlay {
-    background: rgba(8, 12, 17, 0.72);
+    background: transparent;
 }
 
 .specgen-load-card {
-    min-width: min(520px, calc(100vw - 48px));
-    max-width: 700px;
-    padding: 20px 24px;
+    min-width: min(420px, calc(100vw - 36px));
+    max-width: 520px;
+    padding: 16px 18px;
     border-radius: 14px;
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: 0 18px 40px rgba(9, 14, 22, 0.20);
+    pointer-events: none;
 }
 
 .specgen-load-title {
@@ -3503,9 +3511,28 @@ body.theme-dark .dash-range-slider-input,
     font-size: 12px;
 }
 
-#modal-image-graph .scatterlayer .trace:last-child .points path,
-#modal-image-graph .scatterlayer .trace:last-child text {
+#modal-image-graph .scatterlayer .trace .points path,
+#modal-image-graph .scatterlayer .trace text {
     cursor: pointer !important;
+}
+
+#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace {
+    opacity: 0 !important;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+}
+
+#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace.modal-bbox-edit-trace--visible,
+#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace:hover {
+    opacity: 1 !important;
+    pointer-events: auto;
+}
+
+.modal-bbox-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .modal-bbox-list {
@@ -3525,7 +3552,7 @@ body.theme-dark .dash-range-slider-input,
 
 .modal-bbox-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(72px, 1fr) minmax(84px, 104px) 28px;
     gap: 8px;
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
@@ -3540,6 +3567,62 @@ body.theme-dark .dash-range-slider-input,
     font-size: 12px;
     font-weight: 600;
     color: var(--text);
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.modal-bbox-summary {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.modal-bbox-index {
+    color: var(--accent-blue);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.modal-bbox-bounds {
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.25;
+}
+
+.modal-bbox-tag-dropdown {
+    min-width: 0;
+    font-size: 12px;
+}
+
+.modal-bbox-tag-dropdown .Select-control,
+.modal-bbox-tag-dropdown .Select__control {
+    min-height: 30px !important;
+}
+
+.modal-bbox-edit-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-bbox-editor-meta {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.modal-bbox-editor-validation {
+    min-height: 18px;
+    color: #dc3545;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 .modal-label-table {
@@ -3901,6 +3984,20 @@ body.theme-dark .modal-bbox-label,
 body.theme-dark .modal-label-pill,
 .theme-dark .modal-label-pill {
     color: #e6edf3 !important;
+}
+
+body.theme-dark .modal-bbox-index,
+.theme-dark .modal-bbox-index,
+body.theme-dark .modal-bbox-bounds,
+.theme-dark .modal-bbox-bounds,
+body.theme-dark .modal-bbox-editor-meta,
+.theme-dark .modal-bbox-editor-meta {
+    color: #9da7b3 !important;
+}
+
+body.theme-dark .modal-bbox-editor-validation,
+.theme-dark .modal-bbox-editor-validation {
+    color: #ff7b72 !important;
 }
 
 body.theme-dark .modal-label-pill,

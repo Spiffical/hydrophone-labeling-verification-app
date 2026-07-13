@@ -4,6 +4,7 @@ from math import log10
 
 from dash import Input, Output, State, ctx, no_update
 
+from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
 from app.utils.image_processing import (
     get_spectrogram_render_settings,
     resolve_item_spectrogram,
@@ -599,9 +600,11 @@ def register_display_range_callbacks(
 
     @app.callback(
         *_outputs("verify"),
-        Input("verify-data-store", "data"),
+        Input("verify-data-cache-key-store", "data"),
+        Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-yaxis-reset-btn", "n_clicks"),
         Input("verify-colorbar-reset-btn", "n_clicks"),
@@ -612,9 +615,11 @@ def register_display_range_callbacks(
         State("verify-colorbar-max-input", "value"),
     )
     def sync_verify_display_ranges(
-        data,
+        verify_cache_key,
+        verify_cache_revision,
         thresholds,
         class_filter,
+        status_filter,
         current_page,
         y_reset_clicks,
         color_reset_clicks,
@@ -624,12 +629,10 @@ def register_display_range_callbacks(
         current_color_min,
         current_color_max,
     ):
-        _ = y_reset_clicks, color_reset_clicks
+        _ = y_reset_clicks, color_reset_clicks, verify_cache_revision
         cfg = cfg or {}
-        data = data or {"items": []}
-        items = data.get("items", []) or []
         thresholds = thresholds or {"__global__": 0.5}
-        available_values = _build_verify_filter_paths(_extract_verify_leaf_classes(items))
+        available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
         available_value_set = set(available_values)
         selected_filters = _normalize_verify_class_filter(class_filter)
         if not available_values:
@@ -637,22 +640,15 @@ def register_display_range_callbacks(
         if selected_filters is not None:
             selected_filters = [value for value in selected_filters if value in available_value_set]
 
-        filtered_items = []
-        for item in items:
-            if not item:
-                continue
-            annotations = item.get("annotations") or {}
-            is_verified = bool(annotations.get("verified"))
-            predictions = item.get("predictions") or {}
-            predicted_labels = _filter_predictions(predictions, thresholds)
-            if not is_verified and not predicted_labels:
-                continue
-            if not _predicted_labels_match_filter(predicted_labels, selected_filters):
-                continue
-            filtered_items.append(item)
-
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)
-        page_items = _slice_page(filtered_items, current_page, items_per_page)
+        page_items = get_filtered_verify_items_page(
+            verify_cache_key,
+            thresholds,
+            selected_filters,
+            current_page,
+            items_per_page,
+            status_filter,
+        )["items"]
         return _build_display_range_outputs(
             "verify",
             page_items,

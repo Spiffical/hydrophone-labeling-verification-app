@@ -14,6 +14,7 @@ from app.defaults import (
     DEFAULT_CACHE_MAX_SIZE,
     DEFAULT_ITEMS_PER_PAGE,
 )
+from app.services.bbox_tags import load_bbox_tag_options
 from app.utils.audio_transport import DEFAULT_AUDIO_CACHE_DIR
 from app.utils.audio_transport import normalize_audio_transport
 
@@ -221,6 +222,7 @@ def get_config() -> Dict[str, Any]:
         DEFAULT_AUDIO_LEGACY_FILENAME_ROUTE,
     )
     spec_render_cfg = config.get("spectrogram_render", {})
+    bbox_tags_cfg = config.get("bounding_box_tags", {})
 
     spec_source = args.spectrogram_source or spec_render_cfg.get("source", "existing")
     if spec_source not in {"existing", "audio_generated"}:
@@ -302,6 +304,7 @@ def get_config() -> Dict[str, Any]:
             "freq_min_hz": spec_freq_min,
             "freq_max_hz": spec_freq_max,
         },
+        "bounding_box_tags": load_bbox_tag_options(repo_root, bbox_tags_cfg),
         "server": {
             "host": args.host,
             "port": args.port,

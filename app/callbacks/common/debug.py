@@ -7,7 +7,7 @@ import os
 logger = logging.getLogger(__name__)
 
 _BBOX_DEBUG_ENABLED = os.getenv("O3_BBOX_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-_VERIFY_BADGE_DEBUG_ENABLED = os.getenv("O3_VERIFY_BADGE_DEBUG", "1").strip().lower() in {"1", "true", "yes", "on"}
+_VERIFY_BADGE_DEBUG_ENABLED = os.getenv("O3_VERIFY_BADGE_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 _TAB_ISO_DEBUG_ENABLED = os.getenv("O3_TAB_ISO_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 _PERF_DEBUG_ENABLED = os.getenv("O3_PERF_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 

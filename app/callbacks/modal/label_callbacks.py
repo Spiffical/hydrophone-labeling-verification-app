@@ -1,9 +1,12 @@
 """Modal label callbacks: activate add-box target and delete label flows."""
 
 from copy import deepcopy
+from time import time_ns
 
 from dash import ALL, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
+
+from app.services.verify_modal_cache import get_verify_modal_item, get_verify_modal_summary
 
 
 def _resolve_modal_delete_active_item(items, current_item_id, modal_item):
@@ -26,6 +29,7 @@ def register_modal_label_callbacks(
     _get_mode_data,
     _get_modal_label_sets,
     _profile_actor,
+    _extract_box_annotations_from_boxes,
     _extract_label_extent_map_from_boxes,
     _update_item_labels,
     _get_item_rejected_labels,
@@ -78,12 +82,12 @@ def register_modal_label_callbacks(
         State("current-filename", "data"),
         State("mode-tabs", "data"),
         State("label-data-store", "data"),
-        State("verify-data-store", "data"),
         State("explore-data-store", "data"),
         State("modal-item-store", "data"),
         State("modal-bbox-store", "data"),
         State("modal-image-graph", "figure"),
         State("verify-thresholds-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
@@ -92,12 +96,12 @@ def register_modal_label_callbacks(
         current_item_id,
         mode,
         label_data,
-        verify_data,
         explore_data,
         modal_item,
         bbox_store,
         figure,
         thresholds,
+        verify_data_cache_key,
         profile,
     ):
         if not delete_clicks or all((clicks or 0) <= 0 for clicks in delete_clicks):
@@ -120,7 +124,19 @@ def register_modal_label_callbacks(
             raise PreventUpdate
         _require_complete_profile(profile, "delete_modal_label")
 
-        data = deepcopy(_get_mode_data(mode, label_data, verify_data, explore_data))
+        if mode == "verify":
+            source_item = modal_item if (
+                isinstance(modal_item, dict)
+                and modal_item.get("item_id") == current_item_id
+            ) else get_verify_modal_item(verify_data_cache_key, current_item_id)
+            if not isinstance(source_item, dict):
+                raise PreventUpdate
+            data = {
+                "items": [deepcopy(source_item)],
+                "summary": get_verify_modal_summary(verify_data_cache_key) or {},
+            }
+        else:
+            data = deepcopy(_get_mode_data(mode, label_data, None, explore_data))
         if not data:
             raise PreventUpdate
 
@@ -149,13 +165,15 @@ def register_modal_label_callbacks(
 
         profile_name = _profile_actor(profile)
         label_extents = _extract_label_extent_map_from_boxes(filtered_boxes)
+        bbox_annotations = _extract_box_annotations_from_boxes(filtered_boxes)
         updated_data = _update_item_labels(
             data,
             current_item_id,
             updated_labels,
             mode,
             user_name=profile_name,
-            label_extents=label_extents or None,
+            label_extents=label_extents,
+            bbox_annotations=bbox_annotations,
         )
         if mode == "verify":
             current_rejected = set(_get_item_rejected_labels(active_item))
@@ -168,7 +186,11 @@ def register_modal_label_callbacks(
                 entry["annotations"] = annotations_obj
                 break
 
-        updated_fig = _apply_modal_boxes_to_figure(deepcopy(figure) if isinstance(figure, dict) else {}, filtered_boxes)
+        updated_fig = _apply_modal_boxes_to_figure(
+            deepcopy(figure) if isinstance(figure, dict) else {},
+            filtered_boxes,
+            revision_bump=time_ns(),
+        )
         next_active_label = None
         unsaved_update = {"dirty": True, "item_id": current_item_id}
         updated_modal_item = None
@@ -185,5 +207,5 @@ def register_modal_label_callbacks(
         if mode == "label":
             return updated_data, no_update, no_update, updated_modal_item, store, updated_fig, next_active_label, unsaved_update
         if mode == "verify":
-            return no_update, updated_data, no_update, updated_modal_item, store, updated_fig, next_active_label, unsaved_update
+            return no_update, no_update, no_update, updated_modal_item, store, updated_fig, next_active_label, unsaved_update
         return no_update, no_update, updated_data, updated_modal_item, store, updated_fig, next_active_label, unsaved_update

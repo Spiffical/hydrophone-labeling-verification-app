@@ -5,6 +5,8 @@ from copy import deepcopy
 from dash import ALL, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
+from app.services.annotations import extract_box_annotations_from_boxes
+
 
 def register_label_save_callbacks(
     app,
@@ -222,9 +224,15 @@ def register_label_save_callbacks(
         note_text = annotations_obj.get("notes", "") if isinstance(annotations_obj.get("notes"), str) else ""
 
         label_extents = {}
+        bbox_annotations = []
         if isinstance(modal_bbox_store, dict) and modal_bbox_store.get("item_id") == item_id:
-            label_extents = _extract_label_extent_map_from_boxes(modal_bbox_store.get("boxes") or [])
+            modal_boxes = modal_bbox_store.get("boxes") or []
+            label_extents = _extract_label_extent_map_from_boxes(modal_boxes)
+            bbox_annotations = extract_box_annotations_from_boxes(modal_boxes)
         else:
+            existing_box_annotations = annotations_obj.get("box_annotations")
+            if isinstance(existing_box_annotations, list):
+                bbox_annotations = extract_box_annotations_from_boxes(existing_box_annotations)
             raw_label_extents = annotations_obj.get("label_extents")
             if isinstance(raw_label_extents, dict):
                 for extent_label, extent in raw_label_extents.items():
@@ -260,6 +268,7 @@ def register_label_save_callbacks(
             annotated_by=profile_name,
             notes=note_text,
             label_extents=label_extents or None,
+            bbox_annotations=bbox_annotations or None,
         )
 
         updated = _update_item_labels(
@@ -270,6 +279,7 @@ def register_label_save_callbacks(
             user_name=profile_name,
             is_reverification=True,
             label_extents=label_extents or None,
+            bbox_annotations=bbox_annotations,
         )
         updated = _update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
 

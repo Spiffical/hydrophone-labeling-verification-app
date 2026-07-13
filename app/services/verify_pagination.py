@@ -3,7 +3,12 @@
 from copy import deepcopy
 from datetime import datetime
 
-from app.services.annotations import ordered_unique_labels
+from app.services.annotations import (
+    extract_box_annotation_list_map_from_boxes,
+    extract_label_extent_list_map_from_boxes,
+    extract_label_extent_map_from_boxes,
+    ordered_unique_labels,
+)
 from app.utils.persistence import save_verify_predictions
 
 
@@ -90,11 +95,27 @@ def _filter_predictions(predictions, thresholds):
 
     confidence = predictions.get("confidence")
     if isinstance(confidence, dict):
+        matched_confidence_keys = set()
+        labels = ordered_unique_labels(predictions.get("labels") if isinstance(predictions.get("labels"), list) else [])
+        for label_clean in labels:
+            leaf_label = label_clean.split(">")[-1].strip()
+            score = confidence.get(label_clean)
+            confidence_key = label_clean
+            if score is None and leaf_label:
+                score = confidence.get(leaf_label)
+                confidence_key = leaf_label
+            if score is None:
+                continue
+            label_threshold = float(thresholds.get(label_clean, thresholds.get(leaf_label, global_threshold)))
+            if _safe_float(score, 0.0) >= label_threshold:
+                filtered.append(label_clean)
+            matched_confidence_keys.add(confidence_key)
+
         for label, score in confidence.items():
             if not isinstance(label, str):
                 continue
             label_clean = label.strip()
-            if not label_clean:
+            if not label_clean or label_clean in matched_confidence_keys:
                 continue
             label_threshold = float(thresholds.get(label_clean, global_threshold))
             if _safe_float(score, 0.0) >= label_threshold:
@@ -154,6 +175,13 @@ def _build_verification_payload(item, thresholds, profile_name):
             model_extent_map[label.strip()] = cleaned_extent
 
     annotation_extent_map = {}
+    annotation_extent_lists = {}
+    annotation_box_lists = {}
+    raw_box_annotations = annotations.get("box_annotations")
+    if isinstance(raw_box_annotations, list):
+        annotation_box_lists = extract_box_annotation_list_map_from_boxes(raw_box_annotations)
+        annotation_extent_map = extract_label_extent_map_from_boxes(raw_box_annotations)
+        annotation_extent_lists = extract_label_extent_list_map_from_boxes(raw_box_annotations)
     raw_extents = annotations.get("label_extents")
     if isinstance(raw_extents, dict):
         for label, extent in raw_extents.items():
@@ -162,9 +190,10 @@ def _build_verification_payload(item, thresholds, profile_name):
             cleaned_extent = _clean_annotation_extent(extent)
             if cleaned_extent:
                 annotation_extent_map[label.strip()] = cleaned_extent
+                annotation_extent_lists.setdefault(label.strip(), [cleaned_extent])
 
     explicit_rejected = set(ordered_unique_labels(annotations.get("rejected_labels") or []))
-    rejected_labels = sorted((predicted_set - current_set) | explicit_rejected)
+    rejected_labels = sorted(((predicted_set - current_set) | explicit_rejected) - current_set)
 
     label_decisions = []
     for label in current_labels:
@@ -174,10 +203,33 @@ def _build_verification_payload(item, thresholds, profile_name):
             "decision": decision,
             "threshold_used": threshold_used,
         }
-        extent = annotation_extent_map.get(label) or model_extent_map.get(label)
+        box_annotations = annotation_box_lists.get(label) or []
+        label_extents = annotation_extent_lists.get(label) or []
+        first_box = box_annotations[0] if box_annotations else None
+        extent = (
+            (first_box or {}).get("annotation_extent")
+            or (label_extents[0] if label_extents else None)
+            or annotation_extent_map.get(label)
+            or model_extent_map.get(label)
+        )
         if extent:
             entry["annotation_extent"] = extent
+        if isinstance(first_box, dict) and first_box.get("tag"):
+            entry["tag"] = first_box["tag"]
         label_decisions.append(entry)
+        for idx, extra_extent in enumerate(label_extents[1:], start=1):
+            if not isinstance(extra_extent, dict):
+                continue
+            extra_entry = {
+                "label": label,
+                "decision": decision,
+                "threshold_used": threshold_used,
+                "annotation_extent": extra_extent,
+            }
+            extra_box = box_annotations[idx] if idx < len(box_annotations) else None
+            if isinstance(extra_box, dict) and extra_box.get("tag"):
+                extra_entry["tag"] = extra_box["tag"]
+            label_decisions.append(extra_entry)
 
     for label in rejected_labels:
         if label in current_set:
@@ -212,6 +264,52 @@ def _resolve_predictions_path(item, summary_predictions_file):
     if isinstance(summary_predictions_file, str) and summary_predictions_file.strip().endswith(".json"):
         return summary_predictions_file.strip()
     return None
+
+
+def save_single_verify_item_change(item, summary_predictions_file, thresholds, profile_name):
+    if not isinstance(item, dict):
+        return None, False
+
+    updated_item = deepcopy(item)
+    item_id = updated_item.get("item_id")
+    if not isinstance(item_id, str) or not item_id.strip():
+        return None, False
+
+    verification, labels, rejected_labels, verified_at = _build_verification_payload(
+        updated_item,
+        thresholds,
+        profile_name,
+    )
+    predictions_path = _resolve_predictions_path(updated_item, summary_predictions_file)
+    stored_verification = save_verify_predictions(
+        predictions_path,
+        item_id,
+        verification,
+        source_item=updated_item,
+    )
+
+    verifications = updated_item.get("verifications")
+    if not isinstance(verifications, list):
+        verifications = []
+    if isinstance(stored_verification, dict):
+        verifications.append(stored_verification)
+    updated_item["verifications"] = verifications
+
+    annotations = updated_item.get("annotations") if isinstance(updated_item.get("annotations"), dict) else {}
+    annotations["labels"] = labels
+    annotations["rejected_labels"] = rejected_labels
+    annotations["verified"] = True
+    annotations["verified_at"] = verified_at
+    annotations["verified_by"] = profile_name or "anonymous"
+    annotations["needs_reverify"] = False
+    annotations["pending_save"] = False
+    annotations["has_manual_review"] = True
+    annotations["annotated_at"] = verified_at
+    if profile_name:
+        annotations["annotated_by"] = profile_name
+    updated_item["annotations"] = annotations
+
+    return updated_item, isinstance(stored_verification, dict)
 
 
 def save_all_pending_verify_changes(verify_data, thresholds, profile):

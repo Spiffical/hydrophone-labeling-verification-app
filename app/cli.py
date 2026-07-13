@@ -302,7 +302,7 @@ def main():
     print("\nPress Ctrl+C to stop the server")
     print()
     
-    app.run(debug=args.debug, host=args.host, port=args.port)
+    app.run(debug=args.debug, host=args.host, port=args.port, threaded=True)
     
     return 0
 

@@ -87,6 +87,26 @@ def create_verify_layout(config: dict) -> html.Div:
                     ], md=2, sm=4, xs=12),
                     dbc.Col([
                         html.Div([
+                            html.Small("Verification Status", className="text-muted d-block mb-1"),
+                            dbc.Select(
+                                id="verify-status-filter",
+                                value="all",
+                                options=[
+                                    {"label": "All statuses", "value": "all"},
+                                    {"label": "Unverified only", "value": "unverified"},
+                                    {"label": "Accepted only", "value": "accepted_only"},
+                                    {"label": "Rejected only", "value": "rejected_only"},
+                                    {"label": "Mixed accepted/rejected", "value": "mixed"},
+                                    {"label": "Contains accepted", "value": "contains_accepted"},
+                                    {"label": "Contains rejected", "value": "contains_rejected"},
+                                    {"label": "Verified only", "value": "verified"},
+                                ],
+                                className="verify-status-filter-select",
+                            ),
+                        ], className="verify-status-filter-panel"),
+                    ], md=3, sm=8, xs=12),
+                    dbc.Col([
+                        html.Div([
                             html.Small("Filter by Class", className="text-muted d-block mb-1"),
                             html.Div([
                                 dbc.Button(
@@ -128,7 +148,7 @@ def create_verify_layout(config: dict) -> html.Div:
                                 ),
                             ]),
                         ], className="verify-class-filter-panel verify-class-filter-dropdown"),
-                    ], md=5, sm=8, xs=12),
+                    ], md=4, sm=8, xs=12),
                     dbc.Col([
                         html.Div([
                             html.Small("Confidence Threshold", className="text-muted d-block mb-1"),
@@ -140,7 +160,7 @@ def create_verify_layout(config: dict) -> html.Div:
                                 className="control-slider",
                             ),
                         ]),
-                    ], md=5, sm=12, xs=12),
+                    ], md=3, sm=12, xs=12),
                 ], className="align-items-end g-4"),
             ]),
         ], className="panel-card"),
@@ -209,6 +229,7 @@ def create_verify_layout(config: dict) -> html.Div:
         dcc.Store(id="verify-pending-page-store", data=None, storage_type="memory"),
         dcc.Store(id="verify-visible-item-ids-store", data=[], storage_type="memory"),
         dcc.Store(id="verify-data-cache-key-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-data-cache-revision-store", data=0, storage_type="memory"),
         dcc.Store(id="verify-modal-synced-item-ids-store", data=[], storage_type="memory"),
         html.Div(
             _create_spectrogram_grid_placeholder(),

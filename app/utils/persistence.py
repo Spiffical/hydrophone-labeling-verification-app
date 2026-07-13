@@ -29,6 +29,9 @@ def _sanitize_label_decisions(label_decisions: Optional[List[Dict]]) -> List[Dic
         extent = entry.get("annotation_extent")
         if isinstance(extent, dict):
             sanitized["annotation_extent"] = extent
+        tag = entry.get("tag")
+        if isinstance(tag, str) and tag.strip():
+            sanitized["tag"] = tag.strip()
         cleaned.append(sanitized)
     return cleaned
 
@@ -151,7 +154,7 @@ def _mirror_verification_to_strict_predictions(
         _append_verification_to_item(items[index], deepcopy(verification))
 
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    write_json(strict_path, data)
+    write_json(strict_path, data, indent=None, sort_keys=False)
     return len(target_indexes)
 
 
@@ -162,6 +165,7 @@ def save_label_mode(
     annotated_by: Optional[str] = None,
     notes: Optional[str] = None,
     label_extents: Optional[Dict[str, dict]] = None,
+    bbox_annotations: Optional[List[Dict]] = None,
 ) -> None:
     """Save labels for an item to a labels.json file."""
     if not output_file:
@@ -176,6 +180,7 @@ def save_label_mode(
         annotated_by=annotated_by,
         notes=notes,
         label_extents=label_extents,
+        bbox_annotations=bbox_annotations,
     )
 
 
@@ -244,7 +249,7 @@ def save_verify_predictions(
         return None
 
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    write_json(predictions_path, data)
+    write_json(predictions_path, data, indent=None, sort_keys=False)
     _mirror_verification_to_strict_predictions(
         predictions_path,
         item_id,

@@ -5,6 +5,8 @@ from copy import deepcopy
 from dash import Input, Output, State
 from dash.exceptions import PreventUpdate
 
+from app.services.verify_modal_cache import get_verify_modal_item, get_verify_modal_summary
+
 
 def register_modal_bbox_sync_callbacks(
     app,
@@ -13,6 +15,7 @@ def register_modal_bbox_sync_callbacks(
     _clean_annotation_extent,
     _ordered_unique_labels,
     _has_pending_label_edits,
+    _extract_box_annotations_from_boxes,
     _extract_label_extent_map_from_boxes,
     _get_modal_label_sets,
     _profile_actor,
@@ -27,7 +30,7 @@ def register_modal_bbox_sync_callbacks(
         State("current-filename", "data"),
         State("modal-item-store", "data"),
         State("label-data-store", "data"),
-        State("verify-data-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         State("verify-thresholds-store", "data"),
         State("user-profile-store", "data"),
         prevent_initial_call=True,
@@ -39,7 +42,7 @@ def register_modal_bbox_sync_callbacks(
         current_item_id,
         modal_item,
         label_data,
-        verify_data,
+        verify_data_cache_key,
         thresholds,
         profile,
     ):
@@ -54,7 +57,19 @@ def register_modal_bbox_sync_callbacks(
             raise PreventUpdate
         _require_complete_profile(profile, "sync_label_bbox_edits_to_item")
 
-        data = deepcopy((label_data if mode == "label" else verify_data) or {})
+        if mode == "verify":
+            source_item = modal_item if (
+                isinstance(modal_item, dict)
+                and modal_item.get("item_id") == current_item_id
+            ) else get_verify_modal_item(verify_data_cache_key, current_item_id)
+            if not isinstance(source_item, dict):
+                raise PreventUpdate
+            data = {
+                "items": [deepcopy(source_item)],
+                "summary": get_verify_modal_summary(verify_data_cache_key) or {},
+            }
+        else:
+            data = deepcopy(label_data or {})
         items = data.get("items") or []
         active_item = next(
             (
@@ -76,11 +91,15 @@ def register_modal_bbox_sync_callbacks(
         boxes = bbox_store.get("boxes")
         boxes = boxes if isinstance(boxes, list) else []
         next_label_extents = _extract_label_extent_map_from_boxes(boxes)
+        next_box_annotations = _extract_box_annotations_from_boxes(boxes)
         existing_annotations = (
             active_item.get("annotations")
             if isinstance(active_item.get("annotations"), dict)
             else {}
         )
+        existing_box_annotations = existing_annotations.get("box_annotations")
+        if not isinstance(existing_box_annotations, list):
+            existing_box_annotations = []
         existing_raw_extents = (
             existing_annotations.get("label_extents")
             if isinstance(existing_annotations, dict)
@@ -116,12 +135,16 @@ def register_modal_bbox_sync_callbacks(
             if (
                 existing_labels == active_labels
                 and existing_label_extents == next_label_extents
+                and existing_box_annotations == next_box_annotations
                 and _has_pending_label_edits(existing_annotations)
             ):
                 raise PreventUpdate
         else:
             # Ignore no-op updates so opening the modal does not trigger a fake dirty state.
-            if existing_label_extents == next_label_extents:
+            if (
+                existing_label_extents == next_label_extents
+                and existing_box_annotations == next_box_annotations
+            ):
                 raise PreventUpdate
 
         profile_name = _profile_actor(profile)
@@ -132,6 +155,7 @@ def register_modal_bbox_sync_callbacks(
             mode=mode,
             user_name=profile_name,
             label_extents=next_label_extents,
+            bbox_annotations=next_box_annotations,
         )
         updated_modal_item = next(
             (

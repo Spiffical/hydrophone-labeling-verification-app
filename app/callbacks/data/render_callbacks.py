@@ -6,7 +6,13 @@ import time
 from dash import Input, Output, State, html, no_update
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
-from app.services.verify_modal_cache import register_verify_modal_items
+from app.services.verify_modal_cache import (
+    get_filtered_verify_items_page,
+    get_verify_filter_leaf_classes,
+    get_verify_modal_items,
+    get_verify_modal_summary,
+    register_verify_modal_items,
+)
 from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -88,18 +94,64 @@ def register_render_callbacks(
             className="spec-grid-placeholder",
         )
 
-    def _ui_ready_payload(data, page_items, current_page):
+    def _ui_ready_payload(data, page_items, current_page, extra=None):
         item_ids = [
             item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
             for item in (page_items or [])
         ]
-        return {
+        payload = {
             "load_timestamp": data.get("load_timestamp") if isinstance(data, dict) else None,
             "page": int(current_page),
             "rendered_at": time.time(),
             "item_count": len(item_ids),
             "item_ids": item_ids,
         }
+        if isinstance(extra, dict):
+            payload.update(extra)
+        return payload
+
+    def _verify_filter_state(thresholds, selected_filters, status_filter):
+        try:
+            threshold = float((thresholds or {}).get("__global__", 0.5))
+        except (TypeError, ValueError):
+            threshold = 0.5
+        return {
+            "threshold": threshold,
+            "class_filter": sorted(str(value) for value in selected_filters)
+            if selected_filters is not None
+            else None,
+            "status_filter": str(status_filter or "all"),
+        }
+
+    def _verify_status_filter_text(status_filter):
+        labels = {
+            "all": "All statuses",
+            "unverified": "Unverified only",
+            "accepted_only": "Accepted only",
+            "rejected_only": "Rejected only",
+            "mixed": "Mixed",
+            "contains_accepted": "Contains accepted",
+            "contains_rejected": "Contains rejected",
+            "verified": "Verified only",
+        }
+        return labels.get(str(status_filter or "all"), "All statuses")
+
+    @app.callback(
+        Output("verify-data-cache-key-store", "data"),
+        Output("verify-data-cache-revision-store", "data"),
+        Input("verify-data-store", "data"),
+        State("verify-data-cache-revision-store", "data"),
+        prevent_initial_call=False,
+    )
+    def sync_verify_data_cache(data, current_revision):
+        if not isinstance(data, dict) or not data.get("load_timestamp"):
+            return None, current_revision or 0
+        cache_key = register_verify_modal_items(data)
+        try:
+            revision = int(current_revision or 0) + 1
+        except (TypeError, ValueError):
+            revision = 1
+        return cache_key, revision
 
     @app.callback(
         Output("label-summary", "children"),
@@ -286,10 +338,11 @@ def register_render_callbacks(
         Output("verify-data-root-display", "children"),
         Output("verify-ui-ready-store", "data"),
         Output("verify-visible-item-ids-store", "data"),
-        Output("verify-data-cache-key-store", "data"),
-        Input("verify-data-store", "data"),
+        Input("verify-data-cache-key-store", "data"),
+        Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
         Input("verify-yaxis-toggle", "value"),
@@ -301,9 +354,11 @@ def register_render_callbacks(
         State("mode-tabs", "data"),
     )
     def render_verify(
-        data,
+        verify_cache_key,
+        verify_cache_revision,
         thresholds,
         class_filter,
+        status_filter,
         current_page,
         use_hydrophone_colormap,
         use_log_y_axis,
@@ -318,10 +373,10 @@ def register_render_callbacks(
         pass
 
         cfg = cfg or {}
-        is_loading_dataset = not isinstance(data, dict) or not data.get("load_timestamp")
-        data = data or {"items": [], "summary": {"total_items": 0}}
-        summary = data.get("summary", {})
-        items = data.get("items", [])
+        _ = verify_cache_revision
+        cached_items = get_verify_modal_items(verify_cache_key)
+        summary = get_verify_modal_summary(verify_cache_key) or {}
+        is_loading_dataset = not verify_cache_key or not cached_items
         cfg_data = cfg.get("data", {}) if isinstance(cfg.get("data"), dict) else {}
         if is_loading_dataset:
             data_root = summary.get("data_root") or cfg_data.get("data_dir") or "Loading data root..."
@@ -354,11 +409,9 @@ def register_render_callbacks(
                 data_root,
                 no_update,
                 [],
-                no_update,
             )
-        verify_cache_key = register_verify_modal_items(data)
         thresholds = thresholds or {"__global__": 0.5}
-        leaf_class_values = _extract_verify_leaf_classes(items)
+        leaf_class_values = get_verify_filter_leaf_classes(verify_cache_key)
         available_values = _build_verify_filter_paths(leaf_class_values)
         available_value_set = set(available_values)
         selected_filters = _normalize_verify_class_filter(class_filter)
@@ -367,27 +420,6 @@ def register_render_callbacks(
         if selected_filters is not None:
             selected_filters = [value for value in selected_filters if value in available_value_set]
         current_threshold = float(thresholds.get("__global__", 0.5))
-
-        filtered_items = []
-        for item in items:
-            if not item:
-                continue
-            annotations = (item.get("annotations") or {})
-            is_verified = bool(annotations.get("verified"))
-            predictions = item.get("predictions") or {}
-            predicted_labels = _filter_predictions(predictions, thresholds)
-
-            if not is_verified and not predicted_labels:
-                continue
-
-            if not _predicted_labels_match_filter(predicted_labels, selected_filters):
-                continue
-
-            display_item = dict(item)
-            display_predictions = dict(predictions)
-            display_predictions["labels"] = predicted_labels
-            display_item["predictions"] = display_predictions
-            filtered_items.append(display_item)
 
         if selected_filters is None:
             filter_text = "All selected"
@@ -401,27 +433,27 @@ def register_render_callbacks(
         colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
+        filtered_page = get_filtered_verify_items_page(
+            verify_cache_key,
+            thresholds,
+            selected_filters,
+            current_page,
+            items_per_page,
+            status_filter,
+        )
+        filtered_total = filtered_page["total_items"]
+        total_pages = filtered_page["total_pages"]
+        current_page = filtered_page["page_index"]
+        page_items = filtered_page["items"]
+        visible_item_ids = filtered_page["visible_item_ids"]
         summary_block = html.Div([
-            html.Span(f"Visible: {len(filtered_items)}", className="fw-semibold"),
-            html.Span(f"Total: {summary.get('total_items', len(items))}", className="ms-3 text-muted"),
+            html.Span(f"Visible: {filtered_total}", className="fw-semibold"),
+            html.Span(f"Total: {summary.get('total_items', len(cached_items))}", className="ms-3 text-muted"),
             html.Span(f"Verified: {summary.get('verified', 0)}", className="ms-3 text-muted"),
             html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
-            html.Span(f"Filter: {filter_text}", className="ms-3 text-muted"),
+            html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
+            html.Span(f"Status: {_verify_status_filter_text(status_filter)}", className="ms-3 text-muted"),
         ], className="summary-info")
-
-        total_items = len(filtered_items)
-        visible_item_ids = [
-            item.get("item_id")
-            for item in filtered_items
-            if isinstance(item, dict) and item.get("item_id")
-        ]
-        total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
-        current_page = current_page or 0
-        current_page = max(0, min(current_page, total_pages - 1))
-
-        start_idx = current_page * items_per_page
-        end_idx = start_idx + items_per_page
-        page_items = filtered_items[start_idx:end_idx]
 
         page_info = f"Page {current_page + 1} of {total_pages}"
 
@@ -470,7 +502,7 @@ def register_render_callbacks(
         prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page) if prefetch_enabled else 0
         if prefetch_pages > 0:
             submitted = _schedule_specgen_prefetch_for_future_pages(
-                filtered_items,
+                page_items,
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
@@ -489,7 +521,7 @@ def register_render_callbacks(
                     flush=True,
                 )
             modal_submitted = _schedule_modal_prefetch_for_future_pages(
-                filtered_items,
+                page_items,
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
@@ -542,7 +574,12 @@ def register_render_callbacks(
             summary.get("data_root", ""), "pred-file-popover-trigger"
         )
 
-        ui_ready = _ui_ready_payload(data, page_items, current_page)
+        ui_ready = _ui_ready_payload(
+            {},
+            page_items,
+            current_page,
+            {"verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter)},
+        )
         if _SPECGEN_DEBUG:
             print(
                 f"[render-ready] mode=verify page={current_page} total_pages={total_pages} "
@@ -561,7 +598,6 @@ def register_render_callbacks(
             data_root,
             ui_ready,
             visible_item_ids,
-            verify_cache_key,
         )
     @app.callback(
         Output("explore-summary", "children"),

@@ -1,0 +1,11 @@
+# Bounding-box tag sets used by the spectrogram modal.
+# The default active set is configured in config/default.yaml.
+
+tag_sets:
+  fin_whale:
+    - label: 20 Hz
+      value: 20Hz
+    - label: 30 Hz
+      value: 30Hz
+    - label: 40 Hz
+      value: 40Hz

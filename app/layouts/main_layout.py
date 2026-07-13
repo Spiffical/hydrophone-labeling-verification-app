@@ -213,7 +213,7 @@ def create_main_layout(config: dict) -> html.Div:
             ),
 
             # ── Modals ─────────────────────────────────────────────
-            create_spectrogram_modal(),
+            create_spectrogram_modal(config),
             create_folder_browser_modal(),
             create_data_config_modal(),
             create_predictions_warning(),

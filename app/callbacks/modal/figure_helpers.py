@@ -10,9 +10,49 @@ from app.services.modal_boxes import (
 
 
 BBOX_DELETE_TRACE_NAME = "__bbox_delete_handle__"
+BBOX_EDIT_TRACE_NAME = "__bbox_edit_handle__"
 
 
-def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trace_name=BBOX_DELETE_TRACE_NAME):
+def _format_hover_number(value, suffix):
+    try:
+        return f"{float(value):.3g}{suffix}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _box_hover_text(box, rect):
+    extent = box.get("annotation_extent") if isinstance(box.get("annotation_extent"), dict) else {}
+    time_start = extent.get("time_start_sec")
+    time_end = extent.get("time_end_sec")
+    freq_min = extent.get("freq_min_hz")
+    freq_max = extent.get("freq_max_hz")
+    if time_start is None:
+        time_start = rect.get("x0")
+    if time_end is None:
+        time_end = rect.get("x1")
+    if freq_min is None:
+        freq_min = rect.get("y0")
+    if freq_max is None:
+        freq_max = rect.get("y1")
+    label = box.get("label") or "Unlabeled"
+    tag = box.get("tag") or "No tag"
+    return (
+        f"Edit box<br>"
+        f"Classification: {label}<br>"
+        f"Tag: {tag}<br>"
+        f"Time: {_format_hover_number(time_start, 's')} - {_format_hover_number(time_end, 's')}<br>"
+        f"Frequency: {_format_hover_number(freq_min, 'Hz')} - {_format_hover_number(freq_max, 'Hz')}"
+        "<extra></extra>"
+    )
+
+
+def apply_modal_boxes_to_figure(
+    fig,
+    boxes,
+    revision_bump=None,
+    bbox_delete_trace_name=BBOX_DELETE_TRACE_NAME,
+    bbox_edit_trace_name=BBOX_EDIT_TRACE_NAME,
+):
     if hasattr(fig, "to_dict"):
         fig = fig.to_dict()
     if not isinstance(fig, dict):
@@ -54,6 +94,10 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
     delete_x = []
     delete_y = []
     delete_indices = []
+    edit_x = []
+    edit_y = []
+    edit_indices = []
+    edit_hover = []
 
     prepared_boxes = []
     for box_idx, box in enumerate(boxes or []):
@@ -142,6 +186,35 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
         stagger = (box_index % 6) * 0.022 * y_span
         return base_x, max(y_bound_min, min(y_bound_max, base_y - stagger))
 
+    def _choose_edit_handle(rect):
+        mid_y = rect["y0"] + ((rect["y1"] - rect["y0"]) / 2.0)
+        candidates = [
+            (rect["x1"] + 0.018 * x_span, mid_y),
+            (rect["x1"] - 0.026 * x_span, rect["y0"] - 0.022 * y_span),
+            (rect["x0"] + 0.026 * x_span, rect["y0"] - 0.022 * y_span),
+            (rect["x0"] - 0.018 * x_span, mid_y),
+            (rect["x1"] - 0.026 * x_span, rect["y1"] + 0.022 * y_span),
+            (rect["x0"] + 0.026 * x_span, rect["y1"] + 0.022 * y_span),
+        ]
+        pad_x = 0.004 * x_span
+        pad_y = 0.004 * y_span
+        min_dx = 0.020 * x_span
+        min_dy = 0.030 * y_span
+
+        for raw_x, raw_y in candidates:
+            x_val = max(x_bound_min, min(x_bound_max, raw_x))
+            y_val = max(y_bound_min, min(y_bound_max, raw_y))
+            if _point_in_rect(x_val, y_val, rect, pad_x=pad_x, pad_y=pad_y):
+                continue
+            if any(abs(x_val - hx) <= min_dx and abs(y_val - hy) <= min_dy for hx, hy in placed_handles):
+                continue
+            return x_val, y_val
+
+        return (
+            max(x_bound_min, min(x_bound_max, rect["x0"] + ((rect["x1"] - rect["x0"]) / 2.0))),
+            max(y_bound_min, min(y_bound_max, rect["y0"] + ((rect["y1"] - rect["y0"]) / 2.0))),
+        )
+
     for entry in prepared_boxes:
         box_idx = entry["box_idx"]
         box = entry["box"]
@@ -166,6 +239,10 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
         y_label = rect["y1"] - (0.004 * y_span)
         x_label = max(x_min, min(x_max, x_label))
         y_label = max(y_min, min(y_max, y_label))
+        label_text = leaf_label_text(box.get("label"))
+        annotation_text = f"Box {box_idx + 1}: {label_text}"
+        if box.get("tag"):
+            annotation_text = f"{annotation_text} · {box.get('tag')}"
         annotations.append(
             {
                 "x": x_label,
@@ -176,9 +253,9 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
                 "yanchor": "top",
                 "showarrow": False,
                 "editable": False,
-                "text": leaf_label_text(box.get("label")),
-                "font": {"size": 10, "color": style["line_color"]},
-                "bgcolor": "rgba(255,255,255,0.55)",
+                "text": annotation_text,
+                "font": {"size": 11, "color": style["line_color"]},
+                "bgcolor": "rgba(255,255,255,0.78)",
                 "borderpad": 2,
             }
         )
@@ -189,6 +266,12 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
         delete_y.append(y_handle)
         delete_indices.append(box_idx)
 
+        x_edit, y_edit = _choose_edit_handle(rect)
+        edit_x.append(x_edit)
+        edit_y.append(y_edit)
+        edit_indices.append(box_idx)
+        edit_hover.append(_box_hover_text(box, rect))
+
     layout["shapes"] = shape_list
     layout["annotations"] = annotations
     layout["editrevision"] = modal_box_edit_revision(boxes, bump=revision_bump)
@@ -198,8 +281,53 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
     fig_data = [
         trace
         for trace in fig_data
-        if not (isinstance(trace, dict) and trace.get("name") == bbox_delete_trace_name)
+        if not (
+            isinstance(trace, dict)
+            and trace.get("name") in {bbox_delete_trace_name, bbox_edit_trace_name}
+        )
     ]
+    if edit_indices:
+        fig_data.append(
+            {
+                "type": "scatter",
+                "mode": "markers+text",
+                "name": bbox_edit_trace_name,
+                "showlegend": False,
+                "x": edit_x,
+                "y": edit_y,
+                "customdata": edit_indices,
+                "text": ["✎"] * len(edit_indices),
+                "textposition": "middle center",
+                "textfont": {"size": 12, "color": "#ffffff"},
+                "marker": {
+                    "size": 22,
+                    "opacity": 0.95,
+                    "color": "rgba(13, 110, 253, 0.94)",
+                    "line": {"color": "#ffffff", "width": 1},
+                    "symbol": "square",
+                },
+                "opacity": 1.0,
+                "selectedpoints": [],
+                "selected": {
+                    "marker": {
+                        "opacity": 0.92,
+                        "color": "rgba(13, 110, 253, 0.96)",
+                        "line": {"color": "#ffffff", "width": 1},
+                    },
+                    "textfont": {"color": "#ffffff"},
+                },
+                "unselected": {
+                    "marker": {
+                        "opacity": 0.95,
+                        "color": "rgba(13, 110, 253, 0.94)",
+                        "line": {"color": "#ffffff", "width": 1},
+                    },
+                    "textfont": {"color": "#ffffff"},
+                },
+                "hovertemplate": edit_hover,
+                "cliponaxis": True,
+            }
+        )
     if delete_indices:
         fig_data.append(
             {
@@ -245,4 +373,3 @@ def apply_modal_boxes_to_figure(fig, boxes, revision_bump=None, bbox_delete_trac
     fig["data"] = fig_data
     fig["layout"] = layout
     return fig
-

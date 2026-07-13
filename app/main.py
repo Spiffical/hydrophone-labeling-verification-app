@@ -142,6 +142,8 @@ def create_app(config: Dict) -> dash.Dash:
     
     app = dash.Dash(
         __name__,
+        title="Hydrophone Acoustic Review Suite",
+        update_title="Hydrophone Acoustic Review Suite",
         assets_folder=assets_path,
         external_stylesheets=[
             dbc.themes.BOOTSTRAP,

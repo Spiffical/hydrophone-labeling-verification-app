@@ -120,6 +120,7 @@ def register_all_callback_sections(app, *, config, deps):
         _update_item_notes=d["update_item_notes"],
         save_label_mode=d["save_label_mode"],
         _build_modal_boxes_from_item=d["build_modal_boxes_from_item"],
+        _build_modal_item_actions=d["build_modal_item_actions"],
         _modal_snapshot_payload=d["modal_snapshot_payload"],
         _parse_verify_target=d["parse_verify_target"],
         _get_modal_label_sets=d["get_modal_label_sets"],
@@ -133,6 +134,7 @@ def register_all_callback_sections(app, *, config, deps):
         app,
         _require_complete_profile=d["require_complete_profile"],
         _filter_predictions=d["filter_predictions"],
+        _apply_modal_boxes_to_figure=d["apply_modal_boxes_to_figure"],
         _clean_annotation_extent=d["clean_annotation_extent"],
         _extract_label_extent_list_map_from_boxes=d["extract_label_extent_list_map_from_boxes"],
         _extract_label_extent_map_from_boxes=d["extract_label_extent_map_from_boxes"],
@@ -141,6 +143,7 @@ def register_all_callback_sections(app, *, config, deps):
         _profile_actor=d["profile_actor"],
         _update_item_labels=d["update_item_labels"],
         _build_modal_boxes_from_item=d["build_modal_boxes_from_item"],
+        _build_modal_item_actions=d["build_modal_item_actions"],
         _modal_snapshot_payload=d["modal_snapshot_payload"],
         _get_item_rejected_labels=d["get_item_rejected_labels"],
         _item_action_key=d["item_action_key"],
@@ -159,6 +162,7 @@ def register_all_callback_sections(app, *, config, deps):
         _build_modal_item_actions=d["build_modal_item_actions"],
         _persist_modal_item_before_exit=d["persist_modal_item_before_exit"],
         _replace_item_in_data=d["replace_item_in_data"],
+        _filter_predictions=d["filter_predictions"],
     )
 
     register_modal_view_callbacks(
@@ -175,6 +179,7 @@ def register_all_callback_sections(app, *, config, deps):
         _get_mode_data=d["get_mode_data"],
         _get_modal_label_sets=d["get_modal_label_sets"],
         _profile_actor=d["profile_actor"],
+        _extract_box_annotations_from_boxes=d["extract_box_annotations_from_boxes"],
         _extract_label_extent_map_from_boxes=d["extract_label_extent_map_from_boxes"],
         _update_item_labels=d["update_item_labels"],
         _get_item_rejected_labels=d["get_item_rejected_labels"],
@@ -184,6 +189,7 @@ def register_all_callback_sections(app, *, config, deps):
     register_modal_bbox_callbacks(
         app,
         _apply_modal_boxes_to_figure=d["apply_modal_boxes_to_figure"],
+        _build_modal_item_actions=d["build_modal_item_actions"],
         _require_complete_profile=d["require_complete_profile"],
         _parse_active_box_target=d["parse_active_box_target"],
         _bbox_debug=d["bbox_debug"],
@@ -195,12 +201,15 @@ def register_all_callback_sections(app, *, config, deps):
         _clean_annotation_extent=d["clean_annotation_extent"],
         _ordered_unique_labels=d["ordered_unique_labels"],
         _has_pending_label_edits=d["has_pending_label_edits"],
+        _extract_box_annotations_from_boxes=d["extract_box_annotations_from_boxes"],
         _extract_label_extent_map_from_boxes=d["extract_label_extent_map_from_boxes"],
         _get_modal_label_sets=d["get_modal_label_sets"],
+        _get_item_rejected_labels=d["get_item_rejected_labels"],
         _profile_actor=d["profile_actor"],
         _update_item_labels=d["update_item_labels"],
         _is_modal_dirty=d["is_modal_dirty"],
         _BBOX_DELETE_TRACE_NAME=d["bbox_delete_trace_name"],
+        _BBOX_EDIT_TRACE_NAME=d["bbox_edit_trace_name"],
     )
 
     register_modal_audio_callbacks(app)

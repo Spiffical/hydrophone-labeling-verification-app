@@ -41,7 +41,7 @@ def main():
     if port != preferred_port:
         print(f"Port {preferred_port} in use, switching to {port}")
 
-    app.run(debug=False, host=host, port=port)
+    app.run(debug=False, host=host, port=port, threaded=True)
 
 
 if __name__ == "__main__":

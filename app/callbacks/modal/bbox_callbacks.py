@@ -3,6 +3,9 @@
 from app.callbacks.modal.bbox_graph_callbacks import (
     register_modal_bbox_graph_callbacks,
 )
+from app.callbacks.modal.bbox_editor_callbacks import (
+    register_modal_bbox_editor_callbacks,
+)
 from app.callbacks.modal.bbox_inline_delete_callbacks import (
     register_modal_bbox_inline_delete_callbacks,
 )
@@ -13,6 +16,7 @@ def register_modal_bbox_callbacks(
     app,
     *,
     _apply_modal_boxes_to_figure,
+    _build_modal_item_actions,
     _require_complete_profile,
     _parse_active_box_target,
     _bbox_debug,
@@ -24,12 +28,15 @@ def register_modal_bbox_callbacks(
     _clean_annotation_extent,
     _ordered_unique_labels,
     _has_pending_label_edits,
+    _extract_box_annotations_from_boxes,
     _extract_label_extent_map_from_boxes,
     _get_modal_label_sets,
+    _get_item_rejected_labels,
     _profile_actor,
     _update_item_labels,
     _is_modal_dirty,
     _BBOX_DELETE_TRACE_NAME,
+    _BBOX_EDIT_TRACE_NAME,
 ):
     register_modal_bbox_graph_callbacks(
         app,
@@ -53,12 +60,27 @@ def register_modal_bbox_callbacks(
         _BBOX_DELETE_TRACE_NAME=_BBOX_DELETE_TRACE_NAME,
     )
 
+    register_modal_bbox_editor_callbacks(
+        app,
+        _apply_modal_boxes_to_figure=_apply_modal_boxes_to_figure,
+        _require_complete_profile=_require_complete_profile,
+        _BBOX_EDIT_TRACE_NAME=_BBOX_EDIT_TRACE_NAME,
+        _build_modal_item_actions=_build_modal_item_actions,
+        _extract_label_extent_map_from_boxes=_extract_label_extent_map_from_boxes,
+        _extract_box_annotations_from_boxes=_extract_box_annotations_from_boxes,
+        _get_modal_label_sets=_get_modal_label_sets,
+        _get_item_rejected_labels=_get_item_rejected_labels,
+        _ordered_unique_labels=_ordered_unique_labels,
+        _profile_actor=_profile_actor,
+    )
+
     register_modal_bbox_sync_callbacks(
         app,
         _require_complete_profile=_require_complete_profile,
         _clean_annotation_extent=_clean_annotation_extent,
         _ordered_unique_labels=_ordered_unique_labels,
         _has_pending_label_edits=_has_pending_label_edits,
+        _extract_box_annotations_from_boxes=_extract_box_annotations_from_boxes,
         _extract_label_extent_map_from_boxes=_extract_label_extent_map_from_boxes,
         _get_modal_label_sets=_get_modal_label_sets,
         _profile_actor=_profile_actor,

@@ -55,18 +55,43 @@ def filter_predictions(predictions, thresholds):
         return filtered
 
     probs = predictions.get("confidence") or {}
-    labels = predictions.get("labels") or []
+    labels = ordered_unique_labels(predictions.get("labels") or [])
     if not probs:
         return labels
 
+    matched_confidence_keys = set()
+    for label in labels:
+        leaf_label = label.split(">")[-1].strip()
+        prob = probs.get(label)
+        confidence_key = label
+        if prob is None and leaf_label:
+            prob = probs.get(leaf_label)
+            confidence_key = leaf_label
+        if isinstance(prob, (int, float)):
+            label_threshold = float(thresholds.get(label, thresholds.get(leaf_label, global_threshold)))
+            if prob >= label_threshold:
+                filtered.append(label)
+            matched_confidence_keys.add(confidence_key)
+
     for label, prob in probs.items():
+        if label in matched_confidence_keys:
+            continue
         label_threshold = float(thresholds.get(label, global_threshold))
         if prob >= label_threshold:
             filtered.append(label)
-    return filtered
+    return ordered_unique_labels(filtered)
 
 
-def update_item_labels(data, item_id, labels, mode, user_name=None, is_reverification=False, label_extents=None):
+def update_item_labels(
+    data,
+    item_id,
+    labels,
+    mode,
+    user_name=None,
+    is_reverification=False,
+    label_extents=None,
+    bbox_annotations=None,
+):
     if not data or not item_id:
         return data
     normalized_labels = ordered_unique_labels(labels or [])
@@ -85,6 +110,8 @@ def update_item_labels(data, item_id, labels, mode, user_name=None, is_reverific
             annotations["labels"] = normalized_labels
             if isinstance(label_extents, dict):
                 annotations["label_extents"] = label_extents
+            if isinstance(bbox_annotations, list):
+                annotations["box_annotations"] = bbox_annotations
             annotations["annotated_at"] = datetime.now().isoformat()
             annotations["has_manual_review"] = True
 
@@ -151,6 +178,18 @@ def has_explicit_review(annotations):
     )
 
 
+def has_explicit_label_state(annotations):
+    if not isinstance(annotations, dict):
+        return False
+    return bool(
+        annotations.get("has_manual_review")
+        or annotations.get("pending_save")
+        or annotations.get("needs_reverify")
+        or annotations.get("annotated_at")
+        or annotations.get("annotated_by")
+    )
+
+
 def has_pending_label_edits(annotations):
     if not isinstance(annotations, dict):
         return False
@@ -195,14 +234,14 @@ def get_modal_label_sets(item, mode, thresholds):
     annotations = item.get("annotations") or {}
     predicted_labels = ordered_unique_labels(filter_predictions(predictions, thresholds or {"__global__": 0.5}))
     annotation_labels = ordered_unique_labels(annotations.get("labels") or [])
-    verification_labels, verification_rejected = get_latest_verification_label_sets(item)
-    verified_labels = annotation_labels or verification_labels
-    explicit_review = has_explicit_review(annotations)
+    verification_labels, _ = get_latest_verification_label_sets(item)
+    explicit_label_state = has_explicit_label_state(annotations)
+    verified_labels = annotation_labels if explicit_label_state else annotation_labels or verification_labels
 
     if mode == "verify":
-        rejected_set = set(get_item_rejected_labels(item) or verification_rejected)
-        if explicit_review:
-            active_candidates = verified_labels
+        rejected_set = set(get_item_rejected_labels(item))
+        if explicit_label_state:
+            active_candidates = annotation_labels
         elif verified_labels:
             active_candidates = verified_labels
         elif rejected_set:
@@ -213,11 +252,10 @@ def get_modal_label_sets(item, mode, thresholds):
             label for label in active_candidates if label not in rejected_set
         )
     else:
-        active_labels = (
-            verified_labels
-            if explicit_review
-            else ordered_unique_labels(predictions.get("labels") or [])
-        )
+        if explicit_label_state:
+            active_labels = annotation_labels
+        else:
+            active_labels = verified_labels or ordered_unique_labels(predictions.get("labels") or [])
 
     return predicted_labels, verified_labels, active_labels
 
@@ -227,7 +265,7 @@ def get_item_rejected_labels(item):
         return []
     annotations = item.get("annotations") or {}
     annotation_rejected = ordered_unique_labels(annotations.get("rejected_labels") or [])
-    if annotation_rejected:
+    if annotation_rejected or has_explicit_label_state(annotations):
         return annotation_rejected
 
     _, verification_rejected = get_latest_verification_label_sets(item)

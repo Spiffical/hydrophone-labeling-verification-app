@@ -11,6 +11,7 @@ from app.utils.format_converters import (
     convert_legacy_labeling_to_unified,
     convert_whale_predictions_to_unified,
 )
+from app.services.annotations import clean_box_annotation
 from app.utils.unified_format_converter import is_unified_v2_format, convert_unified_v2_to_internal
 
 
@@ -418,6 +419,23 @@ def _merge_duplicate_items(primary: dict, incoming: dict) -> dict:
         if base_extents:
             primary_annotations["label_extents"] = base_extents
 
+        base_boxes = primary_annotations.get("box_annotations")
+        extra_boxes = incoming_annotations.get("box_annotations")
+        if not isinstance(base_boxes, list):
+            base_boxes = []
+        base_boxes = [
+            cleaned
+            for cleaned in (clean_box_annotation(box) for box in base_boxes)
+            if cleaned
+        ]
+        if isinstance(extra_boxes, list):
+            for box in extra_boxes:
+                cleaned = clean_box_annotation(box)
+                if cleaned and cleaned not in base_boxes:
+                    base_boxes.append(cleaned)
+        if base_boxes:
+            primary_annotations["box_annotations"] = base_boxes
+
         merged["annotations"] = primary_annotations
 
     primary_metadata = merged.get("metadata")
@@ -596,6 +614,15 @@ def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_p
             item["audio_path"] = matched
 
 
+def _clean_box_annotations(entries) -> list:
+    cleaned = []
+    for entry in entries or []:
+        box = clean_box_annotation(entry)
+        if box:
+            cleaned.append(box)
+    return cleaned
+
+
 def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
     labels_map: Dict[str, dict] = {}
     if not isinstance(labels_json, dict):
@@ -621,6 +648,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     if ld.get("decision") == "rejected"
                 ]
                 label_extents = {}
+                box_annotations = []
                 for ld in label_decisions:
                     if ld.get("decision") not in ("accepted", "added"):
                         continue
@@ -628,6 +656,15 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     extent = ld.get("annotation_extent")
                     if isinstance(label, str) and isinstance(extent, dict):
                         label_extents[label] = extent
+                        cleaned_box = clean_box_annotation(
+                            {
+                                "label": label,
+                                "annotation_extent": extent,
+                                "tag": ld.get("tag"),
+                            }
+                        )
+                        if cleaned_box:
+                            box_annotations.append(cleaned_box)
                 entry = {
                     "labels": labels,
                     "notes": latest.get("notes", "") or "",
@@ -636,6 +673,7 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "verified": True,
                     "rejected_labels": rejected_labels,
                     "label_extents": label_extents,
+                    "box_annotations": box_annotations,
                 }
             else:
                 # Fallback to legacy annotations
@@ -648,6 +686,9 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "verified": bool(annotations.get("verified")),
                     "rejected_labels": annotations.get("rejected_labels", []) or [],
                     "label_extents": annotations.get("label_extents", {}) or {},
+                    "box_annotations": _clean_box_annotations(
+                        annotations.get("box_annotations", []) or []
+                    ),
                 }
             for key in {item_id, _normalize_item_key(item_id)}:
                 if key:
@@ -684,6 +725,15 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
             "verified": verified,
             "rejected_labels": entry.get("rejected_labels", []) if isinstance(entry, dict) else [],
             "label_extents": entry.get("label_extents", {}) if isinstance(entry, dict) else {},
+            "box_annotations": _clean_box_annotations(
+                (
+                    entry.get("box_annotations")
+                    or (entry.get("annotations") or {}).get("box_annotations")
+                    or []
+                )
+                if isinstance(entry, dict)
+                else []
+            ),
         }
         for key in {raw_key, _normalize_item_key(raw_key)}:
             if key:
@@ -832,6 +882,12 @@ def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_fil
                 "annotated_at": label_fields["annotated_at"],
                 "verified": label_fields["verified"],
                 "notes": label_fields["notes"],
+                "label_extents": deepcopy(label_fields["label_extents"])
+                if isinstance(label_fields["label_extents"], dict)
+                else {},
+                "box_annotations": deepcopy(label_fields["box_annotations"])
+                if isinstance(label_fields["box_annotations"], list)
+                else [],
             },
             "metadata": {"source_folder": folder},
         }
@@ -983,6 +1039,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["verified"] = bool(match.get("verified"))
                 annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
+                annotations["box_annotations"] = match.get("box_annotations", []) or []
                 item["annotations"] = annotations
 
     elif structure_type == "device_only" and data_dir:
@@ -1082,6 +1139,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 annotations["verified"] = bool(match.get("verified"))
                 annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
+                annotations["box_annotations"] = match.get("box_annotations", []) or []
                 item["annotations"] = annotations
 
         if not labels_file:
@@ -1863,6 +1921,7 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
                 annotations["verified"] = bool(match.get("verified"))
                 annotations["rejected_labels"] = match.get("rejected_labels", []) or []
                 annotations["label_extents"] = match.get("label_extents", {}) or {}
+                annotations["box_annotations"] = match.get("box_annotations", []) or []
                 item["annotations"] = annotations
 
             summary = data.get("summary", {})

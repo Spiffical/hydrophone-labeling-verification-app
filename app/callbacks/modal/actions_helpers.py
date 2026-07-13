@@ -5,6 +5,7 @@ from dash import html
 from app.services.annotations import ordered_unique_labels
 from app.callbacks.modal.action_footer_helpers import build_status_and_actions
 from app.callbacks.modal.action_rows_helpers import (
+    build_bbox_rows,
     build_accepted_rows,
     build_verify_rows,
 )
@@ -17,8 +18,7 @@ from app.services.verification import (
 )
 
 
-def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_label=None):
-    _ = boxes
+def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_label=None, config=None):
     if not item:
         return html.Div("No item selected.", className="text-muted small")
 
@@ -61,6 +61,13 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
         predicted_labels=predicted_labels,
         active_labels=active_labels,
     )
+    bbox_panel = html.Div(
+        [
+            html.Div("Boxes", className="small fw-semibold text-muted mb-2"),
+            build_bbox_rows(boxes=boxes or [], config=config, mode=mode),
+        ],
+        className="modal-bbox-panel",
+    )
 
     if mode == "verify":
         return html.Div(
@@ -83,6 +90,7 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
                     if verify_rows
                     else html.Div("No labels", className="text-muted small mb-3")
                 ),
+                bbox_panel,
                 html.Div(status_note, className="modal-status-note") if status_note else None,
                 html.Div(action_buttons, className="modal-action-buttons") if action_buttons else None,
             ],
@@ -107,6 +115,7 @@ def build_modal_item_actions(item, mode, thresholds, boxes=None, active_box_labe
             )
             if accepted_rows
             else html.Div("No labels", className="text-muted small"),
+            bbox_panel,
             (
                 create_note_editor(
                     note_text,
