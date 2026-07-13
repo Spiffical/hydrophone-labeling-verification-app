@@ -234,6 +234,7 @@ within one verification round (for example, one entry per localized instance).
 | `decision` | enum | yes | `"accepted"` (model-suggested, confirmed), `"rejected"` (model-suggested, removed), or `"added"` (not suggested by model, or manually labeled). |
 | `threshold_used` | number or null | yes | Score threshold the reviewer applied when making this decision. `null` when labeling without a model (manual labeling). |
 | `annotation_extent` | object | no | Optional reviewer localization for this decision. Omit when no localization is provided; use `{ "type": "clip" }` for clip-level (no precise bounds). Uses the same shared `annotation_extent` object as model outputs. See below. |
+| `tag` | string | no | Optional configured type for this localized instance, such as `"20Hz"`, `"30Hz"`, or `"40Hz"`. Store it on the same decision as its `annotation_extent`; omit it when the box is untagged. |
 
 #### `items[].source_audio`
 
@@ -309,6 +310,7 @@ Example (single verification round):
       "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
       "decision": "accepted",
       "threshold_used": 0.5,
+      "tag": "20Hz",
       "annotation_extent": {
         "type": "time_freq_box",
         "time_start_sec": 5.2,
@@ -818,6 +820,7 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
     "label_decision": {
       "type": "object",
       "required": ["label", "decision", "threshold_used"],
+      "dependentRequired": { "tag": ["annotation_extent"] },
       "additionalProperties": false,
       "properties": {
         "label": { "type": "string" },
@@ -826,7 +829,12 @@ Localization is optional; if no bounding box is drawn, omit `annotation_extent`.
           "enum": ["accepted", "rejected", "added"]
         },
         "threshold_used": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
-        "annotation_extent": { "$ref": "#/$defs/annotation_extent" }
+        "annotation_extent": { "$ref": "#/$defs/annotation_extent" },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional configured type for this localized annotation instance."
+        }
       }
     },
     "source_audio": {

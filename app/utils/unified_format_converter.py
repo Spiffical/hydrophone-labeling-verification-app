@@ -4,6 +4,8 @@ Convert unified v2.x predictions format to internal app format.
 from datetime import datetime, timezone
 from typing import Dict, List
 
+from app.services.annotations import clean_box_annotation
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -120,6 +122,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 added = [ld["label"] for ld in label_decisions if ld.get("decision") == "added"]
                 rejected = [ld["label"] for ld in label_decisions if ld.get("decision") == "rejected"]
                 label_extents = {}
+                box_annotations = []
                 for ld in label_decisions:
                     if ld.get("decision") not in ("accepted", "added"):
                         continue
@@ -127,11 +130,21 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                     extent = ld.get("annotation_extent")
                     if isinstance(label, str) and isinstance(extent, dict):
                         label_extents[label] = extent
+                        box = clean_box_annotation(
+                            {
+                                "label": label,
+                                "annotation_extent": extent,
+                                "tag": ld.get("tag"),
+                            }
+                        )
+                        if box:
+                            box_annotations.append(box)
             else:
                 accepted = latest_verification.get("labels", [])
                 added = latest_verification.get("added_labels", [])
                 rejected = latest_verification.get("rejected_labels", [])
                 label_extents = {}
+                box_annotations = []
 
             annotations = {
                 "labels": accepted + added,
@@ -142,6 +155,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 "notes": latest_verification.get("notes", ""),
                 "confidence": latest_verification.get("confidence"),
                 "label_extents": label_extents,
+                "box_annotations": box_annotations,
             }
 
         items.append({

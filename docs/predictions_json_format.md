@@ -266,6 +266,10 @@ Supported extent types:
 - `freq_range` (frequency only)
 - `time_freq_box` (time + frequency)
 
+A bounding-box `tag` is stored on its corresponding `label_decisions[]` entry.
+It is optional and instance-specific, so repeated boxes for the same label can
+have different tags. Configured fin-whale values are `20Hz`, `30Hz`, and `40Hz`.
+
 ### Model prediction verification (Verify tab)
 
 ```json
@@ -280,6 +284,7 @@ Supported extent types:
         "label": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
         "decision": "accepted",
         "threshold_used": 0.5,
+        "tag": "20Hz",
         "annotation_extent": {
           "type": "time_freq_box",
           "time_start_sec": 29.5,
