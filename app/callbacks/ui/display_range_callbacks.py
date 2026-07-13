@@ -11,6 +11,8 @@ from app.utils.image_processing import (
     summarize_spectrogram_display_ranges,
 )
 
+_DISPLAY_RANGE_OUTPUT_COUNT = 21
+
 
 def _coerce_float(value):
     try:
@@ -566,6 +568,7 @@ def register_display_range_callbacks(
         Input("label-current-page", "data"),
         Input("label-yaxis-reset-btn", "n_clicks"),
         Input("label-colorbar-reset-btn", "n_clicks"),
+        Input("label-display-settings-summary", "n_clicks"),
         Input("config-store", "data"),
         State("label-yaxis-min-input", "value"),
         State("label-yaxis-max-input", "value"),
@@ -577,6 +580,7 @@ def register_display_range_callbacks(
         current_page,
         y_reset_clicks,
         color_reset_clicks,
+        details_clicks,
         cfg,
         current_y_min,
         current_y_max,
@@ -584,6 +588,8 @@ def register_display_range_callbacks(
         current_color_max,
     ):
         _ = y_reset_clicks, color_reset_clicks
+        if not int(details_clicks or 0) % 2:
+            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
         cfg = cfg or {}
         items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)
@@ -608,6 +614,7 @@ def register_display_range_callbacks(
         Input("verify-current-page", "data"),
         Input("verify-yaxis-reset-btn", "n_clicks"),
         Input("verify-colorbar-reset-btn", "n_clicks"),
+        Input("verify-display-settings-summary", "n_clicks"),
         Input("config-store", "data"),
         State("verify-yaxis-min-input", "value"),
         State("verify-yaxis-max-input", "value"),
@@ -623,6 +630,7 @@ def register_display_range_callbacks(
         current_page,
         y_reset_clicks,
         color_reset_clicks,
+        details_clicks,
         cfg,
         current_y_min,
         current_y_max,
@@ -630,6 +638,8 @@ def register_display_range_callbacks(
         current_color_max,
     ):
         _ = y_reset_clicks, color_reset_clicks, verify_cache_revision
+        if not int(details_clicks or 0) % 2:
+            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
         cfg = cfg or {}
         thresholds = thresholds or {"__global__": 0.5}
         available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
@@ -665,6 +675,7 @@ def register_display_range_callbacks(
         Input("explore-current-page", "data"),
         Input("explore-yaxis-reset-btn", "n_clicks"),
         Input("explore-colorbar-reset-btn", "n_clicks"),
+        Input("explore-display-settings-summary", "n_clicks"),
         Input("config-store", "data"),
         State("explore-yaxis-min-input", "value"),
         State("explore-yaxis-max-input", "value"),
@@ -676,6 +687,7 @@ def register_display_range_callbacks(
         current_page,
         y_reset_clicks,
         color_reset_clicks,
+        details_clicks,
         cfg,
         current_y_min,
         current_y_max,
@@ -683,6 +695,8 @@ def register_display_range_callbacks(
         current_color_max,
     ):
         _ = y_reset_clicks, color_reset_clicks
+        if not int(details_clicks or 0) % 2:
+            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
         cfg = cfg or {}
         items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)

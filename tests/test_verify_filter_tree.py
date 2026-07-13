@@ -7,8 +7,16 @@ from app.services.verify_filter_tree import (
 )
 from app.services.verify_modal_cache import (
     get_filtered_verify_items_page,
+    get_verify_modal_data,
     get_verify_filter_leaf_classes,
+    has_pending_verify_modal_changes,
     register_verify_modal_items,
+    update_verify_modal_item,
+)
+from app.callbacks.data.render_callbacks import (
+    _collect_verify_future_page_items,
+    _compute_prefetch_pages_ahead,
+    _prefetch_enabled,
 )
 
 
@@ -121,6 +129,63 @@ def test_verify_modal_cache_filters_thresholds_classes_and_pages():
     assert low_threshold_page_two["total_items"] == 3
     assert low_threshold_page_two["page_index"] == 1
     assert [item["item_id"] for item in low_threshold_page_two["items"]] == ["clip-blue"]
+
+
+def test_audio_generated_pages_prefetch_filtered_future_items():
+    label = "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
+    data = {
+        "load_timestamp": "prefetch-filter-test",
+        "summary": {"total_items": 5},
+        "items": [
+            {
+                "item_id": f"clip-{index}",
+                "audio_path": f"/tmp/clip-{index}.wav",
+                "predictions": {"model_outputs": [{"class_hierarchy": label, "score": 0.8}]},
+                "annotations": {},
+            }
+            for index in range(5)
+        ],
+    }
+    cache_key = register_verify_modal_items(data)
+
+    future_items = _collect_verify_future_page_items(
+        cache_key,
+        {"__global__": 0.5},
+        None,
+        "all",
+        current_page=0,
+        total_pages=5,
+        items_per_page=1,
+        pages_ahead=2,
+    )
+
+    assert [item["item_id"] for item in future_items] == ["clip-1", "clip-2"]
+    assert _prefetch_enabled({"spectrogram_render": {"source": "audio_generated"}}) is True
+    assert _prefetch_enabled({"cache": {"prefetch_enabled": False}}) is False
+    assert _compute_prefetch_pages_ahead({"cache": {"max_size": 75}}, 25) == 2
+    assert _compute_prefetch_pages_ahead(
+        {
+            "cache": {"max_size": 75},
+            "spectrogram_render": {"source": "audio_generated"},
+        },
+        25,
+    ) == 1
+    assert has_pending_verify_modal_changes(cache_key) is False
+
+    cached_data = get_verify_modal_data(cache_key)
+    assert cached_data["load_timestamp"] == "prefetch-filter-test"
+    assert [item["item_id"] for item in cached_data["items"]] == [
+        "clip-0",
+        "clip-1",
+        "clip-2",
+        "clip-3",
+        "clip-4",
+    ]
+
+    updated_item = cached_data["items"][0]
+    updated_item["annotations"] = {"pending_save": True}
+    update_verify_modal_item(cache_key, updated_item)
+    assert has_pending_verify_modal_changes(cache_key) is True
 
 
 def test_verify_modal_cache_filters_by_verification_status():

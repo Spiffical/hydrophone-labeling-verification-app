@@ -7,15 +7,77 @@ from dash import Input, Output, State, html, no_update
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
 from app.services.verify_modal_cache import (
+    ensure_verify_modal_items,
     get_filtered_verify_items_page,
     get_verify_filter_leaf_classes,
-    get_verify_modal_items,
     get_verify_modal_summary,
-    register_verify_modal_items,
+    has_verify_modal_items,
 )
 from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _prefetch_enabled(cfg):
+    cache_cfg = (cfg or {}).get("cache", {}) or {}
+    configured = cache_cfg.get("prefetch_enabled", cache_cfg.get("prefetch"))
+    if configured is not None:
+        return str(configured).strip().lower() not in {"0", "false", "no", "off"}
+    return True
+
+
+def _compute_prefetch_pages_ahead(cfg, items_per_page):
+    cfg = cfg or {}
+    cache_cfg = cfg.get("cache", {}) or {}
+    try:
+        cache_max = int(cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE))
+    except (TypeError, ValueError):
+        cache_max = DEFAULT_CACHE_MAX_SIZE
+    cache_max = max(1, cache_max)
+    per_page = max(1, int(items_per_page or 1))
+    pages_by_capacity = (cache_max // per_page) - 1
+    if pages_by_capacity <= 0:
+        return 0
+
+    explicit_pages = cache_cfg.get("prefetch_pages")
+    if explicit_pages is not None:
+        try:
+            desired_pages = max(0, int(explicit_pages))
+        except (TypeError, ValueError):
+            desired_pages = pages_by_capacity
+        return min(desired_pages, pages_by_capacity)
+
+    if get_spectrogram_render_settings(cfg).get("source") == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
+        return min(1, pages_by_capacity)
+    return pages_by_capacity
+
+
+def _collect_verify_future_page_items(
+    cache_key,
+    thresholds,
+    selected_filters,
+    status_filter,
+    *,
+    current_page,
+    total_pages,
+    items_per_page,
+    pages_ahead,
+):
+    future_items = []
+    last_page = min(int(total_pages) - 1, int(current_page) + int(pages_ahead))
+    for page_index in range(int(current_page) + 1, last_page + 1):
+        filtered_page = get_filtered_verify_items_page(
+            cache_key,
+            thresholds,
+            selected_filters,
+            page_index,
+            items_per_page,
+            status_filter,
+        )
+        if filtered_page.get("page_index") != page_index:
+            break
+        future_items.extend(filtered_page.get("items") or [])
+    return future_items
 
 
 def register_render_callbacks(
@@ -33,40 +95,6 @@ def register_render_callbacks(
     _schedule_modal_prefetch_for_current_page_spectrograms,
     _schedule_modal_prefetch_for_future_pages,
 ):
-    def _auto_prefetch_enabled(cfg):
-        cache_cfg = (cfg or {}).get("cache", {}) or {}
-        configured = cache_cfg.get("prefetch_enabled", cache_cfg.get("prefetch"))
-        if configured is not None:
-            return str(configured).strip().lower() not in {"0", "false", "no", "off"}
-
-        render_cfg = get_spectrogram_render_settings(cfg)
-        return render_cfg.get("source") != SPECTROGRAM_SOURCE_AUDIO_GENERATED
-
-    def _compute_prefetch_pages_ahead(cfg, items_per_page):
-        cfg = cfg or {}
-        cache_cfg = cfg.get("cache", {}) or {}
-        try:
-            cache_max = int(cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE))
-        except (TypeError, ValueError):
-            cache_max = DEFAULT_CACHE_MAX_SIZE
-        cache_max = max(1, cache_max)
-        per_page = max(1, int(items_per_page or 1))
-        pages_by_capacity = (cache_max // per_page) - 1
-        if pages_by_capacity <= 0:
-            return 0
-
-        # Advanced configs may still provide an explicit prefetch window, but the
-        # default behavior should scale directly with the cache size setting.
-        explicit_pages = cache_cfg.get("prefetch_pages")
-        if explicit_pages is not None:
-            try:
-                desired_pages = max(0, int(explicit_pages))
-            except (TypeError, ValueError):
-                desired_pages = pages_by_capacity
-            return min(desired_pages, pages_by_capacity)
-
-        return pages_by_capacity
-
     def _loading_path(text):
         return html.Span(text, className="loading-path-text")
 
@@ -146,7 +174,7 @@ def register_render_callbacks(
     def sync_verify_data_cache(data, current_revision):
         if not isinstance(data, dict) or not data.get("load_timestamp"):
             return None, current_revision or 0
-        cache_key = register_verify_modal_items(data)
+        cache_key = ensure_verify_modal_items(data)
         try:
             revision = int(current_revision or 0) + 1
         except (TypeError, ValueError):
@@ -229,7 +257,7 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        prefetch_enabled = _prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -374,9 +402,8 @@ def register_render_callbacks(
 
         cfg = cfg or {}
         _ = verify_cache_revision
-        cached_items = get_verify_modal_items(verify_cache_key)
         summary = get_verify_modal_summary(verify_cache_key) or {}
-        is_loading_dataset = not verify_cache_key or not cached_items
+        is_loading_dataset = not verify_cache_key or not has_verify_modal_items(verify_cache_key)
         cfg_data = cfg.get("data", {}) if isinstance(cfg.get("data"), dict) else {}
         if is_loading_dataset:
             data_root = summary.get("data_root") or cfg_data.get("data_dir") or "Loading data root..."
@@ -448,7 +475,7 @@ def register_render_callbacks(
         visible_item_ids = filtered_page["visible_item_ids"]
         summary_block = html.Div([
             html.Span(f"Visible: {filtered_total}", className="fw-semibold"),
-            html.Span(f"Total: {summary.get('total_items', len(cached_items))}", className="ms-3 text-muted"),
+            html.Span(f"Total: {summary.get('total_items', filtered_total)}", className="ms-3 text-muted"),
             html.Span(f"Verified: {summary.get('verified', 0)}", className="ms-3 text-muted"),
             html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
             html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
@@ -469,7 +496,7 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        prefetch_enabled = _prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -501,18 +528,25 @@ def register_render_callbacks(
             )
         prefetch_pages = _compute_prefetch_pages_ahead(cfg, items_per_page) if prefetch_enabled else 0
         if prefetch_pages > 0:
-            submitted = _schedule_specgen_prefetch_for_future_pages(
-                page_items,
+            future_page_items = _collect_verify_future_page_items(
+                verify_cache_key,
+                thresholds,
+                selected_filters,
+                status_filter,
                 current_page=current_page,
+                total_pages=total_pages,
                 items_per_page=items_per_page,
-                cfg=cfg,
+                pages_ahead=prefetch_pages,
+            )
+            submitted = _schedule_specgen_prefetch_for_current_page_images(
+                future_page_items,
+                cfg,
                 colormap=colormap,
                 y_axis_scale=y_axis_scale,
                 y_axis_min_hz=y_axis_min_hz,
                 y_axis_max_hz=y_axis_max_hz,
                 color_min=color_min,
                 color_max=color_max,
-                pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and submitted:
                 print(
@@ -520,12 +554,9 @@ def register_render_callbacks(
                     f"pages_ahead={prefetch_pages} submitted={submitted}",
                     flush=True,
                 )
-            modal_submitted = _schedule_modal_prefetch_for_future_pages(
-                page_items,
-                current_page=current_page,
-                items_per_page=items_per_page,
-                cfg=cfg,
-                pages_ahead=prefetch_pages,
+            modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
+                future_page_items,
+                cfg,
             )
             if _SPECGEN_DEBUG and modal_submitted:
                 print(
@@ -659,7 +690,7 @@ def register_render_callbacks(
             items_per_page,
             cfg,
         )
-        prefetch_enabled = _auto_prefetch_enabled(cfg)
+        prefetch_enabled = _prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:

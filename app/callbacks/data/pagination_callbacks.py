@@ -5,9 +5,13 @@ from dash.exceptions import PreventUpdate
 
 from app.callbacks.verify.pagination_callbacks import register_verify_pagination_callbacks
 from app.services.verify_pagination import (
-    any_pending_verify_changes,
     compute_target_page,
     save_all_pending_verify_changes,
+)
+from app.services.verify_modal_cache import (
+    get_verify_modal_data,
+    has_pending_verify_modal_changes,
+    register_verify_modal_items,
 )
 
 
@@ -55,8 +59,10 @@ def register_pagination_callbacks(app):
 
     register_verify_pagination_callbacks(
         app,
-        any_pending_verify_changes=any_pending_verify_changes,
         compute_target_page=compute_target_page,
+        get_verify_modal_data=get_verify_modal_data,
+        has_pending_verify_modal_changes=has_pending_verify_modal_changes,
+        register_verify_modal_items=register_verify_modal_items,
         save_all_pending_verify_changes=save_all_pending_verify_changes,
     )
 

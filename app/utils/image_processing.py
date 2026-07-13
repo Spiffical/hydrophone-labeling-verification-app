@@ -6,7 +6,7 @@ import math
 import os
 import re
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -60,6 +60,49 @@ _AUDIO_SPECTROGRAM_CACHE_LOCK = threading.Lock()
 _SPECTROGRAM_CACHE_LOCK = threading.Lock()
 _IMAGE_CACHE_LOCK = threading.Lock()
 _MATPLOTLIB_RENDER_LOCK = threading.Lock()
+_AUDIO_SPECTROGRAM_INFLIGHT = {}
+_SPECTROGRAM_INFLIGHT = {}
+_IMAGE_INFLIGHT = {}
+
+
+def _get_or_compute_cached(
+    cache: LRUCache,
+    key: Any,
+    lock: threading.Lock,
+    inflight: Dict[Any, threading.Event],
+    compute: Callable[[], Any],
+) -> Any:
+    while True:
+        with lock:
+            if key in cache:
+                return cache[key]
+            event = inflight.get(key)
+            if event is None:
+                event = threading.Event()
+                inflight[key] = event
+                break
+        event.wait()
+
+    try:
+        result = compute()
+    except BaseException:
+        with lock:
+            if inflight.get(key) is event:
+                inflight.pop(key, None)
+            event.set()
+        raise
+
+    with lock:
+        cache[key] = result
+        if inflight.get(key) is event:
+            inflight.pop(key, None)
+        event.set()
+    return result
+
+
+def _cache_contains(cache: LRUCache, key: Any, lock: threading.Lock) -> bool:
+    with lock:
+        return key in cache
 
 
 def _resize_cache(cache: LRUCache, maxsize: int) -> None:
@@ -82,9 +125,12 @@ def set_cache_sizes(maxsize: int) -> None:
     except (TypeError, ValueError):
         maxsize = DEFAULT_CACHE_MAX_SIZE
     maxsize = max(1, maxsize)
-    _resize_cache(spectrogram_cache, maxsize)
-    _resize_cache(audio_spectrogram_cache, maxsize)
-    _resize_cache(image_cache, maxsize * 2)
+    with _SPECTROGRAM_CACHE_LOCK:
+        _resize_cache(spectrogram_cache, maxsize)
+    with _AUDIO_SPECTROGRAM_CACHE_LOCK:
+        _resize_cache(audio_spectrogram_cache, maxsize)
+    with _IMAGE_CACHE_LOCK:
+        _resize_cache(image_cache, maxsize * 2)
 
 
 def _coerce_float(value: Any, fallback: float, *, minimum: Optional[float] = None, maximum: Optional[float] = None) -> float:
@@ -570,32 +616,32 @@ def load_audio_spectrogram_cached(
         freq_min_hz=freq_min_hz,
         freq_max_hz=freq_max_hz,
     )
-    with _AUDIO_SPECTROGRAM_CACHE_LOCK:
-        if key in audio_spectrogram_cache:
-            return audio_spectrogram_cache[key]
-    result = _load_audio_spectrogram_torch(
-        audio_path,
-        win_dur_s=win_dur_s,
-        overlap=overlap,
-        freq_min_hz=freq_min_hz,
-        freq_max_hz=freq_max_hz,
+    return _get_or_compute_cached(
+        audio_spectrogram_cache,
+        key,
+        _AUDIO_SPECTROGRAM_CACHE_LOCK,
+        _AUDIO_SPECTROGRAM_INFLIGHT,
+        lambda: _load_audio_spectrogram_torch(
+            audio_path,
+            win_dur_s=win_dur_s,
+            overlap=overlap,
+            freq_min_hz=freq_min_hz,
+            freq_max_hz=freq_max_hz,
+        ),
     )
-    with _AUDIO_SPECTROGRAM_CACHE_LOCK:
-        audio_spectrogram_cache[key] = result
-    return result
 
 
 def load_spectrogram_cached(mat_path: str):
     if not mat_path or not os.path.exists(mat_path):
         return None
     key = os.path.abspath(mat_path)
-    with _SPECTROGRAM_CACHE_LOCK:
-        if key in spectrogram_cache:
-            return spectrogram_cache[key]
-    result = _load_mat(mat_path)
-    with _SPECTROGRAM_CACHE_LOCK:
-        spectrogram_cache[key] = result
-    return result
+    return _get_or_compute_cached(
+        spectrogram_cache,
+        key,
+        _SPECTROGRAM_CACHE_LOCK,
+        _SPECTROGRAM_INFLIGHT,
+        lambda: _load_mat(mat_path),
+    )
 
 
 def resolve_item_spectrogram_with_key(
@@ -719,7 +765,7 @@ def estimate_page_audio_generation_work(
             color_min=color_min,
             color_max=color_max,
         )
-        if image_key is None or image_key not in image_cache:
+        if image_key is None or not _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
             status["pending"] += 1
 
     return status
@@ -890,7 +936,7 @@ def prefetch_page_images_in_background(
         )
         if image_key is None:
             continue
-        if image_key in image_cache:
+        if _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
             continue
 
         dedupe_key = ("item_image", image_key)
@@ -1016,7 +1062,7 @@ def prefetch_page_items_in_background(
         )
         if audio_key is None:
             continue
-        if audio_key in audio_spectrogram_cache:
+        if _cache_contains(audio_spectrogram_cache, audio_key, _AUDIO_SPECTROGRAM_CACHE_LOCK):
             continue
 
         dedupe_key = ("audio_spec", audio_key)
@@ -1133,22 +1179,21 @@ def generate_image_cached(
         _display_limit_cache_token(color_min),
         _display_limit_cache_token(color_max),
     )
-    with _IMAGE_CACHE_LOCK:
-        if cache_key in image_cache:
-            return image_cache[cache_key]
-
-    result = _generate_image(
-        mat_path,
-        colormap,
-        y_axis_scale,
-        y_axis_min_hz=y_axis_min_hz,
-        y_axis_max_hz=y_axis_max_hz,
-        color_min=color_min,
-        color_max=color_max,
+    return _get_or_compute_cached(
+        image_cache,
+        cache_key,
+        _IMAGE_CACHE_LOCK,
+        _IMAGE_INFLIGHT,
+        lambda: _generate_image(
+            mat_path,
+            colormap,
+            y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        ),
     )
-    with _IMAGE_CACHE_LOCK:
-        image_cache[cache_key] = result
-    return result
 
 
 def _generate_image(
@@ -1186,6 +1231,40 @@ def generate_item_image_cached(
     color_min: Any = None,
     color_max: Any = None,
 ) -> Optional[str]:
+    cache_key = _item_image_generation_key(
+        item,
+        cfg,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
+
+    def _resolve_and_render():
+        spectrogram, _ = resolve_item_spectrogram_with_key(item, cfg)
+        if spectrogram is None:
+            return None
+        return _generate_image_from_spectrogram_data(
+            spectrogram,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
+
+    if cache_key is not None:
+        return _get_or_compute_cached(
+            image_cache,
+            cache_key,
+            _IMAGE_CACHE_LOCK,
+            _IMAGE_INFLIGHT,
+            _resolve_and_render,
+        )
+
     spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
     if spectrogram is None:
         return None
@@ -1199,21 +1278,21 @@ def generate_item_image_cached(
         _display_limit_cache_token(color_min),
         _display_limit_cache_token(color_max),
     )
-    with _IMAGE_CACHE_LOCK:
-        if cache_key in image_cache:
-            return image_cache[cache_key]
-    result = _generate_image_from_spectrogram_data(
-        spectrogram,
-        colormap=colormap,
-        y_axis_scale=y_axis_scale,
-        y_axis_min_hz=y_axis_min_hz,
-        y_axis_max_hz=y_axis_max_hz,
-        color_min=color_min,
-        color_max=color_max,
+    return _get_or_compute_cached(
+        image_cache,
+        cache_key,
+        _IMAGE_CACHE_LOCK,
+        _IMAGE_INFLIGHT,
+        lambda: _generate_image_from_spectrogram_data(
+            spectrogram,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        ),
     )
-    with _IMAGE_CACHE_LOCK:
-        image_cache[cache_key] = result
-    return result
 
 
 def _generate_image_from_spectrogram_data(

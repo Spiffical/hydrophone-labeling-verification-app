@@ -4,6 +4,7 @@ import numpy as np
 
 from app.utils.image_processing import create_spectrogram_figure, summarize_spectrogram_display_ranges
 from app.utils.image_utils import build_item_image_request_src, decode_item_image_request, get_item_image_src
+from app.layouts.display_controls import create_display_range_bar
 
 
 def test_create_spectrogram_figure_applies_linear_y_limits_and_colorbar_limits():
@@ -136,3 +137,13 @@ def test_summarize_spectrogram_display_ranges_reports_frequency_and_color_bounds
     assert summary["color_data_max"] == -40.0
     assert -100.0 <= summary["color_auto_min"] <= -80.0
     assert -60.0 <= summary["color_auto_max"] <= -40.0
+
+
+def test_display_range_analysis_is_collapsed_by_default():
+    controls = create_display_range_bar("verify")
+    summary = controls.children[0]
+
+    assert controls.id == "verify-display-settings-details"
+    assert controls.open is False
+    assert summary.id == "verify-display-settings-summary"
+    assert summary.n_clicks == 0

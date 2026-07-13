@@ -80,6 +80,21 @@ def _prediction_filter_entries(predictions):
     return ordered_unique_labels(raw_labels), entries
 
 
+def _has_pending_verify_changes(item):
+    annotations = item.get("annotations") if isinstance(item, dict) and isinstance(item.get("annotations"), dict) else {}
+    if annotations.get("pending_save") or annotations.get("needs_reverify"):
+        return True
+    if annotations.get("verified"):
+        return False
+    return bool(annotations.get("has_manual_review")) and bool(
+        annotations.get("labels")
+        or annotations.get("rejected_labels")
+        or annotations.get("notes")
+        or annotations.get("annotated_at")
+        or annotations.get("annotated_by")
+    )
+
+
 def _build_filter_record(item, index):
     if not isinstance(item, dict):
         return None
@@ -98,6 +113,7 @@ def _build_filter_record(item, index):
         "accepted_labels": ordered_unique_labels(annotations.get("labels") or []),
         "rejected_labels": ordered_unique_labels(get_item_rejected_labels(item)),
         "has_pending_label_edits": has_pending_label_edits(annotations),
+        "has_pending_verify_changes": _has_pending_verify_changes(item),
     }
 
 
@@ -249,6 +265,7 @@ def register_verify_modal_items(data):
 
     with _VERIFY_MODAL_CACHE_LOCK:
         _VERIFY_MODAL_CACHE[cache_key] = {
+            "load_timestamp": data.get("load_timestamp"),
             "items_by_id": items_by_id,
             "item_indices": item_indices,
             "filter_records": filter_records,
@@ -258,6 +275,50 @@ def register_verify_modal_items(data):
         while len(_VERIFY_MODAL_CACHE) > _MAX_VERIFY_CACHE_KEYS:
             _VERIFY_MODAL_CACHE.popitem(last=False)
     return cache_key
+
+
+def get_verify_modal_data(cache_key):
+    """Return a defensive dataset copy from the server-side verification cache."""
+    if not cache_key:
+        return None
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return None
+        items_by_id = cache_entry.get("items_by_id")
+        item_indices = cache_entry.get("item_indices")
+        summary = cache_entry.get("summary")
+        if not isinstance(items_by_id, dict) or not isinstance(item_indices, dict):
+            return None
+        ordered_ids = [
+            item_id
+            for item_id, _ in sorted(item_indices.items(), key=lambda entry: entry[1])
+            if item_id in items_by_id
+        ]
+        data = {
+            "load_timestamp": cache_entry.get("load_timestamp"),
+            "items": [deepcopy(items_by_id[item_id]) for item_id in ordered_ids],
+            "summary": deepcopy(summary) if isinstance(summary, dict) else {},
+        }
+    return data
+
+
+def has_pending_verify_modal_changes(cache_key):
+    """Return whether the cached dataset contains any unsaved verification edits."""
+    if not cache_key:
+        return False
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return False
+        filter_records = cache_entry.get("filter_records")
+        if not isinstance(filter_records, dict):
+            return False
+        return any(
+            bool(record.get("has_pending_verify_changes"))
+            for record in filter_records.values()
+            if isinstance(record, dict)
+        )
 
 
 def ensure_verify_modal_items(data):

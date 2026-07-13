@@ -101,6 +101,8 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
                     html.Span("Display settings", className="display-range-title"),
                     html.Span("Show controls", className="display-range-summary-hint"),
                 ],
+                id=f"{prefix}-display-settings-summary",
+                n_clicks=0,
                 className="display-range-summary",
             ),
             html.Div(
@@ -184,5 +186,7 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
                 },
             ),
         ],
+        id=f"{prefix}-display-settings-details",
+        open=False,
         className="display-range-bar display-settings-details",
     )

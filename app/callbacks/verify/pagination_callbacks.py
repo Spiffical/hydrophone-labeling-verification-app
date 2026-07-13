@@ -7,8 +7,10 @@ from dash.exceptions import PreventUpdate
 def register_verify_pagination_callbacks(
     app,
     *,
-    any_pending_verify_changes,
     compute_target_page,
+    get_verify_modal_data,
+    has_pending_verify_modal_changes,
+    register_verify_modal_items,
     save_all_pending_verify_changes,
 ):
     """Register verify pagination controls + unsaved-changes guard."""
@@ -27,7 +29,7 @@ def register_verify_pagination_callbacks(
         State("verify-page-input", "value"),
         State("verify-page-input", "max"),
         State("verify-pending-page-store", "data"),
-        State("verify-data-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         State("verify-thresholds-store", "data"),
         State("user-profile-store", "data"),
         prevent_initial_call=True,
@@ -42,7 +44,7 @@ def register_verify_pagination_callbacks(
         goto_page,
         max_pages,
         pending_page,
-        verify_data,
+        verify_data_cache_key,
         thresholds,
         profile,
     ):
@@ -56,7 +58,7 @@ def register_verify_pagination_callbacks(
             if target_page == current_page:
                 raise PreventUpdate
 
-            if any_pending_verify_changes(verify_data):
+            if has_pending_verify_modal_changes(verify_data_cache_key):
                 return no_update, True, target_page, no_update
 
             return target_page, False, None, no_update
@@ -71,7 +73,10 @@ def register_verify_pagination_callbacks(
                 raise PreventUpdate
             target_page = pending_page if isinstance(pending_page, int) else current_page
             target_page = max(0, min(max_pages - 1, target_page))
+            verify_data = get_verify_modal_data(verify_data_cache_key)
             updated_data, saved_count = save_all_pending_verify_changes(verify_data, thresholds, profile)
+            if saved_count > 0:
+                register_verify_modal_items(updated_data)
             verify_data_update = updated_data if saved_count > 0 else no_update
             return target_page, False, None, verify_data_update
 
