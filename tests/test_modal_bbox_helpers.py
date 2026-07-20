@@ -9,6 +9,7 @@ from app.callbacks.modal.bbox_graph_helpers import (
 )
 from app.callbacks.modal.figure_helpers import BBOX_DELETE_TRACE_NAME, BBOX_EDIT_TRACE_NAME, apply_modal_boxes_to_figure
 from app.callbacks.modal.bbox_editor_callbacks import update_modal_item_for_box_edit
+from app.callbacks.modal.bbox_sync_callbacks import unverify_predictions_without_boxes
 from app.components.modal import create_spectrogram_modal
 from app.services.annotations import (
     extract_box_annotations_from_boxes,
@@ -405,6 +406,43 @@ def test_extract_box_annotations_from_boxes_preserves_tag():
             "tag": "30Hz",
         }
     ]
+
+
+def test_removing_final_bbox_returns_prediction_to_unverified():
+    predicted = "Bio > Fin whale"
+    other = "Bio > Blue whale"
+
+    labels = unverify_predictions_without_boxes(
+        active_labels=[predicted, other],
+        predicted_labels=[predicted, other],
+        existing_box_annotations=[
+            {"label": predicted, "annotation_extent": _extent()},
+            {"label": other, "annotation_extent": _extent(4, 6, 30, 50)},
+        ],
+        next_box_annotations=[
+            {"label": other, "annotation_extent": _extent(4, 6, 30, 50)},
+        ],
+    )
+
+    assert labels == [other]
+
+
+def test_removing_one_of_multiple_bboxes_keeps_prediction_verified():
+    predicted = "Bio > Fin whale"
+
+    labels = unverify_predictions_without_boxes(
+        active_labels=[predicted],
+        predicted_labels=[predicted],
+        existing_box_annotations=[
+            {"label": predicted, "annotation_extent": _extent()},
+            {"label": predicted, "annotation_extent": _extent(4, 6, 30, 50)},
+        ],
+        next_box_annotations=[
+            {"label": predicted, "annotation_extent": _extent(4, 6, 30, 50)},
+        ],
+    )
+
+    assert labels == [predicted]
 
 
 def test_bbox_species_edit_rejects_original_label_in_verify_mode():

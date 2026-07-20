@@ -8,6 +8,30 @@ from dash.exceptions import PreventUpdate
 from app.services.verify_modal_cache import get_verify_modal_item, get_verify_modal_summary
 
 
+def unverify_predictions_without_boxes(
+    *,
+    active_labels,
+    predicted_labels,
+    existing_box_annotations,
+    next_box_annotations,
+):
+    """Return predicted labels to unverified when their final bbox is removed."""
+    existing_box_labels = {
+        (entry.get("label") or "").strip()
+        for entry in (existing_box_annotations or [])
+        if isinstance(entry, dict) and (entry.get("label") or "").strip()
+    }
+    next_box_labels = {
+        (entry.get("label") or "").strip()
+        for entry in (next_box_annotations or [])
+        if isinstance(entry, dict) and (entry.get("label") or "").strip()
+    }
+    unboxed_predictions = (
+        existing_box_labels - next_box_labels
+    ) & set(predicted_labels or [])
+    return [label for label in (active_labels or []) if label not in unboxed_predictions]
+
+
 def register_modal_bbox_sync_callbacks(
     app,
     *,
@@ -118,7 +142,7 @@ def register_modal_bbox_sync_callbacks(
                     existing_label_extents[normalized_label] = cleaned
 
         thresholds = thresholds or {"__global__": 0.5}
-        _, _, active_labels = _get_modal_label_sets(active_item, mode, thresholds)
+        predicted_labels, _, active_labels = _get_modal_label_sets(active_item, mode, thresholds)
         active_labels = _ordered_unique_labels(active_labels)
 
         if mode == "label":
@@ -140,6 +164,14 @@ def register_modal_bbox_sync_callbacks(
             ):
                 raise PreventUpdate
         else:
+            active_labels = _ordered_unique_labels(
+                unverify_predictions_without_boxes(
+                    active_labels=active_labels,
+                    predicted_labels=predicted_labels,
+                    existing_box_annotations=existing_box_annotations,
+                    next_box_annotations=next_box_annotations,
+                )
+            )
             # Ignore no-op updates so opening the modal does not trigger a fake dirty state.
             if (
                 existing_label_extents == next_label_extents
