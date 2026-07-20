@@ -27,6 +27,10 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 ? visibleFilterToggle
                 : (visibleFilterToggle ? visibleFilterToggle.querySelector('input[type="checkbox"]') : null);
             const visibleFilterRoot = visibleFilterInput || visibleFilterToggle;
+            updatePlayButtonLabel(playBtn, !audio.paused);
+            if (timeSlider) {
+                timeSlider.setAttribute('aria-label', 'Audio position');
+            }
             const eqSection = visibleFilterRoot && visibleFilterRoot.closest
                 ? visibleFilterRoot.closest('.modal-eq-section')
                 : null;
@@ -101,6 +105,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     if (playIcon) {
                         playIcon.className = 'fas fa-play';
                     }
+                    updatePlayButtonLabel(playBtn, false);
                 });
 
                 // Handle play/pause events
@@ -108,12 +113,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     if (playIcon) {
                         playIcon.className = 'fas fa-pause';
                     }
+                    updatePlayButtonLabel(playBtn, true);
                 });
 
                 audio.addEventListener('pause', function () {
                     if (playIcon) {
                         playIcon.className = 'fas fa-play';
                     }
+                    updatePlayButtonLabel(playBtn, false);
                 });
 
                 // Handle seeking
@@ -905,42 +912,16 @@ function syncAudioTimeFromSlider(audio, slider) {
 
 function resumeAudioPlayback(audio, logContext) {
     if (!audio) return;
+    audio.play().catch(function (error) {
+        console.error('Error playing audio:', logContext, error);
+    });
+}
 
-    const attemptPlay = function () {
-        audio.play().catch(function (error) {
-            console.error('Error playing audio:', logContext, error);
-        });
-    };
-
-    if (!audio.seeking && audio.readyState >= 2) {
-        attemptPlay();
-        return;
-    }
-
-    let settled = false;
-    let timeoutId = null;
-    const cleanup = function () {
-        if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-        }
-        audio.removeEventListener('seeked', onReady);
-        audio.removeEventListener('canplay', onReady);
-        audio.removeEventListener('canplaythrough', onReady);
-        audio.removeEventListener('loadeddata', onReady);
-    };
-    const onReady = function () {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        attemptPlay();
-    };
-
-    audio.addEventListener('seeked', onReady);
-    audio.addEventListener('canplay', onReady);
-    audio.addEventListener('canplaythrough', onReady);
-    audio.addEventListener('loadeddata', onReady);
-    timeoutId = setTimeout(onReady, 1200);
+function updatePlayButtonLabel(playBtn, isPlaying) {
+    if (!playBtn) return;
+    const label = isPlaying ? 'Pause audio' : 'Play audio';
+    playBtn.setAttribute('aria-label', label);
+    playBtn.setAttribute('title', label);
 }
 
 // Improved slider interaction setup - better click/drag detection

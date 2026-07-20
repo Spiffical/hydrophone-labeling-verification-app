@@ -18,21 +18,30 @@ def tab_data_snapshot(data):
     }
 
 
-def config_default_data_dir(cfg):
+def config_default_data_dir(cfg, mode=None):
     if not isinstance(cfg, dict):
         return None
     data_cfg = cfg.get("data") if isinstance(cfg.get("data"), dict) else {}
+    label_cfg = cfg.get("label") if isinstance(cfg.get("label"), dict) else {}
     verify_cfg = cfg.get("verify") if isinstance(cfg.get("verify"), dict) else {}
-    return data_cfg.get("data_dir") or verify_cfg.get("dashboard_root")
+    if data_cfg.get("data_dir"):
+        return data_cfg["data_dir"]
+
+    active_mode = mode or cfg.get("mode") or data_cfg.get("mode")
+    if active_mode == "label":
+        return data_cfg.get("spectrogram_folder") or label_cfg.get("folder")
+    if active_mode in {"verify", "explore"}:
+        return verify_cfg.get("dashboard_root")
+    return verify_cfg.get("dashboard_root") or data_cfg.get("spectrogram_folder") or label_cfg.get("folder")
 
 
-def resolve_tab_data_dir(cfg, current_tab_data=None, trigger_cfg=None, trigger_source=None):
+def resolve_tab_data_dir(cfg, current_tab_data=None, trigger_cfg=None, trigger_source=None, mode=None):
     current_source = None
     if isinstance(current_tab_data, dict):
         current_source = current_tab_data.get("source_data_dir")
 
-    trigger_data_dir = config_default_data_dir(trigger_cfg)
-    configured_data_dir = config_default_data_dir(cfg)
+    trigger_data_dir = config_default_data_dir(trigger_cfg, mode)
+    configured_data_dir = config_default_data_dir(cfg, mode)
 
     if trigger_source == "data-config-load":
         return trigger_data_dir or current_source or configured_data_dir

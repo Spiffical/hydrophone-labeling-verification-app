@@ -31,11 +31,12 @@ def build_grid(
     items_per_page,
     cfg=None,
     *,
+    empty_message="No items loaded.",
     get_item_image_src,
     create_spectrogram_card,
 ):
     if not items:
-        return [html.Div("No items loaded.", className="text-muted text-center p-4")]
+        return [html.Div(empty_message, className="text-muted text-center p-4")]
 
     grid = []
     limit = min(items_per_page, len(items))

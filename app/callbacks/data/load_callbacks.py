@@ -40,7 +40,7 @@ def register_global_load_trigger_callback(app, *, tab_iso_debug, config_default_
             active_mode=active_mode,
             date_value=date_value,
             device_value=device_value,
-            cfg_data_dir=config_default_data_dir(cfg or {}),
+            cfg_data_dir=config_default_data_dir(cfg or {}, active_mode),
         )
         return payload
 
@@ -80,4 +80,3 @@ def register_data_loading_callbacks(
         tab_iso_debug=_tab_iso_debug,
         tab_data_snapshot=_tab_data_snapshot,
     )
-

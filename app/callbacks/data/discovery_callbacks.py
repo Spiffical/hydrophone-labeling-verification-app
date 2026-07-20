@@ -7,6 +7,24 @@ from dash.exceptions import PreventUpdate
 from app.utils.data_discovery import detect_data_structure
 
 
+def active_selection_label(data):
+    if not isinstance(data, dict) or not data:
+        return "No data loaded"
+
+    summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
+    date_str = summary.get("active_date")
+    device = summary.get("active_hydrophone")
+    if date_str and device:
+        return f"{date_str} / {device}"
+    if date_str:
+        return str(date_str)
+    if device:
+        return str(device)
+    if data.get("source_data_dir"):
+        return "Direct folder"
+    return "Loaded"
+
+
 def register_tab_state_callbacks(
     app,
     *,
@@ -30,7 +48,7 @@ def register_tab_state_callbacks(
     )
     def discover_dates(mode, cfg, label_data, verify_data, explore_data, tab_filter_state, global_date_value):
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        configured_data_dir = config_default_data_dir(cfg or {})
+        configured_data_dir = config_default_data_dir(cfg or {}, mode)
         tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
         data_dir = tab_data_dir or configured_data_dir
         tab_iso_debug(
@@ -187,7 +205,7 @@ def register_tab_state_callbacks(
             return [], None
 
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
-        configured_data_dir = config_default_data_dir(cfg or {})
+        configured_data_dir = config_default_data_dir(cfg or {}, mode)
         tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
         data_dir = tab_data_dir or configured_data_dir
         tab_iso_debug(
@@ -313,7 +331,7 @@ def register_tab_state_callbacks(
     )
     def update_active_selection_display(label_data, verify_data, explore_data, mode, cfg):
         data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode) or {}
-        configured_data_dir = config_default_data_dir(cfg or {})
+        configured_data_dir = config_default_data_dir(cfg or {}, mode)
         data_dir = (data.get("source_data_dir") if data else None) or configured_data_dir
         data_dir_display = data_dir or "Not selected"
         tab_iso_debug(
@@ -323,13 +341,4 @@ def register_tab_state_callbacks(
             selected_snapshot=tab_data_snapshot(data),
         )
 
-        if not data:
-            return "No data loaded", data_dir_display
-
-        summary = data.get("summary", {})
-        date_str = summary.get("active_date")
-        device = summary.get("active_hydrophone")
-
-        if date_str and device:
-            return f"{date_str} / {device}", data_dir_display
-        return "Not selected", data_dir_display
+        return active_selection_label(data), data_dir_display

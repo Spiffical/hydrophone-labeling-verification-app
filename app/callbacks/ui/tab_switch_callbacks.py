@@ -1,39 +1,79 @@
 """Tab mode switching callbacks."""
 
-from dash import Input, Output
+from dash import Input, Output, State, ctx, no_update
+from dash.exceptions import PreventUpdate
+
+from app.services.verification import has_pending_label_edits
+from app.services.verify_modal_cache import has_pending_verify_modal_changes
+
+
+def _has_pending_label_changes(label_data):
+    if not isinstance(label_data, dict):
+        return False
+    return any(
+        isinstance(item, dict) and has_pending_label_edits(item.get("annotations"))
+        for item in (label_data.get("items") or [])
+    )
 
 
 def register_mode_tab_callbacks(app):
     """Register callbacks that synchronize tab buttons and active mode store."""
 
-    app.clientside_callback(
-        """
-        function(labelClicks, verifyClicks, exploreClicks) {
-            var dc = (window.dash_clientside || {});
-            var ctx = dc.callback_context || null;
-            if (ctx && ctx.triggered && ctx.triggered.length > 0) {
-                var id = ctx.triggered[0].prop_id.split('.')[0];
-                if (id === 'tab-btn-label') return 'label';
-                if (id === 'tab-btn-verify') return 'verify';
-                if (id === 'tab-btn-explore') return 'explore';
-                return dc.no_update;
-            }
-            var lc = labelClicks || 0;
-            var vc = verifyClicks || 0;
-            var ec = exploreClicks || 0;
-            var max = Math.max(lc, vc, ec);
-            if (max === 0) return dc.no_update;
-            if (max === lc) return 'label';
-            if (max === vc) return 'verify';
-            return 'explore';
-        }
-        """,
+    @app.callback(
         Output("mode-tabs", "data"),
-        [Input("tab-btn-label", "n_clicks"),
-         Input("tab-btn-verify", "n_clicks"),
-         Input("tab-btn-explore", "n_clicks")],
+        Output("mode-switch-unsaved-modal", "is_open"),
+        Output("mode-switch-unsaved-message", "children"),
+        Input("tab-btn-label", "n_clicks"),
+        Input("tab-btn-verify", "n_clicks"),
+        Input("tab-btn-explore", "n_clicks"),
+        Input("mode-switch-unsaved-stay", "n_clicks"),
+        State("mode-tabs", "data"),
+        State("label-data-store", "data"),
+        State("verify-data-cache-key-store", "data"),
         prevent_initial_call=True,
     )
+    def switch_mode(
+        label_clicks,
+        verify_clicks,
+        explore_clicks,
+        stay_clicks,
+        current_mode,
+        label_data,
+        verify_cache_key,
+    ):
+        _ = label_clicks, verify_clicks, explore_clicks, stay_clicks
+        triggered = ctx.triggered_id
+        if triggered == "mode-switch-unsaved-stay":
+            return no_update, False, no_update
+
+        requested_mode = {
+            "tab-btn-label": "label",
+            "tab-btn-verify": "verify",
+            "tab-btn-explore": "explore",
+        }.get(triggered)
+        if not requested_mode:
+            raise PreventUpdate
+        if requested_mode == current_mode:
+            return no_update, False, no_update
+
+        has_pending = False
+        pending_message = ""
+        if current_mode == "verify" and has_pending_verify_modal_changes(verify_cache_key):
+            has_pending = True
+            pending_message = (
+                "You have unsaved verification changes. Stay here and save the pending cards "
+                "before switching modes."
+            )
+        elif current_mode == "label" and _has_pending_label_changes(label_data):
+            has_pending = True
+            pending_message = (
+                "You have unsaved label changes. Stay here and confirm the pending cards "
+                "before switching modes."
+            )
+
+        if has_pending:
+            return no_update, True, pending_message
+        return requested_mode, False, no_update
 
     app.clientside_callback(
         """

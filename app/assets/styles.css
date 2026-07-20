@@ -771,6 +771,18 @@ body {
     transform: rotate(90deg);
 }
 
+.display-range-summary-open {
+    display: none;
+}
+
+.display-settings-details[open] .display-range-summary-closed {
+    display: none;
+}
+
+.display-settings-details[open] .display-range-summary-open {
+    display: inline;
+}
+
 .display-range-summary {
     display: flex;
     align-items: center;

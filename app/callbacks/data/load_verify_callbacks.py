@@ -49,8 +49,8 @@ def register_verify_data_loading_callback(
             triggered_props=sorted(triggered_props),
             date_val=date_val,
             device_val=device_val,
-            cfg_data_dir=config_default_data_dir(cfg or {}),
-            trigger_cfg_data_dir=config_default_data_dir(trigger_cfg_snapshot),
+            cfg_data_dir=config_default_data_dir(cfg or {}, mode),
+            trigger_cfg_data_dir=config_default_data_dir(trigger_cfg_snapshot, mode),
             current_verify_snapshot=tab_data_snapshot(current_verify_data),
         )
 
@@ -92,12 +92,13 @@ def register_verify_data_loading_callback(
                     current_tab_data=current_verify_data,
                     trigger_cfg=trigger_cfg,
                     trigger_source=trigger_source,
+                    mode=mode,
                 )
                 tab_iso_debug(
                     "load_verify_resolved_root",
                     active_data_dir=active_data_dir,
-                    cfg_data_dir=config_default_data_dir(cfg or {}),
-                    trigger_cfg_data_dir=config_default_data_dir(trigger_cfg or {}),
+                    cfg_data_dir=config_default_data_dir(cfg or {}, mode),
+                    trigger_cfg_data_dir=config_default_data_dir(trigger_cfg or {}, mode),
                     current_source_data_dir=(current_verify_data or {}).get("source_data_dir")
                     if isinstance(current_verify_data, dict)
                     else None,

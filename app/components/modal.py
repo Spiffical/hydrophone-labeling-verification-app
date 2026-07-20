@@ -69,7 +69,13 @@ def create_spectrogram_modal(config=None):
                     html.Summary(
                         [
                             html.Span("Display settings", className="display-range-title"),
-                            html.Span("Show controls", className="display-range-summary-hint"),
+                            html.Span(
+                                [
+                                    html.Span("Show controls", className="display-range-summary-closed"),
+                                    html.Span("Hide controls", className="display-range-summary-open"),
+                                ],
+                                className="display-range-summary-hint",
+                            ),
                         ],
                         className="display-range-summary",
                     ),

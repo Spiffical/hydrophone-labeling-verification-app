@@ -137,6 +137,7 @@ def create_audio_player(
                 ], 
                 id=f'{player_id}-play-btn', 
                 size='sm',
+                title='Play audio',
                 style={
                     'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                     'border': 'none',
@@ -170,7 +171,7 @@ def create_audio_player(
                         max=100,
                         step=0.001,
                         value='0',
-                        className='custom-time-slider native-time-slider'
+                        className='custom-time-slider native-time-slider',
                     ),
                     
                     html.Span("0:00", id=f'{player_id}-duration', style={
@@ -452,6 +453,7 @@ def create_modal_audio_player(
                 ],
                 id=f'{player_id}-play-btn',
                 size='sm',
+                title='Play audio',
                 className="modal-play-btn")
             ], className="modal-transport-play"),
             html.Div([
@@ -466,7 +468,7 @@ def create_modal_audio_player(
                     max=100,
                     step=0.001,
                     value='0',
-                    className='custom-time-slider native-time-slider modal-time-slider'
+                    className='custom-time-slider native-time-slider modal-time-slider',
                 ),
             ], className="modal-transport-track")
         ], className="modal-transport-row"),

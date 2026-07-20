@@ -11,22 +11,28 @@ from app.layouts.data_config_panel import create_data_config_modal, create_predi
 
 
 def create_main_layout(config: dict) -> html.Div:
-    # Determine initial data directory
-    initial_data_dir = (
-        config.get("data", {}).get("data_dir")
-        or config.get("verify", {}).get("dashboard_root")
-        or os.path.expanduser("~")
-    )
-    initial_data_root = (
-        config.get("data", {}).get("data_dir")
-        or config.get("verify", {}).get("dashboard_root")
-    )
     initial_mode = config.get("mode") or config.get("data", {}).get("mode") or "label"
-    has_data_root = bool(
-        config.get("data", {}).get("data_dir") or config.get("verify", {}).get("dashboard_root")
-    )
+    data_cfg = config.get("data", {}) if isinstance(config.get("data"), dict) else {}
+    label_cfg = config.get("label", {}) if isinstance(config.get("label"), dict) else {}
+    verify_cfg = config.get("verify", {}) if isinstance(config.get("verify"), dict) else {}
+    initial_data_root = data_cfg.get("data_dir")
+    if not initial_data_root and initial_mode == "label":
+        initial_data_root = data_cfg.get("spectrogram_folder") or label_cfg.get("folder")
+    if not initial_data_root and initial_mode in {"verify", "explore"}:
+        initial_data_root = verify_cfg.get("dashboard_root")
+    initial_data_dir = initial_data_root or os.path.expanduser("~")
+    has_data_root = bool(initial_data_root)
     initial_load_trigger = (
-        {"timestamp": 0, "mode": initial_mode, "source": "startup"} if has_data_root else None
+        {
+            "timestamp": 0,
+            "mode": initial_mode,
+            "source": "startup",
+            "config": config,
+            "date_value": verify_cfg.get("date") if initial_mode == "verify" else None,
+            "device_value": verify_cfg.get("hydrophone") if initial_mode == "verify" else None,
+        }
+        if has_data_root
+        else None
     )
 
     initial_theme = str(os.getenv("HYDROPHONE_UI_THEME", "light")).strip().lower()
@@ -109,7 +115,7 @@ def create_main_layout(config: dict) -> html.Div:
             html.Div([
                 html.Div([
                     html.Span("Hydrophone Acoustic Review Suite", className="brand-kicker"),
-                    html.H1("Unified labeling Tool", className="brand-title"),
+                    html.H1("Unified Labeling Tool", className="brand-title"),
                 ], className="brand-block"),
 
                 html.Div([
@@ -187,7 +193,7 @@ def create_main_layout(config: dict) -> html.Div:
                 html.Div([
                     html.Small("Data: ", className="text-muted small"),
                     html.Span(id="global-data-dir-display", className="mono-muted small me-3",
-                              children=config.get("data", {}).get("data_dir") or "Not selected"),
+                              children=initial_data_root or "Not selected"),
                     html.Small("Active: ", className="text-muted small"),
                     html.Span(id="global-active-selection", className="mono-muted small"),
                 ], className="mt-1 text-end", style={"min-height": "1.5em"}),
@@ -247,6 +253,26 @@ def create_main_layout(config: dict) -> html.Div:
                     dbc.Button("Save", id="profile-save", color="primary"),
                 ]),
             ], id="profile-modal", is_open=False),
+
+            dbc.Modal(
+                [
+                    dbc.ModalHeader(dbc.ModalTitle("Unsaved Changes"), close_button=False),
+                    dbc.ModalBody(id="mode-switch-unsaved-message"),
+                    dbc.ModalFooter(
+                        dbc.Button(
+                            "Stay",
+                            id="mode-switch-unsaved-stay",
+                            color="primary",
+                            n_clicks=0,
+                        )
+                    ),
+                ],
+                id="mode-switch-unsaved-modal",
+                is_open=False,
+                centered=True,
+                backdrop="static",
+                keyboard=False,
+            ),
 
             dbc.Modal([
                 dbc.ModalHeader(dbc.ModalTitle("App Configuration")),

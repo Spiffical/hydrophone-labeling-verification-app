@@ -127,6 +127,8 @@ def register_callbacks(app, config):
         color_max,
         items_per_page,
         cfg,
+        *,
+        empty_message="No items loaded.",
     ):
         return _build_grid_helper(
             items,
@@ -139,6 +141,7 @@ def register_callbacks(app, config):
             color_max,
             items_per_page,
             cfg,
+            empty_message=empty_message,
             get_item_image_src=get_item_image_src,
             create_spectrogram_card=create_spectrogram_card,
         )

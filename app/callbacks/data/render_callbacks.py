@@ -495,6 +495,7 @@ def register_render_callbacks(
             color_max,
             items_per_page,
             cfg,
+            empty_message="No items match the current filters.",
         )
         prefetch_enabled = _prefetch_enabled(cfg)
         current_page_submitted = 0
