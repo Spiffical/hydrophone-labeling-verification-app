@@ -38,18 +38,7 @@ def register_modal_bbox_callbacks(
     _BBOX_DELETE_TRACE_NAME,
     _BBOX_EDIT_TRACE_NAME,
 ):
-    register_modal_bbox_graph_callbacks(
-        app,
-        _apply_modal_boxes_to_figure=_apply_modal_boxes_to_figure,
-        _require_complete_profile=_require_complete_profile,
-        _parse_active_box_target=_parse_active_box_target,
-        _bbox_debug=_bbox_debug,
-        _bbox_debug_box_summary=_bbox_debug_box_summary,
-        _axis_meta_from_figure=_axis_meta_from_figure,
-        _safe_float=_safe_float,
-        _shape_to_extent=_shape_to_extent,
-        _extent_to_shape=_extent_to_shape,
-    )
+    register_modal_bbox_graph_callbacks(app)
 
     register_modal_bbox_inline_delete_callbacks(
         app,

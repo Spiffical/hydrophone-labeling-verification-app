@@ -38,9 +38,14 @@ def register_modal_label_callbacks(
     app.clientside_callback(
         ClientsideFunction(namespace="bboxInteractions", function_name="activateDraw"),
         Output("modal-active-box-label", "data", allow_duplicate=True),
+        Output("modal-bbox-interaction-store", "data", allow_duplicate=True),
         Input({"type": "modal-label-add-box", "label": ALL}, "n_clicks"),
         State("user-profile-store", "data"),
         State("mode-tabs", "data"),
+        State("current-filename", "data"),
+        State("modal-bbox-store", "data"),
+        State("modal-item-store", "data"),
+        State("modal-unsaved-store", "data"),
         prevent_initial_call=True,
     )
 
