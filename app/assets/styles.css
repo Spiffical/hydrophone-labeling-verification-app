@@ -3540,6 +3540,15 @@ body.theme-dark .dash-range-slider-input,
     pointer-events: auto;
 }
 
+#modal-image-graph .js-plotly-plot.modal-bbox-draw-active .draglayer .nsewdrag,
+#modal-image-graph .js-plotly-plot.modal-bbox-draw-active .draglayer path {
+    cursor: crosshair !important;
+}
+
+#modal-image-graph .modebar-btn[data-attr="dragmode"][data-val="drawrect"] {
+    display: none !important;
+}
+
 .modal-bbox-panel {
     display: flex;
     min-height: 0;

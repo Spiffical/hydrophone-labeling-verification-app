@@ -3,7 +3,7 @@
 from copy import deepcopy
 from time import time_ns
 
-from dash import ALL, Input, Output, State, ctx, no_update
+from dash import ALL, ClientsideFunction, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 from app.services.verify_modal_cache import get_verify_modal_item, get_verify_modal_summary
@@ -35,39 +35,14 @@ def register_modal_label_callbacks(
     _get_item_rejected_labels,
     _apply_modal_boxes_to_figure,
 ):
-    @app.callback(
+    app.clientside_callback(
+        ClientsideFunction(namespace="bboxInteractions", function_name="activateDraw"),
         Output("modal-active-box-label", "data", allow_duplicate=True),
-        Output("modal-image-graph", "figure", allow_duplicate=True),
         Input({"type": "modal-label-add-box", "label": ALL}, "n_clicks"),
-        State("modal-image-graph", "figure"),
         State("user-profile-store", "data"),
+        State("mode-tabs", "data"),
         prevent_initial_call=True,
     )
-    def set_modal_active_box_label(add_box_clicks, figure, profile):
-        if not ctx.triggered or (ctx.triggered[0].get("value") or 0) <= 0:
-            raise PreventUpdate
-        _require_complete_profile(profile, "set_modal_active_box_label")
-        triggered = ctx.triggered_id
-        if not isinstance(triggered, dict):
-            raise PreventUpdate
-        if triggered.get("type") != "modal-label-add-box":
-            raise PreventUpdate
-        label = (triggered.get("label") or "").strip()
-        if not label:
-            raise PreventUpdate
-        # BBox '+' always allows drawing another box for the same label.
-        target = {"label": label, "allow_existing": True}
-
-        if not isinstance(figure, dict):
-            return target, no_update
-
-        updated_figure = deepcopy(figure)
-        layout = updated_figure.get("layout")
-        if not isinstance(layout, dict):
-            layout = {}
-        layout["dragmode"] = "drawrect"
-        updated_figure["layout"] = layout
-        return target, updated_figure
 
     @app.callback(
         Output("label-data-store", "data", allow_duplicate=True),

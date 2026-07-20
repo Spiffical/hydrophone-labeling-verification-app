@@ -20,6 +20,18 @@ def test_create_app(mock_config):
     assert app.layout is not None
 
 
+def test_latency_sensitive_bbox_actions_are_clientside(mock_config):
+    app = create_app(mock_config)
+    bbox_callbacks = {
+        entry["clientside_function"]["function_name"]: entry
+        for entry in app._callback_list
+        if (entry.get("clientside_function") or {}).get("namespace") == "bboxInteractions"
+    }
+
+    assert set(bbox_callbacks) == {"activateDraw", "deleteBox", "openEditor"}
+    assert "modal-image-graph.figure" not in bbox_callbacks["activateDraw"]["output"]
+
+
 def test_label_startup_uses_label_folder_for_data_root(mock_config):
     layout = create_main_layout(mock_config)
 

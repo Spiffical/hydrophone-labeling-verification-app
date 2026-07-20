@@ -79,14 +79,13 @@ def _modal_graph():
 def test_modal_graph_hides_plotly_shape_modebar_buttons():
     config = _modal_graph().config
 
-    assert "modeBarButtonsToAdd" not in config
+    assert config["modeBarButtonsToAdd"] == ["drawrect"]
     removed = set(config.get("modeBarButtonsToRemove") or [])
     assert {
         "drawline",
         "drawopenpath",
         "drawclosedpath",
         "drawcircle",
-        "drawrect",
         "eraseshape",
         "lasso2d",
         "select2d",

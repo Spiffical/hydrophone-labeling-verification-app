@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import datetime
 
-from dash import ALL, Input, Output, State, ctx, no_update
+from dash import ALL, ClientsideFunction, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 from app.services.annotations import clean_box_tag
@@ -258,7 +258,8 @@ def register_modal_bbox_editor_callbacks(
         )
         return store, updated_fig, {"dirty": True, "item_id": current_item_id}
 
-    @app.callback(
+    app.clientside_callback(
+        ClientsideFunction(namespace="bboxInteractions", function_name="openEditor"),
         Output("bbox-editor-modal", "is_open", allow_duplicate=True),
         Output("bbox-editor-index-store", "data", allow_duplicate=True),
         Output("bbox-editor-label-dropdown", "value", allow_duplicate=True),
@@ -278,38 +279,6 @@ def register_modal_bbox_editor_callbacks(
         State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
-    def open_modal_box_editor(
-        graph_click_data,
-        edit_clicks,
-        bbox_store,
-        figure,
-        current_item_id,
-        mode,
-        profile,
-    ):
-        if mode == "explore" or not current_item_id:
-            raise PreventUpdate
-        triggered = ctx.triggered_id
-        box_index = None
-        if triggered == "modal-image-graph":
-            box_index = _box_index_from_graph_click(graph_click_data, figure, _BBOX_EDIT_TRACE_NAME)
-        elif isinstance(triggered, dict) and triggered.get("type") == "modal-bbox-edit-btn":
-            if not edit_clicks or not any((clicks or 0) > 0 for clicks in edit_clicks):
-                raise PreventUpdate
-            box_index = _coerce_int(triggered.get("index"))
-        else:
-            raise PreventUpdate
-
-        if box_index is None:
-            raise PreventUpdate
-        _require_complete_profile(profile, "open_modal_box_editor")
-        store = bbox_store if isinstance(bbox_store, dict) else {}
-        if store.get("item_id") != current_item_id:
-            raise PreventUpdate
-        boxes = store.get("boxes") if isinstance(store.get("boxes"), list) else []
-        if box_index < 0 or box_index >= len(boxes) or not isinstance(boxes[box_index], dict):
-            raise PreventUpdate
-        return _editor_values_for_box(box_index, boxes[box_index])
 
     @app.callback(
         Output("bbox-editor-modal", "is_open", allow_duplicate=True),

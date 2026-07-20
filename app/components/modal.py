@@ -292,6 +292,8 @@ def create_spectrogram_modal(config=None):
                             config={
                                 'displayModeBar': True,
                                 'displaylogo': False,
+                                # Kept in the DOM for instant programmatic bbox activation.
+                                'modeBarButtonsToAdd': ['drawrect'],
                                 'modeBarButtonsToRemove': [
                                     'lasso2d',
                                     'select2d',
@@ -299,7 +301,6 @@ def create_spectrogram_modal(config=None):
                                     'drawopenpath',
                                     'drawclosedpath',
                                     'drawcircle',
-                                    'drawrect',
                                     'eraseshape',
                                 ],
                                 # Keep shape editing enabled, but disable text/title editing.
