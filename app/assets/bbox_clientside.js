@@ -74,6 +74,29 @@
     return wrapper.querySelector ? wrapper.querySelector('.js-plotly-plot') : null;
   }
 
+  function setPanModeImmediately(graph) {
+    const target = graph || graphElement();
+    if (!target) {
+      return false;
+    }
+    target.classList.remove('modal-bbox-draw-active');
+    if (target._fullLayout && target._fullLayout.dragmode === 'pan') {
+      return true;
+    }
+    const panButton = target.querySelector(
+      '.modebar-btn[data-attr="dragmode"][data-val="pan"]'
+    );
+    if (panButton) {
+      panButton.click();
+      return true;
+    }
+    if (window.Plotly && typeof window.Plotly.relayout === 'function') {
+      window.Plotly.relayout(target, { dragmode: 'pan' });
+      return true;
+    }
+    return false;
+  }
+
   function setDrawModeImmediately() {
     const graph = graphElement();
     if (!graph) {
@@ -284,6 +307,15 @@
         }
         setDrawModeImmediately();
         return { label: label, allow_existing: true };
+      },
+
+      settleMode: function (bboxStore) {
+        if (!bboxStore || typeof bboxStore !== 'object' || !bboxStore.item_id) {
+          return noUpdate();
+        }
+        return setPanModeImmediately()
+          ? { item_id: bboxStore.item_id, settled_at: Date.now() }
+          : noUpdate();
       },
 
       deleteBox: function (clickData, bboxStore, figure, currentItemId, mode, profile) {

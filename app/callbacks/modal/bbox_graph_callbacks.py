@@ -3,7 +3,7 @@
 import time
 from copy import deepcopy
 
-from dash import Input, Output, State, ctx, no_update
+from dash import ClientsideFunction, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.modal.bbox_graph_helpers import (
@@ -28,6 +28,13 @@ def register_modal_bbox_graph_callbacks(
     _shape_to_extent,
     _extent_to_shape,
 ):
+    app.clientside_callback(
+        ClientsideFunction(namespace="bboxInteractions", function_name="settleMode"),
+        Output("modal-bbox-interaction-store", "data"),
+        Input("modal-bbox-store", "data"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("modal-bbox-store", "data", allow_duplicate=True),
         Output("modal-image-graph", "figure", allow_duplicate=True),

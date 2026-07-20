@@ -340,6 +340,7 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='current-filename', data=None),
                 dcc.Store(id='modal-item-store', data=None),
                 dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
+                dcc.Store(id='modal-bbox-interaction-store', data=None),
                 dcc.Store(id='modal-active-box-label', data=None),
                 dcc.Store(id='modal-unsaved-store', data={"dirty": False}),
                 dcc.Store(id='modal-snapshot-store', data=None),

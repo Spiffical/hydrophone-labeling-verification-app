@@ -28,8 +28,9 @@ def test_latency_sensitive_bbox_actions_are_clientside(mock_config):
         if (entry.get("clientside_function") or {}).get("namespace") == "bboxInteractions"
     }
 
-    assert set(bbox_callbacks) == {"activateDraw", "deleteBox", "openEditor"}
+    assert set(bbox_callbacks) == {"activateDraw", "deleteBox", "openEditor", "settleMode"}
     assert "modal-image-graph.figure" not in bbox_callbacks["activateDraw"]["output"]
+    assert bbox_callbacks["settleMode"]["output"] == "modal-bbox-interaction-store.data"
 
 
 def test_label_startup_uses_label_folder_for_data_root(mock_config):
