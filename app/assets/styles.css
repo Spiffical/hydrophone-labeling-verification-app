@@ -3777,6 +3777,11 @@ body.theme-dark .dash-range-slider-input,
     flex-wrap: wrap;
 }
 
+.modal-label-row--model-rejected .modal-label-bbox-col,
+.modal-label-row--deleted .modal-label-bbox-col {
+    visibility: hidden;
+}
+
 .verify-badge-list {
     display: flex;
     flex-wrap: wrap;

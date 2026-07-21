@@ -6,6 +6,7 @@ from app.callbacks.label.editor_modal_callbacks import (
 from app.callbacks.label.editor_save_callbacks import register_label_save_callbacks
 from app.callbacks.label.note_callbacks import register_label_note_callbacks
 from app.callbacks.label.editor_shell_callbacks import register_label_editor_shell_callbacks
+from app.callbacks.verify.clientside_callbacks import register_label_clientside_callbacks
 
 
 def register_label_editor_callbacks(
@@ -31,6 +32,8 @@ def register_label_editor_callbacks(
     _has_pending_label_edits,
     _stage_label_note_edit,
 ):
+    register_label_clientside_callbacks(app)
+
     register_label_editor_shell_callbacks(
         app,
         _create_folder_display=_create_folder_display,

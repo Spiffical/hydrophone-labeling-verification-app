@@ -800,6 +800,10 @@
 
   window.dash_clientside = Object.assign({}, window.dash_clientside, {
     bboxInteractions: Object.assign({}, (window.dash_clientside || {}).bboxInteractions, {
+      applyBoxesToFigure: function (figure, boxes) {
+        return applyBoxesToFigure(figure, boxes);
+      },
+
       activateDraw: function (
         _addBoxClicks,
         profile,

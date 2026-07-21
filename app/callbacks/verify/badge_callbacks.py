@@ -3,7 +3,6 @@
 import json
 from copy import deepcopy
 from datetime import datetime
-from time import time_ns
 
 from dash import ALL, Input, Output, Patch, State, ctx, no_update
 from dash.exceptions import PreventUpdate
@@ -16,11 +15,13 @@ from app.callbacks.verify.badge_helpers import (
     flatten_callback_inputs,
     resolve_trigger_payload,
     resolve_trigger_timestamp,
+    review_states_match,
     timestamp_summary,
     update_boxes_and_extents_for_action,
 )
 from app.callbacks.verify.ui_update_helpers import build_verify_card_ui_updates
 from app.services.verify_modal_cache import (
+    get_verify_modal_baseline_item,
     get_verify_modal_item,
     get_verify_modal_item_index,
     get_verify_modal_summary,
@@ -33,7 +34,6 @@ def register_verify_badge_callbacks(
     *,
     _require_complete_profile,
     _filter_predictions,
-    _apply_modal_boxes_to_figure,
     _clean_annotation_extent,
     _extract_label_extent_map_from_boxes,
     _get_modal_label_sets,
@@ -53,7 +53,6 @@ def register_verify_badge_callbacks(
         Output("verify-badge-event-store", "data", allow_duplicate=True),
         Output("modal-item-store", "data", allow_duplicate=True),
         Output("modal-item-actions", "children", allow_duplicate=True),
-        Output("modal-image-graph", "figure", allow_duplicate=True),
         Output({"type": "verify-label-block", "item_id": ALL}, "children", allow_duplicate=True),
         Output({"type": "confirm-btn", "item_id": ALL}, "disabled", allow_duplicate=True),
         Output({"type": "confirm-btn", "item_id": ALL}, "color", allow_duplicate=True),
@@ -71,7 +70,6 @@ def register_verify_badge_callbacks(
         State("verify-badge-event-store", "data"),
         State("verify-data-cache-key-store", "data"),
         State("modal-active-box-label", "data"),
-        State("modal-image-graph", "figure"),
         State({"type": "verify-label-block", "item_id": ALL}, "id"),
         State({"type": "confirm-btn", "item_id": ALL}, "id"),
         prevent_initial_call=True,
@@ -90,7 +88,6 @@ def register_verify_badge_callbacks(
         badge_event_store,
         verify_data_cache_key,
         active_box_label,
-        modal_figure,
         label_block_ids,
         save_button_ids,
     ):
@@ -181,6 +178,7 @@ def register_verify_badge_callbacks(
         _verify_badge_debug("resolved_action", action=action, item_id=item_id, label=label, modal_item_id=modal_item_id)
         thresholds = thresholds or {"__global__": 0.5}
         active_item = get_verify_modal_item(verify_data_cache_key, item_id)
+        baseline_item = get_verify_modal_baseline_item(verify_data_cache_key, item_id)
         active_item_index = get_verify_modal_item_index(verify_data_cache_key, item_id)
         if not isinstance(active_item, dict):
             _verify_badge_debug(
@@ -266,6 +264,14 @@ def register_verify_badge_callbacks(
         if profile_name:
             annotations_update["annotated_by"] = profile_name
         active_item["annotations"] = annotations_update
+        reverted_to_baseline = review_states_match(active_item, baseline_item)
+        if reverted_to_baseline:
+            active_item = deepcopy(baseline_item)
+            if item_id == (modal_item_id or ""):
+                next_bbox_store = {
+                    "item_id": item_id,
+                    "boxes": _build_modal_boxes_from_item(active_item),
+                }
         update_verify_modal_item(verify_data_cache_key, active_item)
         updated_data = Patch()
         updated_data["items"][active_item_index] = active_item
@@ -273,7 +279,12 @@ def register_verify_badge_callbacks(
         if isinstance(summary_obj, dict):
             updated_data["summary"] = summary_obj
 
-        unsaved_update = {"dirty": True, "item_id": item_id} if item_id == (modal_item_id or "") else no_update
+        pending = not reverted_to_baseline
+        unsaved_update = (
+            {"dirty": pending, "item_id": item_id}
+            if item_id == (modal_item_id or "")
+            else no_update
+        )
         _verify_badge_debug(
             "return_update",
             item_id=item_id,
@@ -296,20 +307,13 @@ def register_verify_badge_callbacks(
                 boxes=(next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
                 active_box_label=active_box_label,
             )
-        modal_figure_update = no_update
-        if item_id == (modal_item_id or ""):
-            modal_figure_update = _apply_modal_boxes_to_figure(
-                deepcopy(modal_figure) if isinstance(modal_figure, dict) else {},
-                (next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
-                revision_bump=time_ns(),
-            )
         direct_ui_updates = build_verify_card_ui_updates(
             item_id,
             active_item,
             label_block_ids,
             save_button_ids,
             predicted_labels=predicted_labels,
-            pending=True,
+            pending=pending,
         )
         return (
             updated_data,
@@ -318,7 +322,6 @@ def register_verify_badge_callbacks(
             {"last_key": selected_key},
             updated_modal_item,
             modal_actions_update,
-            modal_figure_update,
             *direct_ui_updates,
         )
 
@@ -328,7 +331,6 @@ def register_verify_badge_callbacks(
         Output("verify-badge-event-store", "data", allow_duplicate=True),
         Output("modal-item-store", "data", allow_duplicate=True),
         Output("modal-item-actions", "children", allow_duplicate=True),
-        Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("verify-data-store", "data", allow_duplicate=True),
         Output({"type": "verify-label-block", "item_id": ALL}, "children", allow_duplicate=True),
         Output({"type": "confirm-btn", "item_id": ALL}, "disabled", allow_duplicate=True),
@@ -347,7 +349,6 @@ def register_verify_badge_callbacks(
         State("verify-badge-event-store", "data"),
         State("verify-data-cache-key-store", "data"),
         State("modal-active-box-label", "data"),
-        State("modal-image-graph", "figure"),
         State({"type": "verify-label-block", "item_id": ALL}, "id"),
         State({"type": "confirm-btn", "item_id": ALL}, "id"),
         prevent_initial_call=True,
@@ -366,7 +367,6 @@ def register_verify_badge_callbacks(
         badge_event_store,
         verify_data_cache_key,
         active_box_label,
-        modal_figure,
         label_block_ids,
         save_button_ids,
     ):
@@ -437,6 +437,7 @@ def register_verify_badge_callbacks(
         _require_complete_profile(profile, "quick_update_verify_labels")
 
         active_item = deepcopy(modal_item)
+        baseline_item = get_verify_modal_baseline_item(verify_data_cache_key, item_id)
         thresholds = thresholds or {"__global__": 0.5}
         predicted_labels = _filter_predictions(active_item.get("predictions") or {}, thresholds)
         predicted_set = set(predicted_labels)
@@ -493,6 +494,14 @@ def register_verify_badge_callbacks(
             annotations_update["annotated_by"] = profile_name
         active_item["annotations"] = annotations_update
 
+        reverted_to_baseline = review_states_match(active_item, baseline_item)
+        if reverted_to_baseline:
+            active_item = deepcopy(baseline_item)
+            next_bbox_store = {
+                "item_id": item_id,
+                "boxes": _build_modal_boxes_from_item(active_item),
+            }
+
         update_verify_modal_item(verify_data_cache_key, active_item)
 
         direct_ui_updates = build_verify_card_ui_updates(
@@ -501,7 +510,7 @@ def register_verify_badge_callbacks(
             label_block_ids,
             save_button_ids,
             predicted_labels=predicted_labels,
-            pending=True,
+            pending=not reverted_to_baseline,
         )
         modal_actions_update = _build_modal_item_actions(
             active_item,
@@ -510,12 +519,6 @@ def register_verify_badge_callbacks(
             boxes=(next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
             active_box_label=active_box_label,
         )
-        modal_figure_update = _apply_modal_boxes_to_figure(
-            deepcopy(modal_figure) if isinstance(modal_figure, dict) else {},
-            (next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
-            revision_bump=time_ns(),
-        )
-
         _verify_badge_debug(
             "modal_return_update",
             item_id=item_id,
@@ -528,11 +531,10 @@ def register_verify_badge_callbacks(
         )
         return (
             next_bbox_store,
-            {"dirty": True, "item_id": item_id},
+            {"dirty": not reverted_to_baseline, "item_id": item_id},
             {"last_key": selected_key},
             active_item,
             modal_actions_update,
-            modal_figure_update,
             no_update,
             *direct_ui_updates,
         )

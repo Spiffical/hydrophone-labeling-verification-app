@@ -280,16 +280,21 @@ def register_modal_bbox_editor_callbacks(
         prevent_initial_call=True,
     )
 
-    @app.callback(
+    app.clientside_callback(
+        """
+        function(cancelClicks) {
+            var dc = (window.dash_clientside || {});
+            if (!cancelClicks) {
+                return [dc.no_update, dc.no_update];
+            }
+            return [false, ""];
+        }
+        """,
         Output("bbox-editor-modal", "is_open", allow_duplicate=True),
         Output("bbox-editor-validation", "children", allow_duplicate=True),
         Input("bbox-editor-cancel", "n_clicks"),
         prevent_initial_call=True,
     )
-    def cancel_modal_box_editor(cancel_clicks):
-        if not cancel_clicks:
-            raise PreventUpdate
-        return False, ""
 
     @app.callback(
         Output("modal-bbox-store", "data", allow_duplicate=True),

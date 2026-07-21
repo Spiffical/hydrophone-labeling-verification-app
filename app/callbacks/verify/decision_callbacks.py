@@ -1,6 +1,7 @@
 """Orchestration entrypoint for verify decision callbacks."""
 
 from app.callbacks.verify.badge_callbacks import register_verify_badge_callbacks
+from app.callbacks.verify.clientside_callbacks import register_verify_clientside_callbacks
 from app.callbacks.verify.confirm_callbacks import register_verify_confirm_callbacks
 
 
@@ -9,7 +10,6 @@ def register_verify_action_callbacks(
     *,
     _require_complete_profile,
     _filter_predictions,
-    _apply_modal_boxes_to_figure,
     _clean_annotation_extent,
     _extract_label_extent_list_map_from_boxes,
     _extract_label_extent_map_from_boxes,
@@ -26,6 +26,8 @@ def register_verify_action_callbacks(
     _verify_badge_debug,
 ):
     """Register verify confirm/save and quick badge action callbacks."""
+    register_verify_clientside_callbacks(app)
+
     register_verify_confirm_callbacks(
         app,
         _require_complete_profile=_require_complete_profile,
@@ -45,7 +47,6 @@ def register_verify_action_callbacks(
         app,
         _require_complete_profile=_require_complete_profile,
         _filter_predictions=_filter_predictions,
-        _apply_modal_boxes_to_figure=_apply_modal_boxes_to_figure,
         _clean_annotation_extent=_clean_annotation_extent,
         _extract_label_extent_map_from_boxes=_extract_label_extent_map_from_boxes,
         _get_modal_label_sets=_get_modal_label_sets,

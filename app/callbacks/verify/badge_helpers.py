@@ -193,3 +193,33 @@ def box_annotations_after_label_action(*, action, label, annotations_obj, next_b
             if (entry.get("label") or "").strip() != target
         ]
     return box_annotations
+
+
+def review_states_match(left_item, right_item):
+    """Compare persisted review content while ignoring transient audit timestamps."""
+
+    def normalized_state(item):
+        annotations = item.get("annotations") if isinstance(item, dict) else {}
+        annotations = annotations if isinstance(annotations, dict) else {}
+        boxes = [
+            cleaned
+            for cleaned in (
+                clean_box_annotation(entry)
+                for entry in (annotations.get("box_annotations") or [])
+            )
+            if cleaned
+        ]
+        boxes.sort(key=lambda entry: json.dumps(entry, sort_keys=True, ensure_ascii=True))
+        return {
+            "labels": sorted(set(annotations.get("labels") or [])),
+            "rejected_labels": sorted(set(annotations.get("rejected_labels") or [])),
+            "label_extents": annotations.get("label_extents") or {},
+            "box_annotations": boxes,
+            "notes": annotations.get("notes") or "",
+            "verified": bool(annotations.get("verified")),
+            "review_started": bool(
+                annotations.get("verified") or annotations.get("has_manual_review")
+            ),
+        }
+
+    return normalized_state(left_item) == normalized_state(right_item)

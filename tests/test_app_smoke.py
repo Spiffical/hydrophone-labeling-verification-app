@@ -38,6 +38,54 @@ def test_latency_sensitive_bbox_actions_are_clientside(mock_config):
     assert "modal-image-graph.figure" in bbox_callbacks["updateBoxesFromGraph"]["output"]
 
 
+def test_latency_sensitive_verification_actions_are_clientside(mock_config):
+    app = create_app(mock_config)
+    verification_callbacks = {
+        entry["clientside_function"]["function_name"]: entry
+        for entry in app._callback_list
+        if (entry.get("clientside_function") or {}).get("namespace")
+        == "verificationInteractions"
+    }
+
+    assert set(verification_callbacks) == {
+        "optimisticDecision",
+        "optimisticLabelDelete",
+        "optimisticModalFigure",
+    }
+    assert "verify-label-badge" in verification_callbacks["optimisticDecision"]["output"]
+    assert "modal-image-graph.figure" in verification_callbacks["optimisticModalFigure"]["output"]
+
+
+def test_verify_decision_server_callbacks_do_not_transfer_modal_figure(mock_config):
+    app = create_app(mock_config)
+    decision_callbacks = [
+        entry
+        for entry in app._callback_list
+        if "verify-badge-event-store" in entry.get("output", "")
+    ]
+
+    assert len(decision_callbacks) == 2
+    for entry in decision_callbacks:
+        assert "modal-image-graph.figure" not in entry["output"]
+        assert not any(
+            state["id"] == "modal-image-graph" and state["property"] == "figure"
+            for state in entry.get("state", [])
+        )
+
+
+def test_modal_edit_opens_label_editor_clientside(mock_config):
+    app = create_app(mock_config)
+    modal_edit_callbacks = [
+        entry
+        for entry in app._callback_list
+        if entry.get("clientside_function")
+        and any("modal-action-edit" in input_obj["id"] for input_obj in entry.get("inputs", []))
+        and "label-editor-modal.is_open" in entry.get("output", "")
+    ]
+
+    assert len(modal_edit_callbacks) == 1
+
+
 def test_label_startup_uses_label_folder_for_data_root(mock_config):
     layout = create_main_layout(mock_config)
 

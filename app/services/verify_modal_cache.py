@@ -267,6 +267,7 @@ def register_verify_modal_items(data):
         _VERIFY_MODAL_CACHE[cache_key] = {
             "load_timestamp": data.get("load_timestamp"),
             "items_by_id": items_by_id,
+            "baseline_items_by_id": deepcopy(items_by_id),
             "item_indices": item_indices,
             "filter_records": filter_records,
             "summary": summary,
@@ -483,6 +484,21 @@ def get_verify_modal_item(cache_key, item_id):
     return deepcopy(item) if isinstance(item, dict) else None
 
 
+def get_verify_modal_baseline_item(cache_key, item_id):
+    """Return the last saved copy of a cached verify item."""
+    if not cache_key or not item_id:
+        return None
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return None
+        items_by_id = cache_entry.get("baseline_items_by_id")
+        if not isinstance(items_by_id, dict):
+            return None
+        item = items_by_id.get(item_id)
+    return deepcopy(item) if isinstance(item, dict) else None
+
+
 def update_verify_modal_item(cache_key, item):
     """Update a cached verify item after a modal save and return its index."""
     if not cache_key or not isinstance(item, dict):
@@ -501,6 +517,10 @@ def update_verify_modal_item(cache_key, item):
         if item_id not in item_indices:
             return None
         items_by_id[item_id] = deepcopy(item)
+        annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
+        if not has_pending_label_edits(annotations):
+            baseline_items_by_id = cache_entry.setdefault("baseline_items_by_id", {})
+            baseline_items_by_id[item_id] = deepcopy(item)
         filter_records = cache_entry.get("filter_records")
         if isinstance(filter_records, dict):
             record = _build_filter_record(item, item_indices.get(item_id, 0))

@@ -134,7 +134,6 @@ def register_all_callback_sections(app, *, config, deps):
         app,
         _require_complete_profile=d["require_complete_profile"],
         _filter_predictions=d["filter_predictions"],
-        _apply_modal_boxes_to_figure=d["apply_modal_boxes_to_figure"],
         _clean_annotation_extent=d["clean_annotation_extent"],
         _extract_label_extent_list_map_from_boxes=d["extract_label_extent_list_map_from_boxes"],
         _extract_label_extent_map_from_boxes=d["extract_label_extent_map_from_boxes"],

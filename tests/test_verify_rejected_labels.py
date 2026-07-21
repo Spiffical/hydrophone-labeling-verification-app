@@ -4,7 +4,10 @@ from app.callbacks.label.editor_modal_callbacks import (
     _resolve_grid_editor_item_id,
     _resolve_selected_labels,
 )
-from app.callbacks.verify.badge_helpers import box_annotations_after_label_action
+from app.callbacks.verify.badge_helpers import (
+    box_annotations_after_label_action,
+    review_states_match,
+)
 from app.components.spectrogram_card import create_spectrogram_card
 from app.callbacks.modal.actions_helpers import build_modal_item_actions
 from app.services.modal_state import persist_modal_item_before_exit
@@ -13,6 +16,7 @@ from app.services.verification import filter_predictions
 from app.services.verify_pagination import _filter_predictions as filter_pagination_predictions
 from app.services.verify_modal_cache import (
     _prediction_filter_entries,
+    get_verify_modal_baseline_item,
     get_verify_modal_item,
     register_verify_modal_items,
     update_verify_modal_item,
@@ -402,6 +406,78 @@ def test_verify_modal_cache_can_be_updated_after_card_reject():
     cached = get_verify_modal_item(cache_key, "clip-1")
     assert cached["annotations"]["labels"] == [BLUE_WHALE]
     assert cached["annotations"]["rejected_labels"] == [FIN_WHALE]
+
+    baseline = get_verify_modal_baseline_item(cache_key, "clip-1")
+    assert baseline == initial_item
+
+
+def test_verify_modal_cache_advances_baseline_after_save():
+    initial_item = {
+        "item_id": "clip-saved",
+        "annotations": {"labels": [FIN_WHALE], "verified": True},
+    }
+    cache_key = register_verify_modal_items(
+        {
+            "load_timestamp": "2026-05-12T00:00:01Z",
+            "summary": {"predictions_file": "/tmp/predictions.json"},
+            "items": [initial_item],
+        }
+    )
+    saved_item = {
+        **initial_item,
+        "annotations": {
+            "labels": [BLUE_WHALE],
+            "verified": True,
+            "pending_save": False,
+        },
+    }
+
+    update_verify_modal_item(cache_key, saved_item)
+
+    assert get_verify_modal_baseline_item(cache_key, "clip-saved") == saved_item
+
+
+def test_review_state_round_trip_ignores_transient_audit_fields():
+    baseline = {
+        "annotations": {
+            "labels": [FIN_WHALE, BLUE_WHALE],
+            "verified": True,
+            "annotated_at": "2026-05-12T00:00:00Z",
+            "annotated_by": "first reviewer",
+        }
+    }
+    reverted = {
+        "annotations": {
+            "labels": [BLUE_WHALE, FIN_WHALE],
+            "verified": True,
+            "has_manual_review": True,
+            "pending_save": True,
+            "needs_reverify": True,
+            "annotated_at": "2026-05-12T00:01:00Z",
+            "annotated_by": "second reviewer",
+        }
+    }
+
+    assert review_states_match(reverted, baseline)
+
+
+def test_review_state_distinguishes_first_review_from_unverified_prediction():
+    baseline = {
+        "annotations": {
+            "labels": [FIN_WHALE],
+            "verified": False,
+        }
+    }
+    reviewed = {
+        "annotations": {
+            "labels": [FIN_WHALE],
+            "verified": False,
+            "has_manual_review": True,
+            "pending_save": True,
+        }
+    }
+
+    assert not review_states_match(reviewed, baseline)
 
 
 def test_persist_modal_item_before_exit_does_not_reaccept_sparse_rejection(tmp_path):

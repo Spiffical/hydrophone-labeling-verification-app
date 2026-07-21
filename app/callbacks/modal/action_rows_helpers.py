@@ -181,9 +181,11 @@ def build_verify_rows(
                                     html.Div(
                                         [
                                             icon,
-                                            html.Span(state_text, className="verify-label-state")
-                                            if state_text
-                                            else None,
+                                            html.Span(
+                                                state_text,
+                                                id={"type": "modal-verify-label-state", "target": label},
+                                                className="verify-label-state",
+                                            ),
                                         ],
                                         className="verify-label-row-meta",
                                     ),
@@ -193,11 +195,13 @@ def build_verify_rows(
                             ),
                             html.Span(label, className="verify-label-text verify-label-text--multiline"),
                         ],
+                        id={"type": "modal-verify-label-badge", "target": label},
                         className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
                     ),
                     bbox_control,
                 ],
-                className="modal-label-row modal-label-row--verify",
+                id={"type": "modal-verify-label-row", "target": label},
+                className=f"modal-label-row modal-label-row--verify modal-label-row--{state}",
             )
         )
 

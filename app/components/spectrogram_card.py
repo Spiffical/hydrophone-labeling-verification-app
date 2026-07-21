@@ -72,6 +72,7 @@ def _render_label_badges_with_delete(item_id, labels):
                     ),
                     html.Span(label, className="verify-label-text verify-label-text--multiline"),
                 ],
+                id={"type": "label-label-badge", "target": target},
                 className="verify-label-badge verify-label-badge--human-added verify-label-badge--row",
             )
         )
@@ -206,9 +207,11 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
                             html.Div(
                                 [
                                     icon,
-                                    html.Span(state_text, className="verify-label-state")
-                                    if state_text
-                                    else None,
+                                    html.Span(
+                                        state_text,
+                                        id={"type": "verify-label-state", "target": target},
+                                        className="verify-label-state",
+                                    ),
                                 ],
                                 className="verify-label-row-meta",
                             ),
@@ -218,6 +221,7 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
                     ),
                     html.Span(label, className="verify-label-text verify-label-text--multiline"),
                 ],
+                id={"type": "verify-label-badge", "target": target},
                 className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
             )
         )
@@ -277,6 +281,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     image = html.Div([
         html.Img(
             src=_TRANSPARENT_IMAGE_SRC,
+            alt=f"Spectrogram for {item_id}",
             id={"type": "spectrogram-image", "item_id": item_id},
             className="spectrogram-image",
             **{"data-src": image_src or "", "data-lazy-spectrogram": "true"},

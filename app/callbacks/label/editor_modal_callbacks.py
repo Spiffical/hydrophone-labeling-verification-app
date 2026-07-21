@@ -125,6 +125,36 @@ def register_label_editor_modal_callbacks(
 
     app.clientside_callback(
         """
+        function(editClicks, profile, mode) {
+            var dc = (window.dash_clientside || {});
+            var ctx = dc.callback_context || null;
+            if (!ctx || !ctx.triggered || ctx.triggered.length === 0 || mode === "explore") {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            profile = profile || {};
+            var name = String(profile.name || "").trim();
+            var email = String(profile.email || "").trim();
+            var triggered = ctx.triggered[0] || {};
+            var hasClick = Array.isArray(editClicks) && editClicks.some(function(value) {
+                return typeof value === "number" && value > 0;
+            });
+            if (!name || email.indexOf("@") === -1 || !hasClick || !triggered.value) {
+                return [dc.no_update, dc.no_update, dc.no_update];
+            }
+            return [true, "Loading label editor...", null];
+        }
+        """,
+        Output("label-editor-modal", "is_open", allow_duplicate=True),
+        Output("label-editor-body", "children", allow_duplicate=True),
+        Output("active-item-store", "data", allow_duplicate=True),
+        Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
+        State("user-profile-store", "data"),
+        State("mode-tabs", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """
         function(editClicks, editIds, profile, mode) {
             var dc = (window.dash_clientside || {});
             var ctx = dc.callback_context || null;
@@ -310,6 +340,10 @@ def register_label_editor_modal_callbacks(
         State("modal-active-box-label", "data"),
         State({"type": "verify-label-block", "item_id": ALL}, "id"),
         State({"type": "confirm-btn", "item_id": ALL}, "id"),
+        running=[
+            (Output("label-editor-save", "disabled"), True, False),
+            (Output("label-editor-save", "children"), "Saving...", "Save Labels"),
+        ],
         prevent_initial_call=True,
     )
     def save_label_editor(
