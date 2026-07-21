@@ -637,7 +637,18 @@
         x: editX, y: editY, customdata: editIndices, text: editIndices.map(function () { return '✎'; }),
         textposition: 'middle center', textfont: { size: 12, color: '#ffffff' },
         marker: { size: 22, opacity: 0.95, color: 'rgba(13, 110, 253, 0.94)', line: { color: '#ffffff', width: 1 }, symbol: 'square' },
-        opacity: 1, selectedpoints: [], hovertemplate: editHover, cliponaxis: true,
+        opacity: 1,
+        selectedpoints: [],
+        selected: {
+          marker: { opacity: 0.92, color: 'rgba(13, 110, 253, 0.96)', line: { color: '#ffffff', width: 1 } },
+          textfont: { color: '#ffffff' },
+        },
+        unselected: {
+          marker: { opacity: 0.95, color: 'rgba(13, 110, 253, 0.94)', line: { color: '#ffffff', width: 1 } },
+          textfont: { color: '#ffffff' },
+        },
+        hovertemplate: editHover,
+        cliponaxis: true,
       });
     }
     if (deleteIndices.length) {
@@ -646,7 +657,18 @@
         x: deleteX, y: deleteY, customdata: deleteIndices, text: deleteIndices.map(function () { return '×'; }),
         textposition: 'middle center', textfont: { size: 12, color: '#ffffff' },
         marker: { size: 18, opacity: 1, color: 'rgba(220, 53, 69, 0.98)', line: { color: '#ffffff', width: 1 }, symbol: 'square' },
-        opacity: 1, selectedpoints: [], hovertemplate: 'Delete box<extra></extra>', cliponaxis: true,
+        opacity: 1,
+        selectedpoints: [],
+        selected: {
+          marker: { opacity: 1, color: 'rgba(220, 53, 69, 0.98)', line: { color: '#ffffff', width: 1 } },
+          textfont: { color: '#ffffff' },
+        },
+        unselected: {
+          marker: { opacity: 1, color: 'rgba(220, 53, 69, 0.98)', line: { color: '#ffffff', width: 1 } },
+          textfont: { color: '#ffffff' },
+        },
+        hovertemplate: 'Delete box<extra></extra>',
+        cliponaxis: true,
       });
     }
     nextFigure.data = data;
