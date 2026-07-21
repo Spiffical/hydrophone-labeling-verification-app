@@ -346,6 +346,7 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='modal-snapshot-store', data=None),
                 dcc.Store(id='modal-pending-action-store', data=None),
                 dcc.Store(id='modal-force-action-store', data=None),
+                dcc.Store(id='modal-open-request-store', data=None),
                 dcc.Store(id='modal-busy-store', data=False, storage_type='memory'),
             ], className="p-4"),
 

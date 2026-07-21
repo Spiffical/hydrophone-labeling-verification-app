@@ -2,7 +2,7 @@
 
 import time
 
-from dash import ALL, Input, Output, State, ctx, html, no_update
+from dash import ALL, ClientsideFunction, Input, Output, State, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.common.debug import perf_debug
@@ -40,8 +40,64 @@ def register_modal_lifecycle_navigation_callbacks(
     _apply_modal_boxes_to_figure,
     _build_modal_item_actions,
 ):
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="openImmediately",
+        ),
+        Output("image-modal", "is_open", allow_duplicate=True),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-open-request-store", "data"),
+        Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
+        State("modal-unsaved-store", "data"),
+        State("current-filename", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="closeImmediately",
+        ),
+        Output("image-modal", "is_open", allow_duplicate=True),
+        Output("current-filename", "data", allow_duplicate=True),
+        Output("modal-item-store", "data", allow_duplicate=True),
+        Output("modal-bbox-store", "data", allow_duplicate=True),
+        Output("modal-active-box-label", "data", allow_duplicate=True),
+        Output("modal-snapshot-store", "data", allow_duplicate=True),
+        Output("modal-unsaved-store", "data", allow_duplicate=True),
+        Output("unsaved-changes-modal", "is_open", allow_duplicate=True),
+        Output("modal-pending-action-store", "data", allow_duplicate=True),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Input("close-modal", "n_clicks"),
+        Input("close-modal-header", "n_clicks"),
+        State("modal-unsaved-store", "data"),
+        State("current-filename", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="applyForcedAction",
+        ),
+        Output("image-modal", "is_open", allow_duplicate=True),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Input("modal-force-action-store", "data"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="finishLoading",
+        ),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Input("modal-item-store", "data"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
-        Output("image-modal", "is_open"),
         Output("current-filename", "data"),
         Output("modal-item-store", "data"),
         Output("modal-image-graph", "figure"),
@@ -57,15 +113,12 @@ def register_modal_lifecycle_navigation_callbacks(
         Output("modal-unsaved-store", "data"),
         Output("unsaved-changes-modal", "is_open"),
         Output("modal-pending-action-store", "data"),
-        Output("modal-busy-store", "data", allow_duplicate=True),
         Output("modal-colorbar-min-input", "placeholder", allow_duplicate=True),
         Output("modal-colorbar-max-input", "placeholder", allow_duplicate=True),
         Output("modal-colorbar-hint", "children", allow_duplicate=True),
-        Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
+        Input("modal-open-request-store", "data"),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
-        Input("close-modal", "n_clicks"),
-        Input("close-modal-header", "n_clicks"),
         Input("modal-force-action-store", "data"),
         State("label-data-store", "data"),
         State("explore-data-store", "data"),
@@ -92,11 +145,9 @@ def register_modal_lifecycle_navigation_callbacks(
         prevent_initial_call=True,
     )
     def handle_modal_trigger(
-        image_clicks_list,
+        open_request,
         prev_clicks,
         next_clicks,
-        close_clicks,
-        header_close_clicks,
         force_action,
         label_data,
         explore_data,
@@ -122,7 +173,7 @@ def register_modal_lifecycle_navigation_callbacks(
         cfg,
     ):
         start = time.perf_counter()
-        _ = prev_clicks, next_clicks, close_clicks, header_close_clicks
+        _ = prev_clicks, next_clicks
         mode = mode or "label"
         data = _get_mode_data(mode, label_data, None, explore_data)
         source_items = (data or {}).get("items", []) if isinstance(data, dict) else []
@@ -154,12 +205,10 @@ def register_modal_lifecycle_navigation_callbacks(
             candidate = force_action.get("action")
             if isinstance(candidate, dict) and candidate.get("kind") in {"close", "open"}:
                 action = candidate
-        elif isinstance(triggered, str) and triggered in {"close-modal", "close-modal-header"}:
-            action = {"kind": "close"}
-        elif isinstance(triggered, dict) and triggered.get("type") == "spectrogram-image":
-            if not any(image_clicks_list):
+        elif triggered == "modal-open-request-store":
+            if not isinstance(open_request, dict):
                 raise PreventUpdate
-            clicked_item_id = (triggered.get("item_id") or "").strip()
+            clicked_item_id = (open_request.get("item_id") or "").strip()
             if clicked_item_id:
                 action = {"kind": "open", "item_id": clicked_item_id}
         elif triggered in {"modal-nav-prev", "modal-nav-next"}:
@@ -194,10 +243,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
-                    no_update,
                     True,
                     action,
-                    False,
                     no_update,
                     no_update,
                     no_update,
@@ -218,10 +265,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
-                    no_update,
                     True,
                     action,
-                    False,
                     no_update,
                     no_update,
                     no_update,
@@ -229,7 +274,6 @@ def register_modal_lifecycle_navigation_callbacks(
 
         if action.get("kind") == "close":
             return (
-                False,
                 None,
                 None,
                 no_update,
@@ -245,7 +289,6 @@ def register_modal_lifecycle_navigation_callbacks(
                 {"dirty": False, "item_id": None},
                 False,
                 None,
-                False,
                 no_update,
                 no_update,
                 no_update,
@@ -417,7 +460,6 @@ def register_modal_lifecycle_navigation_callbacks(
         )
 
         return (
-            True,
             item_id,
             source_item,
             fig,
@@ -433,7 +475,6 @@ def register_modal_lifecycle_navigation_callbacks(
             {"dirty": False, "item_id": item_id},
             False,
             None,
-            False,
             placeholder_min,
             placeholder_max,
             colorbar_hint,

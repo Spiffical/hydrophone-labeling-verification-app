@@ -86,6 +86,40 @@ def test_modal_edit_opens_label_editor_clientside(mock_config):
     assert len(modal_edit_callbacks) == 1
 
 
+def test_modal_open_and_close_are_clientside(mock_config):
+    app = create_app(mock_config)
+    modal_lifecycle_callbacks = {
+        entry["clientside_function"]["function_name"]: entry
+        for entry in app._callback_list
+        if (entry.get("clientside_function") or {}).get("namespace") == "modalLifecycle"
+    }
+
+    assert set(modal_lifecycle_callbacks) == {
+        "openImmediately",
+        "closeImmediately",
+        "applyForcedAction",
+        "finishLoading",
+    }
+    assert "image-modal.is_open" in modal_lifecycle_callbacks["openImmediately"]["output"]
+    assert "image-modal.is_open" in modal_lifecycle_callbacks["closeImmediately"]["output"]
+    assert "image-modal.is_open" in modal_lifecycle_callbacks["applyForcedAction"]["output"]
+
+    server_lifecycle_callbacks = [
+        entry
+        for entry in app._callback_list
+        if not entry.get("clientside_function")
+        and "current-filename.data" in entry.get("output", "")
+        and any(input_obj["id"] == "modal-open-request-store" for input_obj in entry.get("inputs", []))
+    ]
+    assert len(server_lifecycle_callbacks) == 1
+    assert "image-modal.is_open" not in server_lifecycle_callbacks[0]["output"]
+    server_input_ids = {input_obj["id"] for input_obj in server_lifecycle_callbacks[0]["inputs"]}
+    assert "modal-open-request-store" in server_input_ids
+    assert not any("spectrogram-image" in input_id for input_id in server_input_ids)
+    assert "close-modal" not in server_input_ids
+    assert "close-modal-header" not in server_input_ids
+
+
 def test_label_startup_uses_label_folder_for_data_root(mock_config):
     layout = create_main_layout(mock_config)
 
