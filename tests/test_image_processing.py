@@ -4,6 +4,9 @@ import threading
 import time
 from unittest.mock import patch
 
+import numpy as np
+import soundfile as sf
+
 from app.utils import image_processing
 from app.utils.image_processing import (
     create_image_file_figure,
@@ -98,6 +101,29 @@ def test_concurrent_audio_spectrogram_requests_share_one_computation(tmp_path):
 
     assert calls == 1
     assert all(result is expected for result in results)
+
+
+def test_audio_spectrogram_reports_nyquist_limited_high_band(tmp_path):
+    sample_rate = 6400
+    time_axis = np.arange(sample_rate, dtype=np.float32) / sample_rate
+    audio = np.sin(2.0 * np.pi * 900.0 * time_axis).astype(np.float32)
+    audio_path = tmp_path / "lpf.flac"
+    sf.write(audio_path, audio, sample_rate, subtype="PCM_24")
+
+    result = load_audio_spectrogram_cached(
+        str(audio_path),
+        win_dur_s=0.1,
+        overlap=0.9,
+        freq_min_hz=500.0,
+        freq_max_hz=8000.0,
+    )
+
+    assert result is not None
+    assert result["_source_sample_rate_hz"] == 6400
+    assert result["_source_nyquist_hz"] == 3200.0
+    assert result["_requested_freq_max_hz"] == 8000.0
+    assert result["_frequency_limited_by_nyquist"] is True
+    assert float(np.max(result["freq"])) <= 3200.0
 
 
 def test_cached_item_image_does_not_rebuild_evicted_spectrogram(tmp_path):

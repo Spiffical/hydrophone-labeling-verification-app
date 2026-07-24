@@ -262,6 +262,17 @@ def get_config() -> Dict[str, Any]:
     if spec_freq_max <= spec_freq_min:
         spec_freq_max = max(spec_freq_min + 1.0, 100.0)
 
+    normalized_spec_render_cfg = dict(spec_render_cfg)
+    normalized_spec_render_cfg.update(
+        {
+            "source": spec_source,
+            "win_dur_s": spec_win_dur,
+            "overlap": spec_overlap,
+            "freq_min_hz": spec_freq_min,
+            "freq_max_hz": spec_freq_max,
+        }
+    )
+
     return {
         "mode": mode,
         "reset_mock": args.reset_mock,
@@ -297,13 +308,7 @@ def get_config() -> Dict[str, Any]:
             "stale_if_error": audio_stale_if_error,
             "legacy_filename_route": audio_legacy_filename_route,
         },
-        "spectrogram_render": {
-            "source": spec_source,
-            "win_dur_s": spec_win_dur,
-            "overlap": spec_overlap,
-            "freq_min_hz": spec_freq_min,
-            "freq_max_hz": spec_freq_max,
-        },
+        "spectrogram_render": normalized_spec_render_cfg,
         "bounding_box_tags": load_bbox_tag_options(repo_root, bbox_tags_cfg),
         "server": {
             "host": args.host,

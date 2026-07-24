@@ -395,6 +395,7 @@ def register_loading_overlay_callbacks(app):
         """
         function(
             saveClicks,
+            spectrogramPreset,
             labelPrevClicks,
             labelNextClicks,
             labelGotoClicks,
@@ -434,6 +435,7 @@ def register_loading_overlay_callbacks(app):
             var triggerId = String(ctx.triggered[0].prop_id || "").split(".")[0];
             if (
                 triggerId !== "app-config-save" &&
+                triggerId !== "verify-spectrogram-preset" &&
                 triggerId !== "label-prev-page" &&
                 triggerId !== "label-next-page" &&
                 triggerId !== "label-goto-page" &&
@@ -551,6 +553,31 @@ def register_loading_overlay_callbacks(app):
                 freq_min_hz: asFloat(spec.freq_min_hz, 5.0),
                 freq_max_hz: asFloat(spec.freq_max_hz, 100.0)
             };
+            if (triggerId === "verify-spectrogram-preset") {
+                var rawPresets = spec.presets || [];
+                var selectedPreset = null;
+                if (Array.isArray(rawPresets)) {
+                    for (var presetIndex = 0; presetIndex < rawPresets.length; presetIndex += 1) {
+                        var candidatePreset = rawPresets[presetIndex] || {};
+                        var candidateId = String(candidatePreset.id || candidatePreset.name || "");
+                        if (candidateId === String(spectrogramPreset || "")) {
+                            selectedPreset = candidatePreset;
+                            break;
+                        }
+                    }
+                } else if (rawPresets && typeof rawPresets === "object") {
+                    selectedPreset = rawPresets[String(spectrogramPreset || "")] || null;
+                }
+                if (!selectedPreset) {
+                    return dc.no_update;
+                }
+                params = {
+                    win_dur_s: asFloat(selectedPreset.win_dur_s, params.win_dur_s),
+                    overlap: asFloat(selectedPreset.overlap, params.overlap),
+                    freq_min_hz: asFloat(selectedPreset.freq_min_hz, params.freq_min_hz),
+                    freq_max_hz: asFloat(selectedPreset.freq_max_hz, params.freq_max_hz)
+                };
+            }
             if (triggerId === "app-config-save") {
                 source = String(modalSource || source || "existing");
                 params = {
@@ -565,6 +592,9 @@ def register_loading_overlay_callbacks(app):
             }
 
             var activeMode = String(mode || "label");
+            if (triggerId === "verify-spectrogram-preset" && activeMode !== "verify") {
+                return dc.no_update;
+            }
             if (
                 (
                     triggerId === "verify-thresholds-store" ||
@@ -650,6 +680,7 @@ def register_loading_overlay_callbacks(app):
         """,
         Output("specgen-overlay-request-store", "data"),
         Input("app-config-save", "n_clicks"),
+        Input("verify-spectrogram-preset", "value"),
         Input("label-prev-page", "n_clicks"),
         Input("label-next-page", "n_clicks"),
         Input("label-goto-page", "n_clicks"),

@@ -133,7 +133,39 @@ def test_get_config_accepts_startup_data_and_fft_params(tmp_path, monkeypatch):
         "overlap": 0.75,
         "freq_min_hz": 10.0,
         "freq_max_hz": 250.0,
+        "presets": [],
     }
+
+
+def test_get_config_preserves_named_spectrogram_presets(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+data:
+  mode: verify
+spectrogram_render:
+  source: audio_generated
+  active_preset: low
+  win_dur_s: 1.0
+  overlap: 0.9
+  freq_min_hz: 5.0
+  freq_max_hz: 125.0
+  presets:
+    - id: low
+      label: Low
+      win_dur_s: 1.0
+      overlap: 0.9
+      freq_min_hz: 5.0
+      freq_max_hz: 125.0
+""".strip()
+    )
+    monkeypatch.setattr("sys.argv", ["run.py", "--config", str(config_path)])
+
+    config = get_config()
+
+    assert config["mode"] == "verify"
+    assert config["spectrogram_render"]["active_preset"] == "low"
+    assert config["spectrogram_render"]["presets"][0]["id"] == "low"
 
 
 def test_load_verify_mode(mock_config):

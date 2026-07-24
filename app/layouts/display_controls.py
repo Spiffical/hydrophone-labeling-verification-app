@@ -3,6 +3,11 @@ from typing import Optional
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.services.spectrogram_presets import (
+    find_matching_spectrogram_preset,
+    get_spectrogram_presets,
+)
+
 
 def _slider_group(
     *,
@@ -195,4 +200,31 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
         id=f"{prefix}-display-settings-details",
         open=False,
         className="display-range-bar display-settings-details",
+    )
+
+
+def create_spectrogram_preset_bar(prefix: str, config: Optional[dict] = None) -> html.Div:
+    presets = get_spectrogram_presets(config)
+    active_preset = find_matching_spectrogram_preset(config)
+    options = [
+        {"label": preset["label"], "value": preset["id"]}
+        for preset in presets
+    ]
+
+    return html.Div(
+        [
+            html.Span("Spectrogram band", className="spectrogram-preset-title"),
+            dbc.RadioItems(
+                id=f"{prefix}-spectrogram-preset",
+                options=options,
+                value=active_preset,
+                class_name="spectrogram-preset-options",
+                input_class_name="btn-check",
+                label_class_name="spectrogram-preset-option",
+                label_checked_class_name="spectrogram-preset-option--active",
+            ),
+        ],
+        id=f"{prefix}-spectrogram-preset-bar",
+        className="spectrogram-preset-bar",
+        style={} if presets else {"display": "none"},
     )

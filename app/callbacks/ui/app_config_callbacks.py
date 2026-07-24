@@ -4,6 +4,7 @@ from dash import Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
+from app.services.spectrogram_presets import find_matching_spectrogram_preset
 
 
 def _coerce_positive_int(value, fallback):
@@ -108,13 +109,22 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
         updated_cfg["display"]["items_per_page"] = new_items_per_page
         updated_cfg["cache"] = dict(cache_cfg)
         updated_cfg["cache"]["max_size"] = new_cache_size
-        updated_cfg["spectrogram_render"] = {
-            "source": new_source,
-            "win_dur_s": float(new_win_dur),
-            "overlap": float(new_overlap),
-            "freq_min_hz": float(new_freq_min),
-            "freq_max_hz": float(new_freq_max),
-        }
+        updated_spec_cfg = dict(spec_cfg)
+        updated_spec_cfg.update(
+            {
+                "source": new_source,
+                "win_dur_s": float(new_win_dur),
+                "overlap": float(new_overlap),
+                "freq_min_hz": float(new_freq_min),
+                "freq_max_hz": float(new_freq_max),
+            }
+        )
+        updated_cfg["spectrogram_render"] = updated_spec_cfg
+        matching_preset = find_matching_spectrogram_preset(updated_cfg)
+        if matching_preset:
+            updated_spec_cfg["active_preset"] = matching_preset
+        else:
+            updated_spec_cfg.pop("active_preset", None)
 
         previous_cache_size = _coerce_positive_int(
             cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE),

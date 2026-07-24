@@ -350,6 +350,28 @@ def test_apply_modal_boxes_to_figure_preserves_marker_and_adds_delete_handle():
     assert edit_traces[0]["marker"]["size"] == 22
 
 
+def test_apply_modal_boxes_to_figure_preserves_spectrogram_source_annotation():
+    source_annotation = {
+        "name": "__spectrogram_source__",
+        "xref": "paper",
+        "yref": "paper",
+        "text": "Source: generated from audio | Nyquist limit: 4000 Hz",
+    }
+    updated = apply_modal_boxes_to_figure(
+        {
+            "data": [{"type": "heatmap", "z": [[1, 2], [3, 4]]}],
+            "layout": {
+                "xaxis": {"range": [0, 10]},
+                "yaxis": {"range": [0, 100]},
+                "annotations": [source_annotation],
+            },
+        },
+        [],
+    )
+
+    assert updated["layout"]["annotations"] == [source_annotation]
+
+
 def test_apply_modal_boxes_to_figure_clears_stale_bbox_overlays():
     with_box = apply_modal_boxes_to_figure(
         {

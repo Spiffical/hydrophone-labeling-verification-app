@@ -520,7 +520,9 @@ def _load_audio_spectrogram_torch(
     if audio.size == 0 or sample_rate <= 0:
         return None
 
-    sr = int(sample_rate)
+    source_sample_rate_hz = int(sample_rate)
+    source_nyquist_hz = 0.5 * float(source_sample_rate_hz)
+    sr = source_sample_rate_hz
     audio, sr = _downsample_audio_for_requested_band(
         audio,
         sr,
@@ -570,6 +572,10 @@ def _load_audio_spectrogram_torch(
         "psd": pdB.cpu().numpy()[freq_mask, :].astype(np.float32),
         "freq": freq[freq_mask].astype(np.float64),
         "time": time.astype(np.float64),
+        "_source_sample_rate_hz": source_sample_rate_hz,
+        "_source_nyquist_hz": source_nyquist_hz,
+        "_requested_freq_max_hz": float(freq_max_hz),
+        "_frequency_limited_by_nyquist": bool(float(freq_max_hz) > source_nyquist_hz),
     }
 
 
@@ -1640,6 +1646,7 @@ def create_image_file_figure(
         uirevision=revision,
     )
     fig.add_annotation(
+        name="__spectrogram_source__",
         xref="paper",
         yref="paper",
         x=0.01,
@@ -1765,6 +1772,10 @@ def create_spectrogram_figure(
     
     render_source = str(spectrogram_data.get("_render_source", "existing")) if isinstance(spectrogram_data, dict) else "existing"
     render_reason = str(spectrogram_data.get("_render_reason", "")) if isinstance(spectrogram_data, dict) else ""
+    frequency_limited_by_nyquist = bool(
+        spectrogram_data.get("_frequency_limited_by_nyquist", False)
+    ) if isinstance(spectrogram_data, dict) else False
+    source_nyquist_hz = spectrogram_data.get("_source_nyquist_hz") if isinstance(spectrogram_data, dict) else None
     source_label = {
         "existing": "Source: existing spectrogram",
         "audio_generated": "Source: generated from audio",
@@ -1773,6 +1784,8 @@ def create_spectrogram_figure(
     }.get(render_source, f"Source: {render_source}")
     if render_reason:
         source_label = f"{source_label} [{render_reason}]"
+    if frequency_limited_by_nyquist and source_nyquist_hz is not None:
+        source_label = f"{source_label} | Nyquist limit: {float(source_nyquist_hz):g} Hz"
 
     if len(time_plot):
         x_min = float(np.min(time_plot))
@@ -1821,11 +1834,14 @@ def create_spectrogram_figure(
             "transport_mode": resolved_transport_mode,
             "render_source": render_source,
             "render_reason": render_reason,
+            "source_nyquist_hz": source_nyquist_hz,
+            "frequency_limited_by_nyquist": frequency_limited_by_nyquist,
         },
         uirevision=render_signature,
     )
 
     fig.add_annotation(
+        name="__spectrogram_source__",
         xref="paper",
         yref="paper",
         x=0.01,

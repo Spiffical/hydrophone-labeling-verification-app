@@ -188,6 +188,44 @@ def test_audio_generated_pages_prefetch_filtered_future_items():
     assert has_pending_verify_modal_changes(cache_key) is True
 
 
+def test_manual_review_queue_items_do_not_require_model_outputs():
+    data = {
+        "load_timestamp": "manual-review-queue-test",
+        "summary": {"total_items": 2},
+        "items": [
+            {
+                "item_id": "manual-clip",
+                "audio_path": "/tmp/manual.wav",
+                "predictions": {
+                    "task_type": "manual_multispecies_review",
+                    "model_outputs": [],
+                },
+                "metadata": {"review_queue": True},
+                "annotations": {},
+            },
+            {
+                "item_id": "ordinary-empty-clip",
+                "audio_path": "/tmp/ordinary.wav",
+                "predictions": {"model_outputs": []},
+                "annotations": {},
+            },
+        ],
+    }
+
+    cache_key = register_verify_modal_items(data)
+    page = get_filtered_verify_items_page(
+        cache_key,
+        {"__global__": 0.5},
+        [],
+        0,
+        25,
+        "unverified",
+    )
+
+    assert page["visible_item_ids"] == ["manual-clip"]
+    assert page["items"][0]["predictions"]["labels"] == []
+
+
 def test_verify_modal_cache_filters_by_verification_status():
     fin = "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
     blue = "Biophony > Marine mammal > Cetacean > Baleen whale > Blue whale"

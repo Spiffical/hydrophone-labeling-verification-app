@@ -80,6 +80,24 @@ def _prediction_filter_entries(predictions):
     return ordered_unique_labels(raw_labels), entries
 
 
+def _is_manual_review_queue_item(item, predictions):
+    metadata = item.get("metadata") if isinstance(item, dict) else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    nested_metadata = metadata.get("metadata")
+    if not isinstance(nested_metadata, dict):
+        nested_metadata = {}
+    if bool(metadata.get("review_queue")) or bool(nested_metadata.get("review_queue")):
+        return True
+
+    task_type = str((predictions or {}).get("task_type") or "").strip().lower()
+    return task_type in {
+        "candidate_review",
+        "manual_review",
+        "manual_multispecies_review",
+    }
+
+
 def _has_pending_verify_changes(item):
     annotations = item.get("annotations") if isinstance(item, dict) and isinstance(item.get("annotations"), dict) else {}
     if annotations.get("pending_save") or annotations.get("needs_reverify"):
@@ -114,6 +132,7 @@ def _build_filter_record(item, index):
         "rejected_labels": ordered_unique_labels(get_item_rejected_labels(item)),
         "has_pending_label_edits": has_pending_label_edits(annotations),
         "has_pending_verify_changes": _has_pending_verify_changes(item),
+        "is_manual_review_queue": _is_manual_review_queue_item(item, predictions),
     }
 
 
@@ -435,9 +454,15 @@ def get_filtered_verify_items_page(
             if not isinstance(record, dict):
                 continue
             predicted_labels = _filter_record_labels(record, thresholds)
-            if not record.get("is_verified") and not predicted_labels:
+            is_manual_review_queue = bool(record.get("is_manual_review_queue"))
+            if not record.get("is_verified") and not predicted_labels and not is_manual_review_queue:
                 continue
-            if not _labels_match_filter(predicted_labels, selected_filter_paths):
+            if predicted_labels and not _labels_match_filter(predicted_labels, selected_filter_paths):
+                continue
+            if not predicted_labels and not is_manual_review_queue and not _labels_match_filter(
+                predicted_labels,
+                selected_filter_paths,
+            ):
                 continue
             if not _status_matches_filter(record, predicted_labels, status_filter):
                 continue

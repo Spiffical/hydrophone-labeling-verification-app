@@ -90,7 +90,16 @@ def apply_modal_boxes_to_figure(
         }
 
     shape_list = [marker_shape]
-    annotations = []
+    existing_annotations = layout.get("annotations") or []
+    annotations = [
+        annotation
+        for annotation in existing_annotations
+        if isinstance(annotation, dict)
+        and (
+            annotation.get("name") == "__spectrogram_source__"
+            or str(annotation.get("text") or "").startswith("Source:")
+        )
+    ]
     delete_x = []
     delete_y = []
     delete_indices = []
