@@ -32,7 +32,7 @@ def create_verify_layout(config: dict) -> html.Div:
         html.Div([
             html.Div([
                 html.H2("Verify Mode", className="section-title"),
-                html.P("Review ML predictions and record verification", className="section-subtitle"),
+                html.P("Review predictions and record verification", className="section-subtitle"),
             ], className="section-header"),
         ], className="section-header-wrap"),
 
