@@ -243,6 +243,7 @@ def test_manual_review_queue_filter_uses_declared_classes_and_saved_labels():
                 "metadata": {
                     "review_queue": True,
                     "review_filter_classes": review_classes,
+                    "review_filter_labels": [blue],
                 },
                 "annotations": {"labels": [blue], "verified": True},
             },
@@ -255,6 +256,7 @@ def test_manual_review_queue_filter_uses_declared_classes_and_saved_labels():
                 "metadata": {
                     "review_queue": True,
                     "review_filter_classes": review_classes,
+                    "review_filter_labels": [humpback],
                 },
                 "annotations": {},
             },
@@ -288,7 +290,7 @@ def test_manual_review_queue_filter_uses_declared_classes_and_saved_labels():
 
     assert all_page["visible_item_ids"] == ["blue-reviewed", "unreviewed"]
     assert blue_page["visible_item_ids"] == ["blue-reviewed"]
-    assert humpback_page["visible_item_ids"] == []
+    assert humpback_page["visible_item_ids"] == ["unreviewed"]
 
 
 def test_verify_modal_cache_filters_by_verification_status():

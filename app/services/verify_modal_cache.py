@@ -6,7 +6,10 @@ from threading import Lock
 
 from app.services.annotations import ordered_unique_labels
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
-from app.services.verify_filter_tree import extract_item_review_filter_classes
+from app.services.verify_filter_tree import (
+    extract_item_review_filter_classes,
+    extract_item_review_filter_labels,
+)
 
 _MAX_VERIFY_CACHE_KEYS = 8
 _VERIFY_MODAL_CACHE = OrderedDict()
@@ -128,6 +131,7 @@ def _build_filter_record(item, index):
         "index": int(index),
         "raw_labels": raw_labels,
         "available_filter_labels": extract_item_review_filter_classes(item),
+        "assigned_filter_labels": extract_item_review_filter_labels(item),
         "entries": entries,
         "is_verified": bool(annotations.get("verified")),
         "accepted_labels": ordered_unique_labels(annotations.get("labels") or []),
@@ -387,6 +391,7 @@ def get_verify_filter_leaf_classes(cache_key):
                 continue
             labels.extend(record.get("raw_labels") or [])
             labels.extend(record.get("available_filter_labels") or [])
+            labels.extend(record.get("assigned_filter_labels") or [])
             labels.extend(record.get("accepted_labels") or [])
             labels.extend(record.get("rejected_labels") or [])
     return sorted(ordered_unique_labels(labels), key=lambda text: text.lower())
@@ -476,7 +481,8 @@ def get_filtered_verify_items_page(
                 )
                 if not all_review_classes_selected:
                     manual_labels = ordered_unique_labels(
-                        (record.get("accepted_labels") or [])
+                        (record.get("assigned_filter_labels") or [])
+                        + (record.get("accepted_labels") or [])
                         + (record.get("rejected_labels") or [])
                     )
                     if not _labels_match_filter(manual_labels, selected_filter_paths):

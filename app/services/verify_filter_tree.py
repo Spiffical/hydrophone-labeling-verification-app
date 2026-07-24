@@ -20,12 +20,27 @@ def extract_item_review_filter_classes(item):
     return ordered_unique_labels(configured)
 
 
+def extract_item_review_filter_labels(item):
+    if not isinstance(item, dict):
+        return []
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    assigned = metadata.get("review_filter_labels")
+    if not isinstance(assigned, list):
+        assigned = item.get("review_filter_labels")
+    if not isinstance(assigned, list):
+        return []
+    return ordered_unique_labels(assigned)
+
+
 def extract_verify_leaf_classes(items):
     classes = set()
     for item in items or []:
         if not isinstance(item, dict):
             continue
         classes.update(extract_item_review_filter_classes(item))
+        classes.update(extract_item_review_filter_labels(item))
         predictions = item.get("predictions") or {}
 
         model_outputs = predictions.get("model_outputs")
