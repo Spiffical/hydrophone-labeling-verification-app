@@ -6,6 +6,7 @@ from threading import Lock
 
 from app.services.annotations import ordered_unique_labels
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
+from app.services.verify_filter_tree import extract_item_review_filter_classes
 
 _MAX_VERIFY_CACHE_KEYS = 8
 _VERIFY_MODAL_CACHE = OrderedDict()
@@ -126,6 +127,7 @@ def _build_filter_record(item, index):
         "item_id": item_id,
         "index": int(index),
         "raw_labels": raw_labels,
+        "available_filter_labels": extract_item_review_filter_classes(item),
         "entries": entries,
         "is_verified": bool(annotations.get("verified")),
         "accepted_labels": ordered_unique_labels(annotations.get("labels") or []),
@@ -384,6 +386,9 @@ def get_verify_filter_leaf_classes(cache_key):
             if not isinstance(record, dict):
                 continue
             labels.extend(record.get("raw_labels") or [])
+            labels.extend(record.get("available_filter_labels") or [])
+            labels.extend(record.get("accepted_labels") or [])
+            labels.extend(record.get("rejected_labels") or [])
     return sorted(ordered_unique_labels(labels), key=lambda text: text.lower())
 
 
@@ -457,12 +462,26 @@ def get_filtered_verify_items_page(
             is_manual_review_queue = bool(record.get("is_manual_review_queue"))
             if not record.get("is_verified") and not predicted_labels and not is_manual_review_queue:
                 continue
-            if predicted_labels and not _labels_match_filter(predicted_labels, selected_filter_paths):
-                continue
-            if not predicted_labels and not is_manual_review_queue and not _labels_match_filter(
-                predicted_labels,
-                selected_filter_paths,
-            ):
+            if is_manual_review_queue:
+                available_labels = record.get("available_filter_labels") or []
+                selected_labels = [
+                    path.strip()
+                    for path in (selected_filter_paths or [])
+                    if isinstance(path, str) and path.strip()
+                ]
+                all_review_classes_selected = (
+                    selected_filter_paths is None
+                    or not available_labels
+                    or set(available_labels).issubset(set(selected_labels))
+                )
+                if not all_review_classes_selected:
+                    manual_labels = ordered_unique_labels(
+                        (record.get("accepted_labels") or [])
+                        + (record.get("rejected_labels") or [])
+                    )
+                    if not _labels_match_filter(manual_labels, selected_filter_paths):
+                        continue
+            elif not _labels_match_filter(predicted_labels, selected_filter_paths):
                 continue
             if not _status_matches_filter(record, predicted_labels, status_filter):
                 continue

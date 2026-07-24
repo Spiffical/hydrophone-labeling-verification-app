@@ -99,7 +99,7 @@ def _slider_group(
 def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) -> html.Div:
     display_cfg = display_cfg or {}
 
-    return html.Details(
+    details = html.Details(
         [
             html.Summary(
                 [
@@ -120,12 +120,6 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
                 [
                     html.Div(
                         [
-                            dbc.Switch(
-                                id=f"{prefix}-colormap-toggle",
-                                label="Hydrophone colormap",
-                                value=display_cfg.get("colormap") == "hydrophone",
-                                className="control-switch",
-                            ),
                             dbc.Switch(
                                 id=f"{prefix}-yaxis-toggle",
                                 label="Log y-axis",
@@ -200,6 +194,35 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
         id=f"{prefix}-display-settings-details",
         open=False,
         className="display-range-bar display-settings-details",
+    )
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Span("Colormap", className="spectrogram-preset-title"),
+                    dbc.RadioItems(
+                        id=f"{prefix}-colormap-toggle",
+                        options=[
+                            {"label": "Viridis", "value": "default"},
+                            {"label": "Hydrophone", "value": "hydrophone"},
+                        ],
+                        value=(
+                            display_cfg.get("colormap")
+                            if display_cfg.get("colormap") in {"default", "hydrophone"}
+                            else "default"
+                        ),
+                        class_name="spectrogram-preset-options",
+                        input_class_name="btn-check",
+                        label_class_name="spectrogram-preset-option",
+                        label_checked_class_name="spectrogram-preset-option--active",
+                    ),
+                ],
+                className="colormap-control-bar",
+            ),
+            details,
+        ],
+        id=f"{prefix}-display-controls",
+        className="display-controls",
     )
 
 

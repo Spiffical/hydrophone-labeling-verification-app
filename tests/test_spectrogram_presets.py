@@ -62,6 +62,29 @@ def test_apply_spectrogram_preset_preserves_unrelated_config():
     assert cfg["spectrogram_render"]["active_preset"] == "low"
 
 
+def test_item_scoped_recommended_preset_remains_selected():
+    cfg = _preset_config()
+    cfg["spectrogram_render"]["presets"].append(
+        {
+            "id": "recommended",
+            "label": "Recommended",
+            "scope": "item",
+            "metadata_key": "recommended_spectrogram",
+            "win_dur_s": 1.0,
+            "overlap": 0.9,
+            "freq_min_hz": 5.0,
+            "freq_max_hz": 125.0,
+        }
+    )
+
+    updated = apply_spectrogram_preset(cfg, "recommended")
+
+    assert updated["spectrogram_render"]["active_preset"] == "recommended"
+    assert find_matching_spectrogram_preset(updated) == "recommended"
+    assert get_spectrogram_presets(updated)[-1]["scope"] == "item"
+    assert get_spectrogram_presets(updated)[-1]["metadata_key"] == "recommended_spectrogram"
+
+
 def test_matching_preset_tracks_manual_render_settings():
     cfg = _preset_config()
     assert find_matching_spectrogram_preset(cfg) == "low"

@@ -12,7 +12,7 @@ from app.utils.image_processing import (
     SPECTROGRAM_SOURCE_EXISTING,
     generate_image_cached,
     generate_item_image_cached,
-    get_spectrogram_render_settings,
+    get_item_spectrogram_render_settings,
 )
 
 _file_image_cache = LRUCache(maxsize=256)
@@ -47,7 +47,7 @@ def build_item_image_request_src(
     color_min: Optional[float] = None,
     color_max: Optional[float] = None,
 ) -> str:
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_item_spectrogram_render_settings(item, cfg)
     payload = {
         "audio_path": item.get("audio_path"),
         "mat_path": item.get("mat_path"),
@@ -69,6 +69,7 @@ def build_item_image_request_src(
             "wd": render_cfg.get("win_dur_s"),
             "fmin": render_cfg.get("freq_min_hz"),
             "fmax": render_cfg.get("freq_max_hz"),
+            "rec": int(bool(render_cfg.get("item_override_applied"))),
             "cm": colormap,
             "ys": y_axis_scale,
             "ymin": y_axis_min_hz,
@@ -116,7 +117,7 @@ def get_item_image_src(
     if not item:
         return None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_item_spectrogram_render_settings(item, cfg)
     source = render_cfg.get("source")
     use_existing = source == SPECTROGRAM_SOURCE_EXISTING
 

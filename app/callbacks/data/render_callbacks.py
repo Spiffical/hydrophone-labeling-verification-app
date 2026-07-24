@@ -13,6 +13,7 @@ from app.services.verify_modal_cache import (
     get_verify_modal_summary,
     has_verify_modal_items,
 )
+from app.services.display_settings import resolve_colormap_choice
 from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -223,7 +224,7 @@ def register_render_callbacks(
         summary = data.get("summary", {})
         items = data.get("items", [])
 
-        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
+        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         
@@ -457,7 +458,7 @@ def register_render_callbacks(
         else:
             filter_text = f"{len(selected_filters)} selected"
 
-        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
+        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         filtered_page = get_filtered_verify_items_page(
@@ -663,7 +664,7 @@ def register_render_callbacks(
         summary = data.get("summary", {})
         items = data.get("items", [])
 
-        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
+        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         summary_block = html.Div([

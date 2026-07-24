@@ -79,6 +79,8 @@ def get_spectrogram_presets(cfg: Optional[Dict[str, Any]]) -> List[Dict[str, Any
             {
                 "id": preset_id,
                 "label": label,
+                "scope": "item" if str(raw.get("scope") or "").strip().lower() == "item" else "global",
+                "metadata_key": str(raw.get("metadata_key") or "recommended_spectrogram").strip(),
                 "win_dur_s": win_dur_s,
                 "overlap": overlap,
                 "freq_min_hz": freq_min_hz,
@@ -98,6 +100,19 @@ def find_matching_spectrogram_preset(
     render_cfg = (cfg or {}).get("spectrogram_render", {})
     if not isinstance(render_cfg, dict):
         return None
+
+    active_preset = str(render_cfg.get("active_preset") or "").strip()
+    if active_preset:
+        active = next(
+            (
+                preset
+                for preset in get_spectrogram_presets(cfg)
+                if preset["id"] == active_preset
+            ),
+            None,
+        )
+        if active and active.get("scope") == "item":
+            return active_preset
 
     for preset in get_spectrogram_presets(cfg):
         matches = True

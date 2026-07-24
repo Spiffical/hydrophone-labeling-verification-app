@@ -76,6 +76,9 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
     model = predictions_json.get("model", {})
     ds_index = _build_data_source_index(predictions_json)
     task_type = predictions_json.get("task_type", "unknown")
+    global_review_filter_classes = predictions_json.get("review_filter_classes")
+    if not isinstance(global_review_filter_classes, list):
+        global_review_filter_classes = []
 
     for item_data in predictions_json.get("items", []):
         # Look up data source for this item
@@ -158,6 +161,17 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                 "box_annotations": box_annotations,
             }
 
+        item_metadata = {
+            k: v for k, v in item_data.items()
+            if k not in ["item_id", "data_source_id", "spectrogram_path", "mat_path",
+                        "spectrogram_png_path", "spectrogram_mat_path",
+                        "audio_path", "source_audio", "paths",
+                        "audio_start_time", "audio_end_time",
+                        "audio_timestamp", "model_outputs", "verifications"]
+        }
+        if global_review_filter_classes and "review_filter_classes" not in item_metadata:
+            item_metadata["review_filter_classes"] = list(global_review_filter_classes)
+
         items.append({
             "item_id": item_data.get("item_id"),
             "spectrogram_path": resolve_path(spect_png),
@@ -171,14 +185,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
             "device_code": data_source.get("device_code"),
             "predictions": predictions,
             "annotations": annotations,
-            "metadata": {
-                k: v for k, v in item_data.items()
-                if k not in ["item_id", "data_source_id", "spectrogram_path", "mat_path",
-                            "spectrogram_png_path", "spectrogram_mat_path",
-                            "audio_path", "source_audio", "paths",
-                            "audio_start_time", "audio_end_time",
-                            "audio_timestamp", "model_outputs", "verifications"]
-            },
+            "metadata": item_metadata,
             "verifications": verifications,
         })
 

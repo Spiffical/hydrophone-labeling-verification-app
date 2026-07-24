@@ -117,3 +117,27 @@ def test_save_verify_predictions_persists_and_reloads_bbox_tag(tmp_path):
 
     reloaded = convert_unified_v2_to_internal(saved)
     assert reloaded["items"][0]["annotations"]["box_annotations"] == [box]
+
+
+def test_unified_manual_queue_propagates_declared_review_filter_classes():
+    classes = [
+        "Biophony > Marine mammal > Cetacean > Baleen whale > Blue whale",
+        "Other > Ambient sound",
+    ]
+    converted = convert_unified_v2_to_internal(
+        {
+            "schema_version": "2.1",
+            "task_type": "manual_multispecies_review",
+            "review_filter_classes": classes,
+            "items": [
+                {
+                    "item_id": "clip-1",
+                    "review_queue": True,
+                    "model_outputs": [],
+                    "verifications": [],
+                }
+            ],
+        }
+    )
+
+    assert converted["items"][0]["metadata"]["review_filter_classes"] == classes

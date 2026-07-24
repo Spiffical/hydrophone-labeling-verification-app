@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover - defensive fallback for broken installs
 
 from app.utils.colmap_hyd import colmap_hyd_py
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.services.spectrogram_presets import get_spectrogram_presets
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,84 @@ def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, 
         "freq_min_hz": freq_min_hz,
         "freq_max_hz": freq_max_hz,
     }
+
+
+def get_item_spectrogram_render_settings(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Resolve an item-scoped spectrogram preset without mutating app config."""
+    settings = get_spectrogram_render_settings(cfg)
+    render_cfg = (cfg or {}).get("spectrogram_render", {})
+    if not isinstance(render_cfg, dict) or not isinstance(item, dict):
+        return settings
+
+    active_preset_id = str(render_cfg.get("active_preset") or "").strip()
+    active_preset = next(
+        (
+            preset
+            for preset in get_spectrogram_presets(cfg)
+            if preset["id"] == active_preset_id and preset.get("scope") == "item"
+        ),
+        None,
+    )
+    if active_preset is None:
+        return settings
+
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata_key = str(active_preset.get("metadata_key") or "recommended_spectrogram")
+    recommendation = metadata.get(metadata_key)
+    if not isinstance(recommendation, dict):
+        recommendation = item.get(metadata_key)
+    if not isinstance(recommendation, dict):
+        settings.update(
+            {
+                "active_preset": active_preset_id,
+                "item_override_applied": False,
+            }
+        )
+        return settings
+
+    limits = {
+        "win_dur_s": (0.05, 30.0),
+        "overlap": (0.0, 0.99),
+        "freq_min_hz": (0.0, 200000.0),
+        "freq_max_hz": (0.01, 200000.0),
+    }
+    resolved = {}
+    for key, (minimum, maximum) in limits.items():
+        try:
+            value = float(recommendation.get(key))
+        except (TypeError, ValueError):
+            value = math.nan
+        if not math.isfinite(value) or value < minimum or value > maximum:
+            settings.update(
+                {
+                    "active_preset": active_preset_id,
+                    "item_override_applied": False,
+                }
+            )
+            return settings
+        resolved[key] = value
+    if resolved["freq_max_hz"] <= resolved["freq_min_hz"]:
+        settings.update(
+            {
+                "active_preset": active_preset_id,
+                "item_override_applied": False,
+            }
+        )
+        return settings
+
+    settings.update(resolved)
+    settings.update(
+        {
+            "active_preset": active_preset_id,
+            "item_override_applied": True,
+        }
+    )
+    return settings
 
 
 def _optional_float(value: Any) -> Optional[float]:
@@ -657,7 +736,7 @@ def resolve_item_spectrogram_with_key(
     if not isinstance(item, dict):
         return None, None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_item_spectrogram_render_settings(item, cfg)
     source = render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING)
     mat_path = item.get("mat_path")
     audio_path = item.get("audio_path")
@@ -753,7 +832,10 @@ def estimate_page_audio_generation_work(
     if torch is None:
         return status
 
+    item_render_settings = []
     for item in page_items:
+        render_cfg = get_item_spectrogram_render_settings(item, cfg)
+        item_render_settings.append(render_cfg)
         audio_key = _item_audio_generation_key(
             item,
             render_cfg=render_cfg,
@@ -773,6 +855,8 @@ def estimate_page_audio_generation_work(
         )
         if image_key is None or not _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
             status["pending"] += 1
+    if any(settings.get("item_override_applied") for settings in item_render_settings):
+        status["params"]["item_specific"] = True
 
     return status
 
@@ -784,7 +868,7 @@ def _item_spectrogram_generation_key(
     if not isinstance(item, dict):
         return None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_item_spectrogram_render_settings(item, cfg)
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
     if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
         audio_key = _item_audio_generation_key(item, render_cfg=render_cfg)
@@ -852,7 +936,7 @@ def _item_image_generation_key(
     if not isinstance(item, dict):
         return None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_item_spectrogram_render_settings(item, cfg)
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
     source_key: Optional[Tuple[Any, ...]] = None
 
@@ -1062,9 +1146,10 @@ def prefetch_page_items_in_background(
         if not isinstance(item, dict):
             continue
 
+        item_render_cfg = get_item_spectrogram_render_settings(item, cfg)
         audio_key = _item_audio_generation_key(
             item,
-            render_cfg=render_cfg,
+            render_cfg=item_render_cfg,
         )
         if audio_key is None:
             continue
@@ -1080,7 +1165,7 @@ def prefetch_page_items_in_background(
         _PREFETCH_EXECUTOR.submit(
             _prefetch_item_audio_spectrogram,
             item,
-            render_cfg=render_cfg,
+            render_cfg=item_render_cfg,
             dedupe_key=dedupe_key,
         )
         submitted += 1

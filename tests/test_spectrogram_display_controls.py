@@ -2,7 +2,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from app.utils.image_processing import create_spectrogram_figure, summarize_spectrogram_display_ranges
+from app.utils.image_processing import (
+    create_spectrogram_figure,
+    get_item_spectrogram_render_settings,
+    summarize_spectrogram_display_ranges,
+)
 from app.utils.image_utils import build_item_image_request_src, decode_item_image_request, get_item_image_src
 from app.layouts.display_controls import create_display_range_bar
 
@@ -97,6 +101,55 @@ def test_item_image_request_payload_includes_custom_y_axis_limits():
     assert payload["color_max"] == -18.0
 
 
+def test_item_image_request_uses_json_recommended_spectrogram():
+    cfg = {
+        "spectrogram_render": {
+            "source": "audio_generated",
+            "active_preset": "recommended",
+            "win_dur_s": 1.0,
+            "overlap": 0.9,
+            "freq_min_hz": 5.0,
+            "freq_max_hz": 125.0,
+            "presets": [
+                {
+                    "id": "recommended",
+                    "label": "Recommended",
+                    "scope": "item",
+                    "metadata_key": "recommended_spectrogram",
+                    "win_dur_s": 1.0,
+                    "overlap": 0.9,
+                    "freq_min_hz": 5.0,
+                    "freq_max_hz": 125.0,
+                }
+            ],
+        }
+    }
+    item = {
+        "audio_path": "/tmp/example.wav",
+        "metadata": {
+            "recommended_spectrogram": {
+                "label": "Mid | 100-2,000 Hz",
+                "win_dur_s": 0.25,
+                "overlap": 0.9,
+                "freq_min_hz": 100.0,
+                "freq_max_hz": 2000.0,
+            }
+        },
+    }
+
+    settings = get_item_spectrogram_render_settings(item, cfg)
+    src = build_item_image_request_src(item, cfg=cfg)
+    token = src.split("/item-image/", 1)[1].split("?", 1)[0]
+    payload = decode_item_image_request(token)
+
+    assert settings["item_override_applied"] is True
+    assert settings["win_dur_s"] == 0.25
+    assert settings["freq_min_hz"] == 100.0
+    assert settings["freq_max_hz"] == 2000.0
+    assert payload["render_cfg"]["freq_min_hz"] == 100.0
+    assert payload["render_cfg"]["freq_max_hz"] == 2000.0
+
+
 def test_get_item_image_src_uses_dynamic_render_when_contrast_changes_even_if_image_src_exists():
     item = {
         "image_src": "data:image/png;base64,existing",
@@ -141,9 +194,16 @@ def test_summarize_spectrogram_display_ranges_reports_frequency_and_color_bounds
 
 def test_display_range_analysis_is_collapsed_by_default():
     controls = create_display_range_bar("verify")
-    summary = controls.children[0]
+    colormap_bar = controls.children[0]
+    details = controls.children[1]
+    selector = colormap_bar.children[1]
+    summary = details.children[0]
 
-    assert controls.id == "verify-display-settings-details"
-    assert controls.open is False
+    assert controls.id == "verify-display-controls"
+    assert details.id == "verify-display-settings-details"
+    assert details.open is False
+    assert selector.id == "verify-colormap-toggle"
+    assert selector.value == "default"
+    assert [option["value"] for option in selector.options] == ["default", "hydrophone"]
     assert summary.id == "verify-display-settings-summary"
     assert summary.n_clicks == 0

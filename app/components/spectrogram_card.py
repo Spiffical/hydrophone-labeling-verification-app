@@ -254,6 +254,24 @@ def create_verify_label_block_children(item_id, item, predicted_labels=None):
     ]
 
 
+def _recommended_spectrogram_label(item):
+    metadata = item.get("metadata") if isinstance(item, dict) else {}
+    if not isinstance(metadata, dict):
+        return None
+    recommendation = metadata.get("recommended_spectrogram")
+    if not isinstance(recommendation, dict):
+        return None
+    label = str(recommendation.get("label") or "").strip()
+    if label:
+        return label
+    try:
+        freq_min = float(recommendation["freq_min_hz"])
+        freq_max = float(recommendation["freq_max_hz"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return f"{freq_min:g}-{freq_max:g} Hz"
+
+
 def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label") -> dbc.Card:
     item_id = item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
     audio_path = item.get("audio_path")
@@ -354,6 +372,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         actions = []
 
     actions_block = html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap") if actions else None
+    recommended_label = _recommended_spectrogram_label(item) if mode == "verify" else None
     note_block = (
         create_note_editor(
             note_text,
@@ -368,7 +387,15 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     return dbc.Card([
         dbc.CardHeader(html.Div([
             html.Span(item_id, className="fw-semibold small", style={"word-break": "break-all"}),
-        ])),
+            (
+                html.Small(
+                    f"Recommended: {recommended_label}",
+                    className="text-muted",
+                )
+                if recommended_label
+                else None
+            ),
+        ], className="d-flex flex-column gap-1")),
         dbc.CardBody([
             image,
             audio_player,

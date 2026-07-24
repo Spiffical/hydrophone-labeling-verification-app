@@ -226,6 +226,71 @@ def test_manual_review_queue_items_do_not_require_model_outputs():
     assert page["items"][0]["predictions"]["labels"] == []
 
 
+def test_manual_review_queue_filter_uses_declared_classes_and_saved_labels():
+    blue = "Biophony > Marine mammal > Cetacean > Baleen whale > Blue whale"
+    humpback = "Biophony > Marine mammal > Cetacean > Baleen whale > Humpback whale"
+    review_classes = [blue, humpback]
+    data = {
+        "load_timestamp": "manual-review-class-filter-test",
+        "summary": {"total_items": 2},
+        "items": [
+            {
+                "item_id": "blue-reviewed",
+                "predictions": {
+                    "task_type": "manual_multispecies_review",
+                    "model_outputs": [],
+                },
+                "metadata": {
+                    "review_queue": True,
+                    "review_filter_classes": review_classes,
+                },
+                "annotations": {"labels": [blue], "verified": True},
+            },
+            {
+                "item_id": "unreviewed",
+                "predictions": {
+                    "task_type": "manual_multispecies_review",
+                    "model_outputs": [],
+                },
+                "metadata": {
+                    "review_queue": True,
+                    "review_filter_classes": review_classes,
+                },
+                "annotations": {},
+            },
+        ],
+    }
+
+    cache_key = register_verify_modal_items(data)
+
+    assert get_verify_filter_leaf_classes(cache_key) == review_classes
+    all_page = get_filtered_verify_items_page(
+        cache_key,
+        {"__global__": 0.5},
+        review_classes,
+        0,
+        25,
+    )
+    blue_page = get_filtered_verify_items_page(
+        cache_key,
+        {"__global__": 0.5},
+        [blue],
+        0,
+        25,
+    )
+    humpback_page = get_filtered_verify_items_page(
+        cache_key,
+        {"__global__": 0.5},
+        [humpback],
+        0,
+        25,
+    )
+
+    assert all_page["visible_item_ids"] == ["blue-reviewed", "unreviewed"]
+    assert blue_page["visible_item_ids"] == ["blue-reviewed"]
+    assert humpback_page["visible_item_ids"] == []
+
+
 def test_verify_modal_cache_filters_by_verification_status():
     fin = "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
     blue = "Biophony > Marine mammal > Cetacean > Baleen whale > Blue whale"

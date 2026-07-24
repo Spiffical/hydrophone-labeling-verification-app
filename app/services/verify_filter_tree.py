@@ -6,11 +6,26 @@ from dash import html
 from app.services.annotations import ordered_unique_labels, split_hierarchy_label
 
 
+def extract_item_review_filter_classes(item):
+    if not isinstance(item, dict):
+        return []
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    configured = metadata.get("review_filter_classes")
+    if not isinstance(configured, list):
+        configured = item.get("review_filter_classes")
+    if not isinstance(configured, list):
+        return []
+    return ordered_unique_labels(configured)
+
+
 def extract_verify_leaf_classes(items):
     classes = set()
     for item in items or []:
         if not isinstance(item, dict):
             continue
+        classes.update(extract_item_review_filter_classes(item))
         predictions = item.get("predictions") or {}
 
         model_outputs = predictions.get("model_outputs")
@@ -31,6 +46,12 @@ def extract_verify_leaf_classes(items):
         labels = predictions.get("labels") or []
         if isinstance(labels, list):
             for label in labels:
+                if isinstance(label, str) and label.strip():
+                    classes.add(label.strip())
+
+        annotations = item.get("annotations") or {}
+        if isinstance(annotations, dict):
+            for label in (annotations.get("labels") or []) + (annotations.get("rejected_labels") or []):
                 if isinstance(label, str) and label.strip():
                     classes.add(label.strip())
     return sorted(classes, key=lambda text: text.lower())
