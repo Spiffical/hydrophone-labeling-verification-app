@@ -96,8 +96,13 @@ def _slider_group(
     )
 
 
-def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) -> html.Div:
+def create_display_range_bar(
+    prefix: str,
+    display_cfg: Optional[dict] = None,
+    config: Optional[dict] = None,
+) -> html.Div:
     display_cfg = display_cfg or {}
+    preset_bar = create_spectrogram_preset_bar(prefix, config=config)
 
     details = html.Details(
         [
@@ -118,6 +123,29 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
             ),
             html.Div(
                 [
+                    preset_bar,
+                    html.Div(
+                        [
+                            html.Span("Colormap", className="spectrogram-preset-title"),
+                            dbc.RadioItems(
+                                id=f"{prefix}-colormap-toggle",
+                                options=[
+                                    {"label": "Viridis", "value": "default"},
+                                    {"label": "Hydrophone", "value": "hydrophone"},
+                                ],
+                                value=(
+                                    display_cfg.get("colormap")
+                                    if display_cfg.get("colormap") in {"default", "hydrophone"}
+                                    else "default"
+                                ),
+                                class_name="spectrogram-preset-options",
+                                input_class_name="btn-check",
+                                label_class_name="spectrogram-preset-option",
+                                label_checked_class_name="spectrogram-preset-option--active",
+                            ),
+                        ],
+                        className="display-settings-control-row",
+                    ),
                     html.Div(
                         [
                             dbc.Switch(
@@ -136,7 +164,7 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
                     html.Div(
                         [
                             _slider_group(
-                                label="Frequency window (Hz)",
+                                label="Custom frequency window (Hz)",
                                 slider_id=f"{prefix}-yaxis-slider",
                                 readout_id=f"{prefix}-yaxis-readout",
                                 help_id=f"{prefix}-yaxis-help",
@@ -196,31 +224,7 @@ def create_display_range_bar(prefix: str, display_cfg: Optional[dict] = None) ->
         className="display-range-bar display-settings-details",
     )
     return html.Div(
-        [
-            html.Div(
-                [
-                    html.Span("Colormap", className="spectrogram-preset-title"),
-                    dbc.RadioItems(
-                        id=f"{prefix}-colormap-toggle",
-                        options=[
-                            {"label": "Viridis", "value": "default"},
-                            {"label": "Hydrophone", "value": "hydrophone"},
-                        ],
-                        value=(
-                            display_cfg.get("colormap")
-                            if display_cfg.get("colormap") in {"default", "hydrophone"}
-                            else "default"
-                        ),
-                        class_name="spectrogram-preset-options",
-                        input_class_name="btn-check",
-                        label_class_name="spectrogram-preset-option",
-                        label_checked_class_name="spectrogram-preset-option--active",
-                    ),
-                ],
-                className="colormap-control-bar",
-            ),
-            details,
-        ],
+        [details],
         id=f"{prefix}-display-controls",
         className="display-controls",
     )
@@ -248,6 +252,6 @@ def create_spectrogram_preset_bar(prefix: str, config: Optional[dict] = None) ->
             ),
         ],
         id=f"{prefix}-spectrogram-preset-bar",
-        className="spectrogram-preset-bar",
+        className="spectrogram-preset-bar spectrogram-preset-bar--embedded",
         style={} if presets else {"display": "none"},
     )

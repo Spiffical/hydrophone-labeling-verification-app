@@ -97,7 +97,30 @@ def _render_label_badges_readonly(labels):
     return html.Div(badges, className="verify-badge-list")
 
 
-def _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, assume_verified=False):
+def _prediction_sources_by_label(predictions):
+    sources = {}
+    model_outputs = predictions.get("model_outputs") if isinstance(predictions, dict) else None
+    if not isinstance(model_outputs, list):
+        return sources
+    for output in model_outputs:
+        if not isinstance(output, dict):
+            continue
+        label = output.get("class_hierarchy")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        source = str(output.get("source") or "").strip().lower()
+        if source in {"human_visual_review", "human_provisional", "manual_visual_review"}:
+            sources[label.strip()] = "human-provisional"
+    return sources
+
+
+def _verify_badge_models(
+    predicted_labels,
+    accepted_labels,
+    rejected_labels,
+    assume_verified=False,
+    prediction_sources=None,
+):
     models = []
     predicted = _ordered_unique_labels(predicted_labels or [])
     accepted = _ordered_unique_labels(accepted_labels or [])
@@ -115,7 +138,7 @@ def _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, ass
         models.append(
             {
                 "label": label,
-                "source": "model",
+                "source": (prediction_sources or {}).get(label, "model"),
                 "state": state,
                 "actions": "accept_reject",
             }
@@ -135,8 +158,21 @@ def _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, ass
     return models
 
 
-def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_labels, assume_verified=False):
-    models = _verify_badge_models(predicted_labels, accepted_labels, rejected_labels, assume_verified=assume_verified)
+def _render_verify_badges(
+    item_id,
+    predicted_labels,
+    accepted_labels,
+    rejected_labels,
+    assume_verified=False,
+    prediction_sources=None,
+):
+    models = _verify_badge_models(
+        predicted_labels,
+        accepted_labels,
+        rejected_labels,
+        assume_verified=assume_verified,
+        prediction_sources=prediction_sources,
+    )
     if not models:
         return html.Div("No labels", className="text-muted small")
 
@@ -146,14 +182,19 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
         source = model["source"]
         state = model["state"]
         is_model = source == "model"
+        is_human_provisional = source == "human-provisional"
 
-        icon = (
-            html.I(className="bi bi-robot verify-label-source-icon", title="Model-derived label")
-            if is_model
-            else html.I(className="bi bi-person-fill verify-label-source-icon", title="Human-added label")
-        )
+        if is_model:
+            icon = html.I(className="bi bi-robot verify-label-source-icon", title="Model-derived label")
+        elif is_human_provisional:
+            icon = html.I(
+                className="bi bi-person-check-fill verify-label-source-icon",
+                title="Human-provisional review label",
+            )
+        else:
+            icon = html.I(className="bi bi-person-fill verify-label-source-icon", title="Human-added label")
         state_text = {
-            "model-unreviewed": "unverified",
+            "model-unreviewed": "provisional" if is_human_provisional else "unverified",
             "model-accepted": "accepted",
             "model-rejected": "rejected",
             "human-added": "",
@@ -222,7 +263,10 @@ def _render_verify_badges(item_id, predicted_labels, accepted_labels, rejected_l
                     html.Span(label, className="verify-label-text verify-label-text--multiline"),
                 ],
                 id={"type": "verify-label-badge", "target": target},
-                className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
+                className=(
+                    f"verify-label-badge verify-label-badge--{state} "
+                    f"verify-label-badge--{source} verify-label-badge--row"
+                ),
             )
         )
     return html.Div(badges, className="verify-badge-list")
@@ -249,8 +293,15 @@ def create_verify_label_block_children(item_id, item, predicted_labels=None):
     has_pending_edits = _has_pending_label_edits(annotations_data)
     assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
     return [
-        html.Small("Labels", className="text-muted mb-1 d-block"),
-        _render_verify_badges(item_id, predicted, annotations, rejected, assume_verified=assume_verified),
+        html.Small("Predictions / labels", className="text-muted mb-1 d-block"),
+        _render_verify_badges(
+            item_id,
+            predicted,
+            annotations,
+            rejected,
+            assume_verified=assume_verified,
+            prediction_sources=_prediction_sources_by_label(predictions),
+        ),
     ]
 
 

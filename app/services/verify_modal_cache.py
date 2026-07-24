@@ -41,7 +41,7 @@ def _prediction_filter_entries(predictions):
                 continue
             label_clean = label.strip()
             raw_labels.append(label_clean)
-            entries.append((label_clean, _safe_float(out.get("score"), 0.0)))
+            entries.append((label_clean, _safe_float(out.get("score"), None)))
         if entries:
             return ordered_unique_labels(raw_labels), entries
 

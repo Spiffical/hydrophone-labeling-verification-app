@@ -337,35 +337,8 @@ def create_main_layout(config: dict) -> html.Div:
                             ],
                             className="g-2",
                         ),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Min frequency (Hz)", html_for="app-config-spec-freq-min", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-freq-min",
-                                            type="number",
-                                            min=0.0,
-                                            step=0.1,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Max frequency (Hz)", html_for="app-config-spec-freq-max", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-freq-max",
-                                            type="number",
-                                            min=0.1,
-                                            step=0.1,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                            ],
-                            className="g-2",
-                        ),
+                        dcc.Input(id="app-config-spec-freq-min", type="hidden"),
+                        dcc.Input(id="app-config-spec-freq-max", type="hidden"),
                         dbc.FormText("These parameters are used when spectrogram source is set to audio generation."),
                     ])
                 ]),

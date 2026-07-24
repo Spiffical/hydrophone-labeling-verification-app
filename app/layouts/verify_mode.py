@@ -1,7 +1,7 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
-from app.layouts.display_controls import create_display_range_bar, create_spectrogram_preset_bar
+from app.layouts.display_controls import create_display_range_bar
 
 
 def _create_spectrogram_grid_placeholder() -> html.Div:
@@ -191,8 +191,7 @@ def create_verify_layout(config: dict) -> html.Div:
                 html.Span(id="verify-page-info", className="pagination-page-info"),
             ], className="pagination-controls"),
         ], className="pagination-sticky-bar"),
-        create_spectrogram_preset_bar("verify", config=config),
-        create_display_range_bar("verify", display_cfg=display_cfg),
+        create_display_range_bar("verify", display_cfg=display_cfg, config=config),
 
         html.Div(id="verify-summary", className="summary-bar"),
         dbc.Modal(

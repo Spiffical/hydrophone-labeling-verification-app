@@ -47,12 +47,15 @@ def filter_predictions(predictions, thresholds):
     if model_outputs and isinstance(model_outputs, list):
         for output in model_outputs:
             label = output.get("class_hierarchy")
-            score = output.get("score", 0)
             if label:
+                score = output.get("score")
+                if score is None:
+                    filtered.append(label)
+                    continue
                 label_threshold = float(thresholds.get(label, global_threshold))
                 if score >= label_threshold:
                     filtered.append(label)
-        return filtered
+        return ordered_unique_labels(filtered)
 
     probs = predictions.get("confidence") or {}
     labels = ordered_unique_labels(predictions.get("labels") or [])

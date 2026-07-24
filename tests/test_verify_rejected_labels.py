@@ -121,6 +121,50 @@ def test_filter_predictions_preserves_hierarchy_when_confidence_key_is_leaf():
     assert _prediction_filter_entries(predictions) == ([FIN_WHALE], [(FIN_WHALE, 0.93)])
 
 
+def test_scoreless_human_provisional_prediction_is_not_thresholded():
+    predictions = {
+        "model_outputs": [
+            {
+                "class_hierarchy": FIN_WHALE,
+                "source": "human_visual_review",
+                "metadata": {"not_model_prediction": True},
+            }
+        ]
+    }
+
+    raw_labels, entries = _prediction_filter_entries(predictions)
+
+    assert raw_labels == [FIN_WHALE]
+    assert entries == [(FIN_WHALE, None)]
+    assert filter_predictions(predictions, {"__global__": 1.0}) == [FIN_WHALE]
+    assert filter_pagination_predictions(predictions, {"__global__": 1.0}) == [FIN_WHALE]
+
+
+def test_verify_card_renders_human_provisional_prediction_with_accept_reject_actions():
+    item = {
+        "item_id": "clip-provisional",
+        "predictions": {
+            "labels": [FIN_WHALE],
+            "model_outputs": [
+                {
+                    "class_hierarchy": FIN_WHALE,
+                    "source": "human_visual_review",
+                    "metadata": {"not_model_prediction": True},
+                }
+            ],
+        },
+        "annotations": {},
+    }
+
+    card = create_spectrogram_card(item, image_src="/assets/example.png", mode="verify")
+
+    assert _component_tree_contains_class(card, "verify-label-badge--human-provisional")
+    assert _component_tree_contains_text(card, "Predictions / labels")
+    assert _component_tree_contains_text(card, "provisional")
+    assert _component_tree_contains_text(card, "✓")
+    assert _component_tree_contains_text(card, "×")
+
+
 def test_unified_conversion_preserves_rejected_label_decisions():
     data = convert_unified_v2_to_internal(
         {

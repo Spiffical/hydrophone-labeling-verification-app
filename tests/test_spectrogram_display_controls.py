@@ -194,9 +194,10 @@ def test_summarize_spectrogram_display_ranges_reports_frequency_and_color_bounds
 
 def test_display_range_analysis_is_collapsed_by_default():
     controls = create_display_range_bar("verify")
-    colormap_bar = controls.children[0]
-    details = controls.children[1]
-    selector = colormap_bar.children[1]
+    details = controls.children[0]
+    content = details.children[1]
+    colormap_row = content.children[1]
+    selector = colormap_row.children[1]
     summary = details.children[0]
 
     assert controls.id == "verify-display-controls"
@@ -207,3 +208,49 @@ def test_display_range_analysis_is_collapsed_by_default():
     assert [option["value"] for option in selector.options] == ["default", "hydrophone"]
     assert summary.id == "verify-display-settings-summary"
     assert summary.n_clicks == 0
+
+
+def test_display_settings_contains_presets_and_custom_frequency_controls():
+    cfg = {
+        "spectrogram_render": {
+            "active_preset": "recommended",
+            "win_dur_s": 1.0,
+            "overlap": 0.9,
+            "freq_min_hz": 5.0,
+            "freq_max_hz": 125.0,
+            "presets": [
+                {
+                    "id": "recommended",
+                    "label": "Recommended",
+                    "scope": "item",
+                    "win_dur_s": 1.0,
+                    "overlap": 0.9,
+                    "freq_min_hz": 5.0,
+                    "freq_max_hz": 125.0,
+                },
+                {
+                    "id": "high",
+                    "label": "High | 500-8,000 Hz",
+                    "win_dur_s": 0.1,
+                    "overlap": 0.9,
+                    "freq_min_hz": 500.0,
+                    "freq_max_hz": 8000.0,
+                },
+            ],
+        }
+    }
+
+    controls = create_display_range_bar("verify", config=cfg)
+    details = controls.children[0]
+    content = details.children[1]
+    preset_bar = content.children[0]
+    frequency_group = content.children[3].children[0]
+
+    assert preset_bar.id == "verify-spectrogram-preset-bar"
+    assert preset_bar.children[1].id == "verify-spectrogram-preset"
+    assert preset_bar.children[1].value == "recommended"
+    assert [option["value"] for option in preset_bar.children[1].options] == [
+        "recommended",
+        "high",
+    ]
+    assert frequency_group.children[0].children[0].children == "Custom frequency window (Hz)"

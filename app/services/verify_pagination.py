@@ -85,8 +85,11 @@ def _filter_predictions(predictions, thresholds):
             if not isinstance(out, dict):
                 continue
             label = out.get("class_hierarchy")
-            score = _safe_float(out.get("score"), 0.0)
             if not isinstance(label, str) or not label.strip():
+                continue
+            score = _safe_float(out.get("score"), None)
+            if score is None:
+                filtered.append(label.strip())
                 continue
             label_threshold = float(thresholds.get(label, global_threshold))
             if score >= label_threshold:
