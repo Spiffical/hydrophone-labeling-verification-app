@@ -10,7 +10,6 @@ from cachetools import LRUCache
 from app.utils.image_processing import (
     SPECTROGRAM_SOURCE_AUDIO_GENERATED,
     SPECTROGRAM_SOURCE_EXISTING,
-    generate_image_cached,
     generate_item_image_cached,
     get_spectrogram_render_settings,
 )
@@ -81,6 +80,38 @@ def build_item_image_request_src(
     return f"/item-image/{token}?{cache_key}"
 
 
+def use_full_resolution_modal_image(cfg: Optional[dict], y_axis_scale: str) -> bool:
+    display_cfg = (cfg or {}).get("display", {})
+    if not isinstance(display_cfg, dict):
+        display_cfg = {}
+    mode = str(display_cfg.get("modal_render_mode", "full_resolution_image")).strip().lower()
+    return mode in {"full_resolution_image", "lossless_image"} and y_axis_scale != "log"
+
+
+def build_modal_image_request_src(
+    item: dict,
+    *,
+    cfg: Optional[dict] = None,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    y_axis_min_hz: Optional[float] = None,
+    y_axis_max_hz: Optional[float] = None,
+    color_min: Optional[float] = None,
+    color_max: Optional[float] = None,
+) -> str:
+    card_src = build_item_image_request_src(
+        item,
+        cfg=cfg,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
+    return card_src.replace("/item-image/", "/modal-image/", 1)
+
+
 def image_file_to_base64(image_path: str) -> str:
     if not image_path or not os.path.exists(image_path):
         return ""
@@ -145,6 +176,20 @@ def get_item_image_src(
         if spectrogram_path and os.path.splitext(spectrogram_path)[1].lower() in {".png", ".jpg", ".jpeg", ".webp"}:
             return image_file_to_base64(spectrogram_path)
 
+    mat_path = item.get("mat_path")
+    audio_path = item.get("audio_path")
+    if mat_path or audio_path:
+        return build_item_image_request_src(
+            item,
+            cfg=cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
+
     dynamic_src = generate_item_image_cached(
         item,
         cfg,
@@ -157,17 +202,5 @@ def get_item_image_src(
     )
     if dynamic_src:
         return dynamic_src
-
-    mat_path = item.get("mat_path")
-    if use_existing and mat_path and os.path.exists(mat_path):
-        return generate_image_cached(
-            mat_path,
-            colormap=colormap,
-            y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
-        )
 
     return None

@@ -435,6 +435,10 @@ def create_modal_audio_player(
     controls_row = html.Div([side_controls, eq_section], className="modal-controls-main-row")
 
     return html.Div([
+        dcc.Store(
+            id=f"{player_id}-item-store",
+            data={"item_id": str(spectrogram_filename)},
+        ),
         # Audio icon and filename
         html.Div([
             html.I(className="fas fa-waveform-lines modal-audio-icon"),

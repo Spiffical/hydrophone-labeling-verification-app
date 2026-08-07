@@ -324,3 +324,60 @@ def is_valid_path(path, hierarchy=None):
         if not isinstance(current, dict):
             return False
     return True
+
+
+PREDICTION_LABEL_ALIASES = {
+    "fin whale": "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+    "humpback whale": "Biophony > Marine mammal > Cetacean > Baleen whale > Humpback whale",
+    "ship": "Anthropophony > Vessel",
+    "sonar": "Anthropophony > Sonar",
+    "unknown biological": "Biophony > Unknown biophony",
+    "other anthropogenic": "Anthropophony > Unknown anthropophony",
+}
+
+
+def _normalized_prediction_label_key(value):
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip().replace("_", " ").replace("-", " ")
+    return " ".join(normalized.casefold().split())
+
+
+def canonicalize_prediction_label(label):
+    """Resolve a model-output label to a path in the canonical taxonomy.
+
+    Prediction producers sometimes emit a legacy class identifier under an
+    arbitrary parent (for example ``Other > fin_whale``). Canonical labels are
+    accepted as-is; known model identifiers and unambiguous canonical node
+    names are resolved to their taxonomy paths. Unknown labels are rejected.
+    """
+    if not isinstance(label, str) or not label.strip():
+        return None
+
+    parts = tuple(part.strip() for part in label.split(">") if part.strip())
+    if not parts:
+        return None
+    if is_valid_path(parts):
+        return path_to_string(parts)
+
+    leaf_key = _normalized_prediction_label_key(parts[-1])
+    alias = PREDICTION_LABEL_ALIASES.get(leaf_key)
+    if alias:
+        return alias
+
+    legacy_by_key = {
+        _normalized_prediction_label_key(legacy): canonical
+        for legacy, canonical in LEGACY_LABEL_MAPPING.items()
+    }
+    legacy = legacy_by_key.get(leaf_key)
+    if legacy:
+        return legacy
+
+    matching_paths = [
+        path
+        for path in get_all_paths()
+        if _normalized_prediction_label_key(path[-1]) == leaf_key
+    ]
+    if len(matching_paths) == 1:
+        return path_to_string(matching_paths[0])
+    return None

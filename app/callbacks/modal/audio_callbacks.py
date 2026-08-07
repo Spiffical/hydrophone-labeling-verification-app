@@ -3,6 +3,8 @@
 from dash import ALL, Input, Output, State
 from dash.exceptions import PreventUpdate
 
+from app.utils.audio_settings import set_modal_amplification
+
 
 def register_modal_audio_callbacks(app):
     """Register modal audio UI callbacks."""
@@ -66,7 +68,7 @@ def register_modal_audio_callbacks(app):
         Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
         Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
         State("image-modal", "is_open"),
-        State("modal-item-store", "data"),
+        State("modal-player-item-store", "data"),
         prevent_initial_call=True,
     )
 
@@ -229,13 +231,10 @@ def register_modal_audio_callbacks(app):
                 continue
 
         if gain is not None:
-            try:
-                gain_value = float(gain)
-                if updated.get("gain") != gain_value:
-                    updated["gain"] = gain_value
-                    changed = True
-            except (TypeError, ValueError):
-                pass
+            gain_settings = set_modal_amplification(updated, gain)
+            if gain_settings != updated:
+                updated = gain_settings
+                changed = True
 
         visible_filter_enabled = _is_visible_filter_enabled(visible_filter)
         if updated.get("visible_filter") != visible_filter_enabled:

@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import matplotlib.colors as mcolors
 from matplotlib.figure import Figure
+from matplotlib.image import imsave
 import numpy as np
 import plotly.graph_objects as go
 import scipy.io as sio
@@ -147,7 +148,11 @@ def _coerce_float(value: Any, fallback: float, *, minimum: Optional[float] = Non
 
 def _normalize_modal_transport_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {MODAL_TRANSPORT_FLOAT64, MODAL_TRANSPORT_FLOAT32, MODAL_TRANSPORT_UINT16}:
+    if normalized in {
+        MODAL_TRANSPORT_FLOAT64,
+        MODAL_TRANSPORT_FLOAT32,
+        MODAL_TRANSPORT_UINT16,
+    }:
         return normalized
     if normalized in {"f32", "heatmap-f32", "heatmap_float32"}:
         return MODAL_TRANSPORT_FLOAT32
@@ -168,6 +173,18 @@ def get_modal_transport_mode(cfg: Optional[Dict[str, Any]]) -> str:
     return _normalize_modal_transport_mode(
         os.getenv("HYDRO_MODAL_TRANSPORT_MODE", MODAL_TRANSPORT_FLOAT32)
     )
+
+
+def is_modal_prefetch_enabled(cfg: Optional[Dict[str, Any]]) -> bool:
+    cache_cfg = (cfg or {}).get("cache", {})
+    if not isinstance(cache_cfg, dict):
+        cache_cfg = {}
+    configured = cache_cfg.get("modal_prefetch_enabled")
+    if configured is None and "prefetch_enabled" in cache_cfg:
+        configured = cache_cfg.get("prefetch_enabled")
+    if configured is None:
+        return True
+    return str(configured).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -713,6 +730,17 @@ def resolve_item_spectrogram(item: Optional[Dict[str, Any]], cfg: Optional[Dict[
     return spec
 
 
+def resolve_item_modal_matrix(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+) -> Optional[np.ndarray]:
+    spectrogram = resolve_item_spectrogram(item, cfg)
+    if spectrogram is None:
+        return None
+    plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
+    return np.ascontiguousarray(plot_axes["psd"], dtype="<f4")
+
+
 def estimate_page_audio_generation_work(
     items: Any,
     cfg: Optional[Dict[str, Any]],
@@ -1008,6 +1036,85 @@ def prefetch_page_modal_spectrograms_in_background(
     return submitted
 
 
+def _prefetch_item_modal_image(
+    item: dict,
+    *,
+    cfg: Optional[Dict[str, Any]],
+    colormap: str,
+    y_axis_scale: str,
+    y_axis_min_hz: Any,
+    y_axis_max_hz: Any,
+    color_min: Any,
+    color_max: Any,
+    dedupe_key: Tuple[Any, ...],
+) -> None:
+    try:
+        generate_item_modal_image_cached(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
+    except Exception:
+        logger.exception("Background modal image prefetch failed for item=%s", item.get("item_id"))
+    finally:
+        with _PREFETCH_LOCK:
+            _PREFETCH_PENDING_KEYS.discard(dedupe_key)
+
+
+def prefetch_modal_images_in_background(
+    items: Any,
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str,
+    y_axis_scale: str,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
+) -> int:
+    submitted = 0
+    for item in items if isinstance(items, list) else []:
+        base_key = _item_image_generation_key(
+            item,
+            cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
+        if base_key is None:
+            continue
+        image_key = ("modal_full_resolution",) + tuple(base_key)
+        if _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
+            continue
+        dedupe_key = ("modal_image", image_key)
+        with _PREFETCH_LOCK:
+            if dedupe_key in _PREFETCH_PENDING_KEYS:
+                continue
+            _PREFETCH_PENDING_KEYS.add(dedupe_key)
+        _PREFETCH_EXECUTOR.submit(
+            _prefetch_item_modal_image,
+            item,
+            cfg=cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+            dedupe_key=dedupe_key,
+        )
+        submitted += 1
+    return submitted
+
+
 def _prefetch_item_audio_spectrogram(
     item: dict,
     *,
@@ -1295,6 +1402,113 @@ def generate_item_image_cached(
     )
 
 
+def generate_item_modal_image_cached(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+    color_min: Any = None,
+    color_max: Any = None,
+) -> Optional[str]:
+    """Render every source cell to a losslessly compressed PNG for the modal."""
+    base_key = _item_image_generation_key(
+        item,
+        cfg,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
+
+    def _resolve_and_render():
+        spectrogram, _ = resolve_item_spectrogram_with_key(item, cfg)
+        if spectrogram is None:
+            return None
+        return _generate_modal_image_from_spectrogram_data(
+            spectrogram,
+            colormap=colormap,
+            color_min=color_min,
+            color_max=color_max,
+        )
+
+    if base_key is not None:
+        cache_key = ("modal_full_resolution",) + tuple(base_key)
+        return _get_or_compute_cached(
+            image_cache,
+            cache_key,
+            _IMAGE_CACHE_LOCK,
+            _IMAGE_INFLIGHT,
+            _resolve_and_render,
+        )
+
+    spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
+    if spectrogram is None:
+        return None
+    cache_key = (
+        "modal_full_resolution",
+        source_key,
+        str(colormap or "default"),
+        str(y_axis_scale or "linear"),
+        _display_limit_cache_token(y_axis_min_hz),
+        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(color_min),
+        _display_limit_cache_token(color_max),
+    )
+    return _get_or_compute_cached(
+        image_cache,
+        cache_key,
+        _IMAGE_CACHE_LOCK,
+        _IMAGE_INFLIGHT,
+        lambda: _generate_modal_image_from_spectrogram_data(
+            spectrogram,
+            colormap=colormap,
+            color_min=color_min,
+            color_max=color_max,
+        ),
+    )
+
+
+def _generate_modal_image_from_spectrogram_data(
+    spectrogram: Dict[str, np.ndarray],
+    *,
+    colormap: str,
+    color_min: Any,
+    color_max: Any,
+) -> Optional[str]:
+    plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
+    psd = np.asarray(plot_axes["psd"])
+    color_summary = _compute_color_limit_summary(psd)
+    vmin, vmax = _resolve_color_limits(
+        color_min=color_min,
+        color_max=color_max,
+        auto_min=color_summary["auto_min"],
+        auto_max=color_summary["auto_max"],
+    )
+    if colormap == "hydrophone":
+        cmap = mcolors.ListedColormap(colmap_hyd_py(36, 3))
+    else:
+        cmap = "viridis"
+
+    buffer = BytesIO()
+    with _MATPLOTLIB_RENDER_LOCK:
+        imsave(
+            buffer,
+            psd,
+            format="png",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            origin="lower",
+        )
+    data = base64.b64encode(buffer.getbuffer()).decode("utf8")
+    return f"data:image/png;base64,{data}"
+
+
 def _generate_image_from_spectrogram_data(
     spectrogram: Dict[str, np.ndarray],
     colormap: str = "default",
@@ -1434,7 +1648,6 @@ def _build_modal_heatmap_transport(
     if mode == MODAL_TRANSPORT_FLOAT32:
         return np.asarray(psd, dtype=np.float32), float(zmin), float(zmax), {"title": "dB/Hz"}
     return np.asarray(psd), float(zmin), float(zmax), {"title": "dB/Hz"}
-
 
 def _image_file_to_data_uri(image_path: str) -> Optional[str]:
     if not image_path:
@@ -1668,6 +1881,7 @@ def create_spectrogram_figure(
     y_axis_max_hz: Any = None,
     color_min: Any = None,
     color_max: Any = None,
+    image_source: Optional[str] = None,
 ):
     if spectrogram_data is None:
         return go.Figure()
@@ -1707,6 +1921,15 @@ def create_spectrogram_figure(
                       for i, (r, g, b) in enumerate(cmap_array)]
     else:
         colorscale = "Viridis"
+        cmap_array = np.asarray(
+            matplotlib.colormaps["viridis"](np.linspace(0.0, 1.0, 256)),
+            dtype=np.float64,
+        )[:, :3]
+
+    raster_palette = [
+        [int(round(float(channel) * 255.0)) for channel in color]
+        for color in np.asarray(cmap_array)
+    ]
 
     y_window = _resolve_y_axis_window(
         freq_plot=np.asarray(freq_plot, dtype=np.float64),
@@ -1730,23 +1953,63 @@ def create_spectrogram_figure(
         y_axis_title = f"Frequency ({y_unit})"
         y_axis_range = [y_window["display_min_plot"], y_window["display_max_plot"]]
 
-    heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _build_modal_heatmap_transport(
-        psd,
-        zmin,
-        zmax,
-        resolved_transport_mode,
-    )
+    if len(time_plot):
+        x_min = float(np.min(time_plot))
+        x_max = float(np.max(time_plot))
+    else:
+        x_min = 0.0
+        x_max = 1.0
+    image_y_min = float(np.min(freq_plot)) if len(freq_plot) else 0.0
+    image_y_max = float(np.max(freq_plot)) if len(freq_plot) else 1.0
 
     fig = go.Figure()
-    fig.add_trace(go.Heatmap(
-        z=heatmap_z,
-        x=time_plot,
-        y=freq_plot,
-        colorscale=colorscale,
-        zmin=heatmap_zmin,
-        zmax=heatmap_zmax,
-        colorbar=colorbar,
-    ))
+    if image_source:
+        # The PNG has exactly one output pixel per source cell. Plotly retains
+        # ownership of axes, zoom, playback, and annotation overlays.
+        fig.add_trace(
+            go.Heatmap(
+                z=[[zmin, zmax]],
+                x=[x_min, x_max],
+                y=[image_y_min],
+                colorscale=colorscale,
+                zmin=zmin,
+                zmax=zmax,
+                colorbar={"title": "dB/Hz"},
+                opacity=0.0,
+                hoverinfo="skip",
+                showscale=True,
+            )
+        )
+        fig.add_layout_image(
+            dict(
+                source=image_source,
+                xref="x",
+                yref="y",
+                x=x_min,
+                y=image_y_max,
+                sizex=max(1e-9, x_max - x_min),
+                sizey=max(1e-9, image_y_max - image_y_min),
+                sizing="stretch",
+                opacity=1.0,
+                layer="below",
+            )
+        )
+    else:
+        heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _build_modal_heatmap_transport(
+            psd,
+            zmin,
+            zmax,
+            resolved_transport_mode,
+        )
+        fig.add_trace(go.Heatmap(
+            z=heatmap_z,
+            x=time_plot,
+            y=freq_plot,
+            colorscale=colorscale,
+            zmin=heatmap_zmin,
+            zmax=heatmap_zmax,
+            colorbar=colorbar,
+        ))
 
     # Add invisible playback position marker (will be controlled via JavaScript)
     fig.add_shape(
@@ -1774,24 +2037,24 @@ def create_spectrogram_figure(
     if render_reason:
         source_label = f"{source_label} [{render_reason}]"
 
-    if len(time_plot):
-        x_min = float(np.min(time_plot))
-        x_max = float(np.max(time_plot))
-    else:
-        x_min = 0.0
-        x_max = 1.0
     y_min = float(y_window["display_min_plot"])
     y_max = float(y_window["display_max_plot"])
+    figure_transport = "full_resolution_lossless_png" if image_source else resolved_transport_mode
     render_signature = (
-        f"{render_source}|{render_reason}|{resolved_transport_mode}|"
+        f"{render_source}|{render_reason}|{figure_transport}|"
         f"{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|"
         f"{zmin:.6f}|{zmax:.6f}|{psd.shape[0]}x{psd.shape[1]}"
     )
 
     fig.update_layout(
         title=dict(text=""),
-        xaxis=dict(title=x_label, showgrid=True, tickformat=".2f"),
-        yaxis=dict(title=y_axis_title, showgrid=True, type=y_axis_type, range=y_axis_range),
+        xaxis=dict(
+            title=x_label,
+            showgrid=False,
+            tickformat=".2f",
+            range=[x_min, x_max] if image_source else None,
+        ),
+        yaxis=dict(title=y_axis_title, showgrid=False, type=y_axis_type, range=y_axis_range),
         margin=dict(l=40, r=20, t=20, b=40),
         height=500,
         dragmode="pan",
@@ -1818,7 +2081,15 @@ def create_spectrogram_figure(
             "display_color_max": zmax,
             "x_unit": "minutes" if x_to_seconds == 60.0 else "seconds",
             "y_unit": y_unit,
-            "transport_mode": resolved_transport_mode,
+            "transport_mode": figure_transport,
+            "source_matrix_shape": [int(psd.shape[0]), int(psd.shape[1])],
+            "modal_data_url": (
+                image_source.replace("/modal-image/", "/modal-data/", 1)
+                if image_source
+                else None
+            ),
+            "raster_palette": raster_palette if image_source else None,
+            "raster_palette_mode": "listed" if image_source else None,
             "render_source": render_source,
             "render_reason": render_reason,
         },
@@ -1855,6 +2126,7 @@ def create_item_spectrogram_figure(
     y_axis_max_hz: Any = None,
     color_min: Any = None,
     color_max: Any = None,
+    image_source: Optional[str] = None,
 ) -> Tuple[go.Figure, Optional[Dict[str, np.ndarray]]]:
     spectrogram = resolve_item_spectrogram(item, cfg)
     if spectrogram is not None:
@@ -1869,6 +2141,7 @@ def create_item_spectrogram_figure(
                 y_axis_max_hz=y_axis_max_hz,
                 color_min=color_min,
                 color_max=color_max,
+                image_source=image_source,
             ),
             spectrogram,
         )

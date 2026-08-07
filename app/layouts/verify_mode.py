@@ -156,7 +156,7 @@ def create_verify_layout(config: dict) -> html.Div:
                                 id="verify-threshold-slider",
                                 min=0, max=1, value=0.5, step=0.01,
                                 marks={0: "0%", 0.5: "50%", 1: "100%"},
-                                tooltip={"placement": "top", "always_visible": True},
+                                tooltip={"placement": "top", "always_visible": False},
                                 className="control-slider",
                             ),
                         ]),

@@ -280,6 +280,7 @@ def create_spectrogram_modal(config=None):
                             "colorbar_readout": "Auto contrast",
                         },
                     ),
+                    dcc.Store(id="modal-display-meta-store", data={}),
                     ], className="display-range-content modal-display-settings-content"),
                 ], className="modal-controls-card display-settings-details mb-4"),
 
@@ -348,6 +349,7 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='modal-force-action-store', data=None),
                 dcc.Store(id='modal-open-request-store', data=None),
                 dcc.Store(id='modal-busy-store', data=False, storage_type='memory'),
+                dcc.Store(id='modal-image-prefetch-store', data=None, storage_type='memory'),
             ], className="p-4"),
 
             dbc.ModalFooter([
@@ -359,7 +361,7 @@ def create_spectrogram_modal(config=None):
                 )
             ]),
             html.Div(
-                html.Div("Updating modal...", className="modal-busy-indicator"),
+                html.Div("Updating spectrogram...", className="modal-busy-indicator"),
                 id="modal-busy-overlay",
                 className="modal-busy-overlay",
                 style={"display": "none"},

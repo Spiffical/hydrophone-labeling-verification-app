@@ -1,6 +1,7 @@
 from app.services.verify_filter_tree import (
     build_verify_filter_paths,
     build_verify_leaf_paths,
+    extract_verify_leaf_classes,
     expand_verify_filter_selection,
     predicted_labels_match_filter,
     toggle_verify_filter_selection,
@@ -16,8 +17,32 @@ from app.services.verify_modal_cache import (
 from app.callbacks.data.render_callbacks import (
     _collect_verify_future_page_items,
     _compute_prefetch_pages_ahead,
+    _modal_prefetch_enabled,
     _prefetch_enabled,
+    _verify_page_info,
 )
+from app.callbacks.verify.class_filter_callbacks import preserve_dynamic_all_selection
+from app.utils.unified_format_converter import convert_unified_v2_to_internal
+
+
+def test_verify_page_info_distinguishes_page_range_from_filter_matches():
+    assert _verify_page_info(0, 25, 5737) == (
+        "Showing 1-25 of 5,737 matches | Page 1 of 230"
+    )
+    assert _verify_page_info(1, 25, 5737) == (
+        "Showing 26-50 of 5,737 matches | Page 2 of 230"
+    )
+    assert _verify_page_info(0, 25, 49, index_available=False) == (
+        "Showing available recordings while the index is built"
+    )
+
+
+def test_modal_prefetch_defaults_on_for_existing_mat_spectrograms():
+    cfg = {"spectrogram_render": {"source": "existing"}}
+
+    assert _prefetch_enabled(cfg) is False
+    assert _modal_prefetch_enabled(cfg) is True
+    assert _modal_prefetch_enabled({"cache": {"modal_prefetch_enabled": False}}) is False
 
 
 def test_build_verify_leaf_paths_returns_only_leaf_nodes():
@@ -49,6 +74,54 @@ def test_expand_verify_filter_selection_expands_parent_to_descendant_leaves():
         "Anthrophony > Vessel > Cargo",
         "Anthrophony > Vessel > Tug",
     ]
+
+
+def test_dynamic_all_selection_includes_classes_discovered_after_preview():
+    preview_paths = build_verify_filter_paths(
+        [
+            "Anthrophony > Vessel > Cargo",
+            "Biophony > Whale",
+        ]
+    )
+    complete_paths = build_verify_filter_paths(
+        [
+            "Anthrophony > Vessel > Cargo",
+            "Biophony > Whale",
+            "Geophony > Earthquake",
+        ]
+    )
+
+    assert preserve_dynamic_all_selection(
+        complete_paths,
+        build_verify_leaf_paths(preview_paths),
+        preview_paths,
+        build_verify_leaf_paths=build_verify_leaf_paths,
+        expand_verify_filter_selection=expand_verify_filter_selection,
+    ) is None
+
+
+def test_dynamic_class_subset_remains_explicit_after_dataset_change():
+    preview_paths = build_verify_filter_paths(
+        [
+            "Anthrophony > Vessel > Cargo",
+            "Biophony > Whale",
+        ]
+    )
+    complete_paths = build_verify_filter_paths(
+        [
+            "Anthrophony > Vessel > Cargo",
+            "Biophony > Whale",
+            "Geophony > Earthquake",
+        ]
+    )
+
+    assert preserve_dynamic_all_selection(
+        complete_paths,
+        ["Biophony > Whale"],
+        preview_paths,
+        build_verify_leaf_paths=build_verify_leaf_paths,
+        expand_verify_filter_selection=expand_verify_filter_selection,
+    ) == ["Biophony > Whale"]
 
 
 def test_toggle_verify_filter_selection_cascades_to_descendants():
@@ -84,6 +157,67 @@ def test_predicted_labels_match_filter_works_with_leaf_only_selection():
 
     assert predicted_labels_match_filter(["Anthrophony > Vessel > Tug"], selected) is True
     assert predicted_labels_match_filter(["Anthrophony > Vessel > Cargo"], selected) is False
+
+
+def test_extract_verify_leaf_classes_uses_only_canonical_model_outputs():
+    items = [
+        {
+            "predictions": {
+                "model_outputs": [
+                    {"class_hierarchy": "Other > fin_whale", "score": 0.8},
+                    {
+                        "class_hierarchy": "Geophony > Weather > Precipitation > Rain",
+                        "score": 0.4,
+                    },
+                    {"class_hierarchy": "Not a taxonomy class", "score": 0.2},
+                ],
+                "confidence": {"Other > bogus_confidence_class": 0.99},
+                "labels": ["Other > bogus_display_label"],
+            }
+        }
+    ]
+
+    assert extract_verify_leaf_classes(items) == [
+        "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+        "Geophony > Weather > Precipitation > Rain",
+    ]
+
+
+def test_unified_converter_canonicalizes_model_outputs_without_mutating_source():
+    predictions_json = {
+        "schema_version": "2.1",
+        "model": {"model_id": "test-model"},
+        "items": [
+            {
+                "item_id": "clip-1",
+                "model_outputs": [
+                    {"class_hierarchy": "Other > fin_whale", "score": 0.8},
+                    {"class_hierarchy": "Other > ship", "score": 0.7},
+                    {"class_hierarchy": "Other > sonar", "score": 0.6},
+                    {"class_hierarchy": "Other > unknown_biological", "score": 0.5},
+                    {"class_hierarchy": "Other > other_anthropogenic", "score": 0.4},
+                    {"class_hierarchy": "Other > invalid_class", "score": 0.3},
+                ],
+            }
+        ],
+    }
+
+    converted = convert_unified_v2_to_internal(predictions_json)
+
+    assert [
+        output["class_hierarchy"]
+        for output in converted["items"][0]["predictions"]["model_outputs"]
+    ] == [
+        "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
+        "Anthropophony > Vessel",
+        "Anthropophony > Sonar",
+        "Biophony > Unknown biophony",
+        "Anthropophony > Unknown anthropophony",
+    ]
+    assert (
+        predictions_json["items"][0]["model_outputs"][0]["class_hierarchy"]
+        == "Other > fin_whale"
+    )
 
 
 def test_verify_modal_cache_filters_thresholds_classes_and_pages():
@@ -161,6 +295,13 @@ def test_audio_generated_pages_prefetch_filtered_future_items():
 
     assert [item["item_id"] for item in future_items] == ["clip-1", "clip-2"]
     assert _prefetch_enabled({"spectrogram_render": {"source": "audio_generated"}}) is True
+    assert _prefetch_enabled({"spectrogram_render": {"source": "existing"}}) is False
+    assert _prefetch_enabled(
+        {
+            "cache": {"prefetch_enabled": True},
+            "spectrogram_render": {"source": "existing"},
+        }
+    ) is True
     assert _prefetch_enabled({"cache": {"prefetch_enabled": False}}) is False
     assert _compute_prefetch_pages_ahead({"cache": {"max_size": 75}}, 25) == 2
     assert _compute_prefetch_pages_ahead(

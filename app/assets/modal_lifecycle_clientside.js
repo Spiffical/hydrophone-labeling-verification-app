@@ -1,4 +1,6 @@
 (function () {
+  const modalImagePrefetchCache = new Map();
+
   function noUpdate() {
     return (window.dash_clientside || {}).no_update;
   }
@@ -120,6 +122,43 @@
 
       finishLoading: function (_modalItem) {
         return false;
+      },
+
+      prefetchImages: function (figure) {
+        const meta = figure && figure.layout && figure.layout.meta;
+        if (meta && meta.local_display_update_sequence) {
+          return noUpdate();
+        }
+        if (window.hydrophoneModalDisplay) {
+          window.hydrophoneModalDisplay.cancelPending();
+        }
+        const urls = meta && Array.isArray(meta.prefetch_image_urls)
+          ? meta.prefetch_image_urls
+          : [];
+        const preloadImages = function () {
+          urls.forEach(function (url) {
+            if (typeof url !== 'string' || !url || modalImagePrefetchCache.has(url)) {
+              return;
+            }
+            const image = new Image();
+            image.decoding = 'async';
+            image.src = url;
+            modalImagePrefetchCache.set(url, image);
+          });
+          while (modalImagePrefetchCache.size > 24) {
+            const oldestUrl = modalImagePrefetchCache.keys().next().value;
+            modalImagePrefetchCache.delete(oldestUrl);
+          }
+        };
+        const dataPreload = meta && meta.modal_data_url && window.hydrophoneModalDisplay
+          ? window.hydrophoneModalDisplay.preload(meta.modal_data_url)
+          : null;
+        if (dataPreload && typeof dataPreload.finally === 'function') {
+          dataPreload.catch(function () {}).finally(preloadImages);
+        } else {
+          preloadImages();
+        }
+        return { count: urls.length, ts: Date.now() };
       },
     }),
   });

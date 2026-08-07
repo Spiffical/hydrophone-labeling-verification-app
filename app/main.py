@@ -23,7 +23,11 @@ from app.utils.audio_transport import (
     normalize_audio_transport,
     resolve_audio_delivery_path,
 )
-from app.utils.image_processing import generate_item_image_cached
+from app.utils.image_processing import (
+    generate_item_image_cached,
+    generate_item_modal_image_cached,
+    resolve_item_modal_matrix,
+)
 from app.utils.image_utils import decode_item_image_request
 
 
@@ -57,6 +61,30 @@ def _is_audio_path_allowed(audio_path, fallback_root=None):
         except ValueError:
             continue
     return False
+
+
+def _configured_audio_roots(config):
+    data_cfg = config.get("data", {}) if isinstance(config.get("data"), dict) else {}
+    label_cfg = config.get("label", {}) if isinstance(config.get("label"), dict) else {}
+    verify_cfg = config.get("verify", {}) if isinstance(config.get("verify"), dict) else {}
+    nested_verify_cfg = (
+        data_cfg.get("verify", {}) if isinstance(data_cfg.get("verify"), dict) else {}
+    )
+    candidates = [
+        label_cfg.get("audio_folder"),
+        verify_cfg.get("dashboard_root"),
+        data_cfg.get("audio_folder"),
+        data_cfg.get("data_dir"),
+        nested_verify_cfg.get("dashboard_root"),
+    ]
+    roots = []
+    for candidate in candidates:
+        if not candidate or not os.path.exists(candidate):
+            continue
+        normalized = os.path.abspath(candidate)
+        if normalized not in roots:
+            roots.append(normalized)
+    return roots
 
 
 def _coerce_non_negative_int(value, default):
@@ -155,6 +183,7 @@ def create_app(config: Dict) -> dash.Dash:
 
     app.layout = create_main_layout(config)
     register_callbacks(app, config)
+    configured_audio_roots = _configured_audio_roots(config)
     audio_cfg = _get_audio_config(config)
     audio_transport = normalize_audio_transport(
         audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
@@ -208,7 +237,10 @@ def create_app(config: Dict) -> dash.Dash:
         fallback_root = config.get("label", {}).get("audio_folder")
         if not audio_path or not os.path.exists(audio_path):
             abort(404)
-        if not _is_audio_path_allowed(audio_path, fallback_root=fallback_root):
+        if not (
+            _is_audio_path_allowed(audio_path, fallback_root=fallback_root)
+            or any(_is_audio_path_allowed(audio_path, fallback_root=root) for root in configured_audio_roots)
+        ):
             abort(404)
 
         requested_transport = normalize_audio_transport(
@@ -276,6 +308,68 @@ def create_app(config: Dict) -> dash.Dash:
             mimetype=mime_type,
             headers={
                 "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
+            },
+        )
+
+    @app.server.route("/modal-image/<token>")
+    def serve_modal_image(token):
+        payload = decode_item_image_request(token)
+        if not payload:
+            abort(400)
+
+        item = {
+            "audio_path": payload.get("audio_path"),
+            "mat_path": payload.get("mat_path"),
+            "spectrogram_path": payload.get("spectrogram_path"),
+        }
+        cfg = {"spectrogram_render": payload.get("render_cfg") or {}}
+        image_src = generate_item_modal_image_cached(
+            item,
+            cfg,
+            colormap=str(payload.get("colormap") or "default"),
+            y_axis_scale=str(payload.get("y_axis_scale") or "linear"),
+            y_axis_min_hz=payload.get("y_axis_min_hz"),
+            y_axis_max_hz=payload.get("y_axis_max_hz"),
+            color_min=payload.get("color_min"),
+            color_max=payload.get("color_max"),
+        )
+        if not image_src or not image_src.startswith("data:image/png;base64,"):
+            abort(404)
+        try:
+            image_bytes = base64.b64decode(image_src.split(",", 1)[1])
+        except Exception:
+            abort(500)
+        return Response(
+            image_bytes,
+            mimetype="image/png",
+            headers={
+                "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
+            },
+        )
+
+    @app.server.route("/modal-data/<token>")
+    def serve_modal_data(token):
+        payload = decode_item_image_request(token)
+        if not payload:
+            abort(400)
+        item = {
+            "audio_path": payload.get("audio_path"),
+            "mat_path": payload.get("mat_path"),
+            "spectrogram_path": payload.get("spectrogram_path"),
+        }
+        cfg = {"spectrogram_render": payload.get("render_cfg") or {}}
+        matrix = resolve_item_modal_matrix(item, cfg)
+        if matrix is None or matrix.ndim != 2:
+            abort(404)
+        rows, columns = matrix.shape
+        return Response(
+            matrix.tobytes(order="C"),
+            mimetype="application/octet-stream",
+            headers={
+                "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
+                "X-Spectrogram-Rows": str(rows),
+                "X-Spectrogram-Columns": str(columns),
+                "X-Spectrogram-Dtype": "float32-le",
             },
         )
 

@@ -3,6 +3,32 @@
 from dash import ALL, Input, Output, State, ctx, html
 from dash.exceptions import PreventUpdate
 
+from app.services.verify_modal_cache import get_verify_filter_leaf_classes
+
+
+def preserve_dynamic_all_selection(
+    option_values,
+    current_value,
+    previous_option_values,
+    *,
+    build_verify_leaf_paths,
+    expand_verify_filter_selection,
+):
+    """Keep an all-selected filter open to classes discovered by later loads."""
+    if current_value is None:
+        return None
+
+    previous_leaf_values = build_verify_leaf_paths(previous_option_values or [])
+    if previous_leaf_values:
+        previous_selected_values = expand_verify_filter_selection(
+            previous_option_values,
+            current_value,
+        )
+        if set(previous_selected_values) == set(previous_leaf_values):
+            return None
+
+    return expand_verify_filter_selection(option_values, current_value)
+
 
 def register_verify_filter_callbacks(
     app,
@@ -23,15 +49,33 @@ def register_verify_filter_callbacks(
         Output("verify-class-filter", "data"),
         Output("verify-class-filter-expanded", "data"),
         Input("verify-data-store", "data"),
+        State("verify-class-filter-options", "data"),
         State("verify-class-filter", "data"),
         State("verify-class-filter-expanded", "data"),
         prevent_initial_call=False,
     )
-    def sync_verify_class_filter_state(data, current_value, expanded_value):
+    def sync_verify_class_filter_state(
+        data,
+        previous_option_values,
+        current_value,
+        expanded_value,
+    ):
         items = (data or {}).get("items", [])
-        classes = extract_verify_leaf_classes(items)
+        summary = (data or {}).get("summary", {})
+        indexed_cache_key = summary.get("verify_modal_cache_key") if isinstance(summary, dict) else None
+        classes = (
+            get_verify_filter_leaf_classes(indexed_cache_key)
+            if indexed_cache_key
+            else extract_verify_leaf_classes(items)
+        )
         option_values = build_verify_filter_paths(classes)
-        selected_values = expand_verify_filter_selection(option_values, current_value)
+        selected_values = preserve_dynamic_all_selection(
+            option_values,
+            current_value,
+            previous_option_values,
+            build_verify_leaf_paths=build_verify_leaf_paths,
+            expand_verify_filter_selection=expand_verify_filter_selection,
+        )
 
         normalized_expanded = ordered_unique_labels(expanded_value or [])
         if not option_values:
@@ -202,11 +246,10 @@ def register_verify_filter_callbacks(
         triggered = ctx.triggered_id
 
         if triggered == "verify-class-filter-select-all":
-            is_all_selected = len(selected_values) == len(leaf_values)
             if bool(select_all_checked):
-                if is_all_selected:
+                if current_values is None:
                     raise PreventUpdate
-                return leaf_values
+                return None
             if selected_values:
                 return []
             raise PreventUpdate

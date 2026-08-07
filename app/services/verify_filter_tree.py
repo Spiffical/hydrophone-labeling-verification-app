@@ -4,10 +4,17 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 from app.services.annotations import ordered_unique_labels, split_hierarchy_label
+from taxonomy.hierarchical_labels import canonicalize_prediction_label
 
 
 def extract_verify_leaf_classes(items):
     classes = set()
+
+    def _add_canonical(label):
+        canonical = canonicalize_prediction_label(label)
+        if canonical:
+            classes.add(canonical)
+
     for item in items or []:
         if not isinstance(item, dict):
             continue
@@ -18,21 +25,22 @@ def extract_verify_leaf_classes(items):
             for output in model_outputs:
                 if not isinstance(output, dict):
                     continue
-                label = output.get("class_hierarchy")
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(output.get("class_hierarchy"))
+            # Unified prediction files define classes in model_outputs. Do not
+            # mix in derived display labels or legacy confidence keys.
+            continue
 
         probs = predictions.get("confidence") or {}
         if isinstance(probs, dict):
             for label in probs.keys():
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(label)
+            if probs:
+                continue
 
         labels = predictions.get("labels") or []
         if isinstance(labels, list):
             for label in labels:
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(label)
     return sorted(classes, key=lambda text: text.lower())
 
 

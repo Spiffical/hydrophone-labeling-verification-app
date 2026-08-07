@@ -78,7 +78,19 @@
   }
 
   function getImageSrc(img) {
-    return String((img && (img.currentSrc || img.src || img.getAttribute('src'))) || '').trim();
+    return String((img && (img.getAttribute('src') || img.src || img.currentSrc)) || '').trim();
+  }
+
+  function normalizeImageUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || isTransparentPlaceholder(raw)) {
+      return raw;
+    }
+    try {
+      return new URL(raw, document.baseURI).href;
+    } catch (error) {
+      return raw;
+    }
   }
 
   function isDeferredAndInactive(img) {
@@ -87,7 +99,11 @@
       return false;
     }
     const src = getImageSrc(img);
-    return !src || isTransparentPlaceholder(src) || src !== deferredSrc;
+    return (
+      !src ||
+      isTransparentPlaceholder(src) ||
+      normalizeImageUrl(src) !== normalizeImageUrl(deferredSrc)
+    );
   }
 
   function isNearViewport(img) {
@@ -111,6 +127,13 @@
     if (!img || !deferredSrc || !isDeferredAndInactive(img)) {
       return;
     }
+    const awaitingSrc = String(img.__spectrogramAwaitingDataSrc || '').trim();
+    if (awaitingSrc && normalizeImageUrl(awaitingSrc) === normalizeImageUrl(deferredSrc)) {
+      return;
+    }
+    if (awaitingSrc) {
+      img.__spectrogramAwaitingDataSrc = '';
+    }
     setContainerLoading(img);
     img.__spectrogramLazyActivated = true;
     img.src = deferredSrc;
@@ -130,6 +153,15 @@
       });
     }, { rootMargin: '600px 0px' });
     return lazyImageObserver;
+  }
+
+  function shouldForceImageForCurrentRequest(img) {
+    const request = window.__specgenOverlayLatestRequest || null;
+    if (!request || String(request.trigger_id || '') !== 'app-config-save') {
+      return false;
+    }
+    const grid = getGridForMode(String(request.mode || 'verify'));
+    return Boolean(grid && img && grid.contains(img));
   }
 
   function setContainerLoading(img) {
@@ -211,6 +243,21 @@
     }
     const request = window.__specgenOverlayLatestRequest || null;
     const mode = String((request && request.mode) || '').trim() || 'verify';
+    const trigger = String((request && request.trigger_id) || '');
+    const requiresPayloadMatch = Boolean(
+      request && (
+        request.dataset_selection ||
+        trigger === 'global-date-selector' ||
+        trigger === 'global-device-selector' ||
+        trigger === 'app-config-save' ||
+        trigger === 'verify-thresholds-store' ||
+        trigger === 'verify-class-filter' ||
+        trigger === 'verify-status-filter'
+      )
+    );
+    if (requiresPayloadMatch) {
+      return;
+    }
     if (request && !pageInfoMatchesRequest(mode, request.page)) {
       return;
     }
@@ -280,7 +327,18 @@
   }
 
   function wireImage(img) {
-    if (!img || img.__spectrogramLoadingWired) {
+    if (!img) {
+      return;
+    }
+    if (img.__spectrogramLoadingWired) {
+      if (getDeferredSrc(img) && isDeferredAndInactive(img)) {
+        const observer = getLazyImageObserver();
+        if (img.__spectrogramForceLoad || shouldForceImageForCurrentRequest(img) || isNearViewport(img) || !observer) {
+          activateDeferredImage(img);
+        } else {
+          observer.observe(img);
+        }
+      }
       updateImageState(img);
       return;
     }
@@ -288,15 +346,17 @@
     img.setAttribute('decoding', 'async');
     img.addEventListener('load', function () {
       img.__spectrogramSrcChanging = false;
+      img.__spectrogramForceLoad = false;
       updateImageState(img);
     });
     img.addEventListener('error', function () {
       img.__spectrogramSrcChanging = false;
+      img.__spectrogramForceLoad = false;
       updateImageState(img);
     });
     if (getDeferredSrc(img) && isDeferredAndInactive(img)) {
       const observer = getLazyImageObserver();
-      if (observer) {
+      if (observer && !shouldForceImageForCurrentRequest(img)) {
         observer.observe(img);
       } else {
         activateDeferredImage(img);
@@ -369,7 +429,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['src']
+    attributeFilter: ['src', 'data-src']
   });
 
   window.setInterval(scan, 1000);

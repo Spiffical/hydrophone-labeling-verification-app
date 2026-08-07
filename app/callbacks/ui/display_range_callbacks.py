@@ -69,7 +69,7 @@ def _format_hz_mark(value):
 def _round_frequency_input_value(value):
     value = float(value)
     if value >= 1000.0:
-        return round(value, 2)
+        return round(value, 0)
     if value >= 100.0:
         return round(value, 1)
     return round(value, 2)
@@ -220,6 +220,8 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
     current_max = _coerce_float(current_max)
 
     if triggered_id == f"{prefix}-yaxis-reset-btn":
+        manual_lower = _round_frequency_input_value(10 ** default_slider_value[0])
+        manual_upper = _round_frequency_input_value(10 ** default_slider_value[1])
         return (
             slider_min,
             slider_max,
@@ -230,8 +232,8 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
             None,
             None,
             default_slider_value,
-            _round_frequency_input_value(bound_min_hz),
-            _round_frequency_input_value(bound_max_hz),
+            manual_lower,
+            manual_upper,
         )
 
     if current_min is None and current_max is None:
@@ -256,6 +258,9 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
         else:
             readout = f"{_format_hz(display_lower)} to {_format_hz(display_upper)}"
 
+    manual_lower = _round_frequency_input_value(10 ** slider_pair[0])
+    manual_upper = _round_frequency_input_value(10 ** slider_pair[1])
+
     return (
         slider_min,
         slider_max,
@@ -266,8 +271,8 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
         actual_lower,
         actual_upper,
         default_slider_value,
-        _round_frequency_input_value(display_lower if current_min is not None or current_max is not None else bound_min_hz),
-        _round_frequency_input_value(display_upper if current_min is not None or current_max is not None else bound_max_hz),
+        manual_lower,
+        manual_upper,
     )
 
 

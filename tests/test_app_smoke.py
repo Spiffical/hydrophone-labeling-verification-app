@@ -99,6 +99,7 @@ def test_modal_open_and_close_are_clientside(mock_config):
         "closeImmediately",
         "applyForcedAction",
         "finishLoading",
+        "prefetchImages",
     }
     assert "image-modal.is_open" in modal_lifecycle_callbacks["openImmediately"]["output"]
     assert "image-modal.is_open" in modal_lifecycle_callbacks["closeImmediately"]["output"]
@@ -118,6 +119,56 @@ def test_modal_open_and_close_are_clientside(mock_config):
     assert not any("spectrogram-image" in input_id for input_id in server_input_ids)
     assert "close-modal" not in server_input_ids
     assert "close-modal-header" not in server_input_ids
+    lifecycle = server_lifecycle_callbacks[0]
+    assert "modal-colormap-toggle.value" in lifecycle["output"]
+    assert "modal-y-axis-toggle.value" in lifecycle["output"]
+    lifecycle_state_ids = {state["id"] for state in lifecycle.get("state", [])}
+    assert {
+        "label-colormap-toggle",
+        "verify-colormap-toggle",
+        "explore-colormap-toggle",
+        "label-colorbar-min-input",
+        "verify-colorbar-min-input",
+        "explore-colorbar-min-input",
+    } <= lifecycle_state_ids
+    assert not any(
+        state_id.endswith("display-range-defaults-store")
+        for state_id in lifecycle_state_ids
+    )
+
+
+def test_modal_display_limit_updates_are_clientside(mock_config):
+    app = create_app(mock_config)
+    modal_display_callbacks = {
+        entry["clientside_function"]["function_name"]: entry
+        for entry in app._callback_list
+        if (entry.get("clientside_function") or {}).get("namespace") == "modalDisplay"
+    }
+
+    assert set(modal_display_callbacks) == {
+        "startViewRefresh",
+        "updateCommitted",
+        "previewRanges",
+        "commitRasterPreview",
+        "extractDisplayMeta",
+    }
+    assert "modal-image-graph.figure" in modal_display_callbacks["updateCommitted"]["output"]
+    assert "modal-colorbar-slider" in {
+        item["id"] for item in modal_display_callbacks["previewRanges"]["inputs"]
+    }
+    assert "modal-busy-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
+
+    server_view_callbacks = [
+        entry
+        for entry in app._callback_list
+        if not entry.get("clientside_function")
+        and "modal-image-graph.figure" in entry.get("output", "")
+        and any(input_obj["id"] == "modal-y-axis-toggle" for input_obj in entry.get("inputs", []))
+    ]
+    assert len(server_view_callbacks) == 1
+    view_state_ids = {state["id"] for state in server_view_callbacks[0].get("state", [])}
+    assert "modal-display-meta-store" in view_state_ids
+    assert "modal-image-graph" not in view_state_ids
 
 
 def test_label_startup_uses_label_folder_for_data_root(mock_config):
@@ -129,3 +180,14 @@ def test_label_startup_uses_label_folder_for_data_root(mock_config):
     assert data_root.data == mock_config["label"]["folder"]
     assert load_trigger.data["mode"] == "label"
     assert load_trigger.data["config"] == mock_config
+
+
+def test_verify_confidence_tooltip_is_only_visible_during_interaction(mock_config):
+    layout = create_main_layout(mock_config)
+
+    threshold_slider = _find_component(layout, "verify-threshold-slider")
+
+    assert threshold_slider.tooltip == {
+        "placement": "top",
+        "always_visible": False,
+    }

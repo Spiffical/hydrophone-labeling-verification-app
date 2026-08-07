@@ -13,9 +13,27 @@ from app.services.verify_modal_cache import (
     get_verify_modal_summary,
     has_verify_modal_items,
 )
-from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
+from app.utils.image_processing import (
+    SPECTROGRAM_SOURCE_AUDIO_GENERATED,
+    get_spectrogram_render_settings,
+    is_modal_prefetch_enabled,
+)
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _verify_page_info(current_page, items_per_page, filtered_total, *, index_available=True):
+    if not index_available:
+        return "Showing available recordings while the index is built"
+    if filtered_total <= 0:
+        return "No matches"
+    first_item = (current_page * items_per_page) + 1
+    last_item = min(filtered_total, first_item + items_per_page - 1)
+    total_pages = max(1, (filtered_total + items_per_page - 1) // items_per_page)
+    return (
+        f"Showing {first_item:,}-{last_item:,} of {filtered_total:,} matches"
+        f" | Page {current_page + 1} of {total_pages}"
+    )
 
 
 def _prefetch_enabled(cfg):
@@ -23,7 +41,18 @@ def _prefetch_enabled(cfg):
     configured = cache_cfg.get("prefetch_enabled", cache_cfg.get("prefetch"))
     if configured is not None:
         return str(configured).strip().lower() not in {"0", "false", "no", "off"}
-    return True
+
+    # Existing MAT-backed images are requested lazily by the browser. Prefetching
+    # them can leave stale modal/future-page renders ahead of a newly filtered
+    # first page because matplotlib rendering is serialized.
+    return (
+        get_spectrogram_render_settings(cfg).get("source")
+        == SPECTROGRAM_SOURCE_AUDIO_GENERATED
+    )
+
+
+def _modal_prefetch_enabled(cfg):
+    return is_modal_prefetch_enabled(cfg)
 
 
 def _compute_prefetch_pages_ahead(cfg, items_per_page):
@@ -127,8 +156,11 @@ def register_render_callbacks(
             item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
             for item in (page_items or [])
         ]
+        summary = data.get("summary") if isinstance(data, dict) and isinstance(data.get("summary"), dict) else {}
         payload = {
             "load_timestamp": data.get("load_timestamp") if isinstance(data, dict) else None,
+            "active_date": summary.get("active_date"),
+            "active_hydrophone": summary.get("active_hydrophone"),
             "page": int(current_page),
             "rendered_at": time.time(),
             "item_count": len(item_ids),
@@ -174,7 +206,13 @@ def register_render_callbacks(
     def sync_verify_data_cache(data, current_revision):
         if not isinstance(data, dict) or not data.get("load_timestamp"):
             return None, current_revision or 0
-        cache_key = ensure_verify_modal_items(data)
+        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        indexed_cache_key = summary.get("verify_modal_cache_key")
+        cache_key = (
+            indexed_cache_key
+            if indexed_cache_key and has_verify_modal_items(indexed_cache_key)
+            else ensure_verify_modal_items(data)
+        )
         try:
             revision = int(current_revision or 0) + 1
         except (TypeError, ValueError):
@@ -258,6 +296,7 @@ def register_render_callbacks(
             cfg,
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -271,6 +310,7 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
@@ -404,8 +444,13 @@ def register_render_callbacks(
         _ = verify_cache_revision
         summary = get_verify_modal_summary(verify_cache_key) or {}
         is_loading_dataset = not verify_cache_key or not has_verify_modal_items(verify_cache_key)
+        is_empty_all_dates_preview = bool(
+            summary.get("all_dates_loading")
+            and summary.get("all_dates_preview")
+            and int(summary.get("total_items") or 0) <= 0
+        )
         cfg_data = cfg.get("data", {}) if isinstance(cfg.get("data"), dict) else {}
-        if is_loading_dataset:
+        if is_loading_dataset or is_empty_all_dates_preview:
             data_root = summary.get("data_root") or cfg_data.get("data_dir") or "Loading data root..."
             nested_verify_cfg = cfg_data.get("verify", {}) if isinstance(cfg_data.get("verify"), dict) else {}
             spec_folder_display = _path_value(
@@ -473,16 +518,48 @@ def register_render_callbacks(
         current_page = filtered_page["page_index"]
         page_items = filtered_page["items"]
         visible_item_ids = filtered_page["visible_item_ids"]
-        summary_block = html.Div([
-            html.Span(f"Visible: {filtered_total}", className="fw-semibold"),
-            html.Span(f"Total: {summary.get('total_items', filtered_total)}", className="ms-3 text-muted"),
-            html.Span(f"Verified: {summary.get('verified', 0)}", className="ms-3 text-muted"),
-            html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
-            html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
-            html.Span(f"Status: {_verify_status_filter_text(status_filter)}", className="ms-3 text-muted"),
-        ], className="summary-info")
+        is_partial_selection = bool(summary.get("all_dates_loading"))
+        index_available = not bool(
+            summary.get("active_date") == "All"
+            and is_partial_selection
+            and not summary.get("all_dates_index_available")
+        )
+        if index_available:
+            summary_children = [
+                html.Span(f"{filtered_total:,} matches", className="fw-semibold"),
+                html.Span(
+                    f"{int(summary.get('total_items', filtered_total)):,} recordings",
+                    className="ms-3 text-muted",
+                ),
+                html.Span(
+                    f"{int(summary.get('verified', 0)):,} verified",
+                    className="ms-3 text-muted",
+                ),
+            ]
+        else:
+            summary_children = [
+                html.Span("Counting matches...", className="fw-semibold"),
+                html.Span("Counting recordings...", className="ms-3 text-muted"),
+            ]
+        summary_children.extend(
+            [
+                html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
+                html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
+                html.Span(f"Status: {_verify_status_filter_text(status_filter)}", className="ms-3 text-muted"),
+            ]
+        )
+        if is_partial_selection:
+            summary_children.append(
+                html.Span("Updating...", className="ms-3 text-primary fw-semibold")
+            )
+        summary_block = html.Div(summary_children, className="summary-info")
 
-        page_info = f"Page {current_page + 1} of {total_pages}"
+        page_info = _verify_page_info(
+            current_page,
+            int(items_per_page or 25),
+            filtered_total,
+            index_available=index_available,
+        )
 
         grid = _build_grid(
             page_items,
@@ -498,6 +575,7 @@ def register_render_callbacks(
             empty_message="No items match the current filters.",
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -511,6 +589,7 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
@@ -607,10 +686,13 @@ def register_render_callbacks(
         )
 
         ui_ready = _ui_ready_payload(
-            {},
+            {"load_timestamp": verify_cache_key, "summary": summary},
             page_items,
             current_page,
-            {"verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter)},
+            {
+                "verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter),
+                "all_dates_request_id": summary.get("all_dates_request_id"),
+            },
         )
         if _SPECGEN_DEBUG:
             print(
@@ -692,6 +774,7 @@ def register_render_callbacks(
             cfg,
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -705,6 +788,7 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,

@@ -78,7 +78,10 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="explore-page-specgen-store", data=None, storage_type="memory"),
         dcc.Store(id="specgen-overlay-preview-store", data=None, storage_type="memory"),
         dcc.Store(id="specgen-overlay-request-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-all-dates-request-store", data=None, storage_type="memory"),
+        dcc.Store(id="verify-all-dates-ready-store", data=None, storage_type="memory"),
         dcc.Interval(id="specgen-overlay-poll", interval=1000, n_intervals=0, disabled=True, max_intervals=-1),
+        dcc.Interval(id="verify-all-dates-poll", interval=1500, n_intervals=0, disabled=True, max_intervals=-1),
         html.Button("", id="specgen-overlay-dom-ready-signal", n_clicks=0, style={"display": "none"}),
         dcc.Store(id="verify-badge-event-store", data={"last_key": ""}, storage_type="memory"),
         dcc.Store(id="modal-image-clicks", data=0),
@@ -400,7 +403,7 @@ def create_main_layout(config: dict) -> html.Div:
                 [
                     html.Div(
                         [
-                            html.Div("Generating spectrograms...", id="specgen-load-title", className="specgen-load-title"),
+                            html.Div("Loading spectrograms", id="specgen-load-title", className="specgen-load-title"),
                             html.Div(
                                 "Preparing current page.",
                                 id="specgen-load-subtitle",
@@ -414,7 +417,7 @@ def create_main_layout(config: dict) -> html.Div:
                                 **{"aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "0"},
                             ),
                             html.Div(
-                                "Preparing current page...",
+                                "Preparing page",
                                 id="specgen-load-progress-text",
                                 className="specgen-load-progress-text",
                             ),

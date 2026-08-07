@@ -27,7 +27,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 ? visibleFilterToggle
                 : (visibleFilterToggle ? visibleFilterToggle.querySelector('input[type="checkbox"]') : null);
             const visibleFilterRoot = visibleFilterInput || visibleFilterToggle;
+            const modalSourceChanged = updateAudioPlayerSourceKey(playerEntry, audio);
+            if (typeof audio.userRequestedPlayback !== 'boolean') {
+                audio.userRequestedPlayback = false;
+            }
             updatePlayButtonLabel(playBtn, !audio.paused);
+            if (playerId.startsWith('modal-') && modalSourceChanged) {
+                resetAudioPlaybackPosition(audio, timeSlider, currentTimeEl, playBtn, playIcon);
+            }
             if (timeSlider) {
                 timeSlider.setAttribute('aria-label', 'Audio position');
             }
@@ -102,6 +109,8 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
 
                 // Reset play button when audio ends
                 audio.addEventListener('ended', function () {
+                    audio.userRequestedPlayback = false;
+                    silenceAudioOutput(audio);
                     if (playIcon) {
                         playIcon.className = 'fas fa-play';
                     }
@@ -110,6 +119,12 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
 
                 // Handle play/pause events
                 audio.addEventListener('play', function () {
+                    if (audio.userRequestedPlayback !== true) {
+                        silenceAudioOutput(audio);
+                        audio.pause();
+                        return;
+                    }
+                    activateAudioOutput(audio);
                     if (playIcon) {
                         playIcon.className = 'fas fa-pause';
                     }
@@ -117,6 +132,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 });
 
                 audio.addEventListener('pause', function () {
+                    silenceAudioOutput(audio);
                     if (playIcon) {
                         playIcon.className = 'fas fa-play';
                     }
@@ -178,7 +194,8 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
 
                     // Create gain node for post-filter amplification.
                     audio.gainNode = audio.audioContext.createGain();
-                    audio.gainNode.gain.value = 1.0;
+                    audio.requestedGain = 1.0;
+                    audio.gainNode.gain.value = 0.0;
 
                     // Connect: source -> EQ chain -> visible-window filters -> gain -> destination
                     chainTail.connect(audio.visibleHighpassFilter);
@@ -361,8 +378,11 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             if (gainSlider) {
                 bindSliderValueSync(gainSlider, 1, 50, function (amplification) {
                     const normalized = Math.round(amplification * 10) / 10;
+                    audio.requestedGain = normalized;
                     if (audio.gainNode) {
-                        audio.gainNode.gain.value = normalized;
+                        audio.gainNode.gain.value = (
+                            audio.userRequestedPlayback === true && !audio.paused
+                        ) ? normalized : 0;
                     } else {
                         // Fallback when Web Audio API is not available.
                         audio.volume = clamp(normalized, 0, 1);
@@ -381,11 +401,9 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     e.stopPropagation();
 
                     if (audio.paused) {
+                        audio.userRequestedPlayback = true;
                         const sourceChanged = ensureAudioSourceLoaded(audio, true);
                         const syncedFromSlider = syncAudioTimeFromSlider(audio, timeSlider);
-                        if (audio.audioContext && audio.audioContext.state === 'suspended') {
-                            audio.audioContext.resume().catch(function () { });
-                        }
                         // Always restart from the beginning if playback is at (or past) the end.
                         const hasFiniteDuration = isFinite(audio.duration) && audio.duration > 0;
                         const atEnd = hasFiniteDuration && audio.currentTime >= (audio.duration - 0.05);
@@ -406,6 +424,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         // Play this audio
                         resumeAudioPlayback(audio, playerId);
                     } else {
+                        audio.userRequestedPlayback = false;
                         audio.pause();
                     }
                 });
@@ -477,11 +496,51 @@ function ensureAudioPlayerEntry(playerId, audio) {
         state.players.set(playerId, {
             audio: audio,
             cleanupFns: [],
+            sourceKey: null,
         });
     }
     const entry = state.players.get(playerId);
     entry.audio = audio;
     return entry;
+}
+
+function updateAudioPlayerSourceKey(playerEntry, audio) {
+    if (!playerEntry || !audio) return false;
+    const sourceKey = audio.getAttribute('data-audio-src') || audio.getAttribute('src') || '';
+    const previousSourceKey = playerEntry.sourceKey;
+    playerEntry.sourceKey = sourceKey;
+    return !!previousSourceKey && !!sourceKey && previousSourceKey !== sourceKey;
+}
+
+function resetAudioPlaybackPosition(audio, timeSlider, currentTimeEl, playBtn, playIcon) {
+    if (!audio) return;
+    audio.userRequestedPlayback = false;
+    silenceAudioOutput(audio);
+    try {
+        audio.pause();
+    } catch (e) {
+        console.debug('Error pausing audio during source reset:', e);
+    }
+    try {
+        audio.currentTime = 0;
+    } catch (e) {
+        console.debug('Error resetting audio position:', e);
+    }
+    audio.isSliderSeeking = false;
+    if (timeSlider) {
+        timeSlider.isUserInteracting = false;
+        timeSlider.pointerSeekActive = false;
+        timeSlider.previewProgress = 0;
+        updateSliderPositionImmediately(timeSlider, 0);
+    }
+    if (currentTimeEl) {
+        currentTimeEl.textContent = '0:00';
+    }
+    if (playIcon) {
+        playIcon.className = 'fas fa-play';
+    }
+    updatePlayButtonLabel(playBtn, false);
+    updateSpectrogramPlaybackMarker(0, audio.duration);
 }
 
 function cleanupAudioPlayer(playerId) {
@@ -911,10 +970,47 @@ function syncAudioTimeFromSlider(audio, slider) {
 }
 
 function resumeAudioPlayback(audio, logContext) {
-    if (!audio) return;
+    if (!audio || audio.userRequestedPlayback !== true) return;
+    activateAudioOutput(audio);
     audio.play().catch(function (error) {
+        audio.userRequestedPlayback = false;
+        silenceAudioOutput(audio);
         console.error('Error playing audio:', logContext, error);
     });
+}
+
+function setAudioGainValue(audio, value) {
+    if (!audio || !audio.gainNode || !audio.gainNode.gain) return;
+    const gainValue = Math.max(0, Number(value) || 0);
+    try {
+        if (
+            typeof audio.gainNode.gain.setValueAtTime === 'function' &&
+            audio.audioContext &&
+            isFinite(audio.audioContext.currentTime)
+        ) {
+            audio.gainNode.gain.setValueAtTime(gainValue, audio.audioContext.currentTime);
+        } else {
+            audio.gainNode.gain.value = gainValue;
+        }
+    } catch (e) {
+        audio.gainNode.gain.value = gainValue;
+    }
+}
+
+function silenceAudioOutput(audio) {
+    if (!audio) return;
+    setAudioGainValue(audio, 0);
+    if (audio.audioContext && audio.audioContext.state === 'running') {
+        audio.audioContext.suspend().catch(function () { });
+    }
+}
+
+function activateAudioOutput(audio) {
+    if (!audio || audio.userRequestedPlayback !== true) return;
+    setAudioGainValue(audio, audio.requestedGain || 1.0);
+    if (audio.audioContext && audio.audioContext.state === 'suspended') {
+        audio.audioContext.resume().catch(function () { });
+    }
 }
 
 function updatePlayButtonLabel(playBtn, isPlaying) {
@@ -1344,13 +1440,24 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
             return isFinite(n) ? n : null;
         };
 
-        // Resolve full x-domain (data coordinates), not the current zoom/pan range.
-        // This keeps playback mapping stable even when the user zooms the graph.
+        // Resolve the authoritative full x-domain, not the current zoom range.
+        // Raster figures use a two-point trace whose x values are endpoints, so
+        // treating those values as bin centers would extend a five-minute plot
+        // to roughly -2.5 through 7.5 minutes.
         let domainStart = null;
         let domainEnd = null;
+        const meta = graphDiv.layout.meta || {};
+        const metaMin = toFiniteNumber(meta.x_min);
+        const metaMax = toFiniteNumber(meta.x_max);
+        if (metaMin !== null && metaMax !== null && metaMax > metaMin) {
+            domainStart = metaMin;
+            domainEnd = metaMax;
+        }
+
+        // Fallback to trace coordinates for older figures without axis metadata.
         const firstTrace = graphDiv.data && graphDiv.data.length ? graphDiv.data[0] : null;
         const xVals = firstTrace && Array.isArray(firstTrace.x) ? firstTrace.x : null;
-        if (xVals && xVals.length) {
+        if ((domainStart === null || domainEnd === null) && xVals && xVals.length) {
             const first = toFiniteNumber(xVals[0]);
             const last = toFiniteNumber(xVals[xVals.length - 1]);
             if (first !== null && last !== null) {
@@ -1362,21 +1469,11 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
                     if (second !== null) leftStep = Math.abs(second - first);
                     if (penultimate !== null) rightStep = Math.abs(last - penultimate);
                 }
-                const halfLeft = leftStep && leftStep > 0 ? leftStep / 2 : 0;
-                const halfRight = rightStep && rightStep > 0 ? rightStep / 2 : 0;
+                const endpointsOnly = xVals.length === 2;
+                const halfLeft = !endpointsOnly && leftStep && leftStep > 0 ? leftStep / 2 : 0;
+                const halfRight = !endpointsOnly && rightStep && rightStep > 0 ? rightStep / 2 : 0;
                 domainStart = Math.min(first, last) - halfLeft;
                 domainEnd = Math.max(first, last) + halfRight;
-            }
-        }
-
-        // Fallback to figure meta x-bounds.
-        const meta = graphDiv.layout.meta || {};
-        if (domainStart === null || domainEnd === null || domainEnd <= domainStart) {
-            const metaMin = toFiniteNumber(meta.x_min);
-            const metaMax = toFiniteNumber(meta.x_max);
-            if (metaMin !== null && metaMax !== null && metaMax > metaMin) {
-                domainStart = metaMin;
-                domainEnd = metaMax;
             }
         }
 
@@ -1395,23 +1492,22 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         const domainSpan = domainEnd - domainStart;
         if (!isFinite(domainSpan) || domainSpan <= 0) return;
 
-        // Primary mapping: progress through audio duration -> progress through full spectrogram domain.
-        // This is robust when spectrogram bins represent centers (domain span differs slightly from duration).
-        let markerPosition = null;
-        if (isFinite(duration) && duration > 0) {
+        // Map the audio clock directly into the plot's declared time units. The
+        // browser-reported audio duration can differ slightly from the MAT time
+        // bins and must not stretch or compress the spectrogram timeline.
+        let xToSeconds = toFiniteNumber(meta.x_to_seconds);
+        if (xToSeconds === null || xToSeconds <= 0) {
+            const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
+            xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
+        }
+        let markerPosition = domainStart + (currentTime / xToSeconds);
+
+        // Last-resort support for figures with no meaningful time-unit metadata.
+        if (!isFinite(markerPosition) && isFinite(duration) && duration > 0) {
             const progress = clamp(currentTime / duration, 0, 1);
             markerPosition = domainStart + progress * domainSpan;
         }
-
-        // Fallback: direct seconds-to-x conversion.
-        if (markerPosition === null || !isFinite(markerPosition)) {
-            let xToSeconds = toFiniteNumber(meta.x_to_seconds);
-            if (xToSeconds === null || xToSeconds <= 0) {
-                const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
-                xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
-            }
-            markerPosition = domainStart + (currentTime / xToSeconds);
-        }
+        if (!isFinite(markerPosition)) return;
 
         markerPosition = clamp(markerPosition, domainStart, domainEnd);
 
@@ -1427,7 +1523,7 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
                 yref: 'paper',
                 editable: false,
                 line: {
-                    color: 'rgba(255, 50, 50, 0.8)',
+                    color: 'rgba(255, 50, 50, 0)',
                     width: 2,
                     dash: 'solid'
                 }
@@ -1435,7 +1531,7 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         } else {
             graphDiv.layout.shapes[0].x0 = markerPosition;
             graphDiv.layout.shapes[0].x1 = markerPosition;
-            graphDiv.layout.shapes[0].line.color = 'rgba(255, 50, 50, 0.8)';
+            graphDiv.layout.shapes[0].line.color = 'rgba(255, 50, 50, 0)';
         }
 
         const fullLayout = graphDiv._fullLayout || {};
@@ -1458,17 +1554,9 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         const shapeLayer = graphDiv.querySelector('.shapelayer');
         const svgMarker = shapeLayer && (shapeLayer.querySelector('path') || shapeLayer.querySelector('line'));
         if (svgMarker) {
-            if (svgMarker.tagName && svgMarker.tagName.toLowerCase() === 'path') {
-                svgMarker.setAttribute('d', `M${markerPx},${yOffset}L${markerPx},${yOffset + yLength}`);
-            } else {
-                svgMarker.setAttribute('x1', String(markerPx));
-                svgMarker.setAttribute('x2', String(markerPx));
-                svgMarker.setAttribute('y1', String(yOffset));
-                svgMarker.setAttribute('y2', String(yOffset + yLength));
-            }
-            svgMarker.style.stroke = 'rgba(255, 50, 50, 0.8)';
-            svgMarker.style.strokeWidth = '2px';
-            return;
+            // Plotly may redraw this path from _fullLayout at any time. Keep it
+            // transparent and use the stable HTML overlay below for playback.
+            svgMarker.style.stroke = 'rgba(255, 50, 50, 0)';
         }
 
         const overlayRoot = graphDiv.querySelector('.svg-container') || graphDiv;
@@ -1486,9 +1574,10 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
                 overlayMarker.style.width = '2px';
                 overlayMarker.style.background = 'rgba(255, 50, 50, 0.8)';
                 overlayMarker.style.zIndex = '20';
+                overlayMarker.setAttribute('aria-hidden', 'true');
                 overlayRoot.appendChild(overlayMarker);
             }
-            overlayMarker.style.left = `${markerPx}px`;
+            overlayMarker.style.left = `${markerPx - 1}px`;
             overlayMarker.style.top = `${yOffset}px`;
             overlayMarker.style.height = `${yLength}px`;
         }

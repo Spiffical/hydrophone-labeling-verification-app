@@ -8,6 +8,7 @@ from dash.exceptions import PreventUpdate
 from app.callbacks.common.debug import perf_debug
 from app.callbacks.modal.display_helpers import (
     build_modal_colorbar_ui,
+    resolve_mode_value,
     resolve_mode_y_axis_limits,
 )
 from app.components.audio_player import (
@@ -16,8 +17,19 @@ from app.components.audio_player import (
     create_modal_audio_player,
 )
 from app.services.verify_modal_cache import get_verify_modal_item
+from app.utils.audio_settings import get_modal_amplification
 from app.utils.audio_transport import prewarm_audio_delivery_paths
-from app.utils.image_processing import create_item_spectrogram_figure
+from app.utils.image_processing import (
+    create_item_spectrogram_figure,
+    is_modal_prefetch_enabled,
+    prefetch_modal_images_in_background,
+    prefetch_page_modal_spectrograms_in_background,
+)
+from app.utils.image_utils import build_modal_image_request_src, use_full_resolution_modal_image
+
+
+MODAL_PREFETCH_NEXT_ITEMS = 6
+MODAL_PREFETCH_PREVIOUS_ITEMS = 2
 
 
 def _coerce_float(value):
@@ -27,6 +39,45 @@ def _coerce_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _collect_modal_prefetch_neighbors(
+    mode,
+    item_id,
+    item_ids,
+    source_items,
+    verify_data_cache_key,
+):
+    if not item_id or item_id not in item_ids:
+        return []
+
+    current_index = item_ids.index(item_id)
+    candidate_indices = [
+        current_index + offset
+        for offset in range(1, MODAL_PREFETCH_NEXT_ITEMS + 1)
+    ]
+    candidate_indices.extend(
+        current_index - offset
+        for offset in range(1, MODAL_PREFETCH_PREVIOUS_ITEMS + 1)
+    )
+
+    source_by_id = {
+        item.get("item_id"): item
+        for item in source_items
+        if isinstance(item, dict) and item.get("item_id")
+    }
+    neighbors = []
+    for candidate_index in candidate_indices:
+        if candidate_index < 0 or candidate_index >= len(item_ids):
+            continue
+        candidate_id = item_ids[candidate_index]
+        if mode == "verify":
+            candidate = get_verify_modal_item(verify_data_cache_key, candidate_id)
+        else:
+            candidate = source_by_id.get(candidate_id)
+        if isinstance(candidate, dict):
+            neighbors.append(candidate)
+    return neighbors
 
 
 def register_modal_lifecycle_navigation_callbacks(
@@ -97,6 +148,16 @@ def register_modal_lifecycle_navigation_callbacks(
         prevent_initial_call=True,
     )
 
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="prefetchImages",
+        ),
+        Output("modal-image-prefetch-store", "data"),
+        Input("modal-image-graph", "figure"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("current-filename", "data"),
         Output("modal-item-store", "data"),
@@ -116,6 +177,12 @@ def register_modal_lifecycle_navigation_callbacks(
         Output("modal-colorbar-min-input", "placeholder", allow_duplicate=True),
         Output("modal-colorbar-max-input", "placeholder", allow_duplicate=True),
         Output("modal-colorbar-hint", "children", allow_duplicate=True),
+        Output("modal-colormap-toggle", "value", allow_duplicate=True),
+        Output("modal-y-axis-toggle", "value", allow_duplicate=True),
+        Output("modal-yaxis-min-input", "value", allow_duplicate=True),
+        Output("modal-yaxis-max-input", "value", allow_duplicate=True),
+        Output("modal-colorbar-min-input", "value", allow_duplicate=True),
+        Output("modal-colorbar-max-input", "value", allow_duplicate=True),
         Input("modal-open-request-store", "data"),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
@@ -140,6 +207,18 @@ def register_modal_lifecycle_navigation_callbacks(
         State("verify-yaxis-max-input", "value"),
         State("explore-yaxis-min-input", "value"),
         State("explore-yaxis-max-input", "value"),
+        State("label-colormap-toggle", "value"),
+        State("verify-colormap-toggle", "value"),
+        State("explore-colormap-toggle", "value"),
+        State("label-yaxis-toggle", "value"),
+        State("verify-yaxis-toggle", "value"),
+        State("explore-yaxis-toggle", "value"),
+        State("label-colorbar-min-input", "value"),
+        State("label-colorbar-max-input", "value"),
+        State("verify-colorbar-min-input", "value"),
+        State("verify-colorbar-max-input", "value"),
+        State("explore-colorbar-min-input", "value"),
+        State("explore-colorbar-max-input", "value"),
         State("modal-unsaved-store", "data"),
         State("config-store", "data"),
         prevent_initial_call=True,
@@ -169,6 +248,18 @@ def register_modal_lifecycle_navigation_callbacks(
         verify_y_axis_max_hz,
         explore_y_axis_min_hz,
         explore_y_axis_max_hz,
+        label_use_hydrophone_colormap,
+        verify_use_hydrophone_colormap,
+        explore_use_hydrophone_colormap,
+        label_use_log_y_axis,
+        verify_use_log_y_axis,
+        explore_use_log_y_axis,
+        label_color_min,
+        label_color_max,
+        verify_color_min,
+        verify_color_max,
+        explore_color_min,
+        explore_color_max,
         unsaved_store,
         cfg,
     ):
@@ -210,7 +301,11 @@ def register_modal_lifecycle_navigation_callbacks(
                 raise PreventUpdate
             clicked_item_id = (open_request.get("item_id") or "").strip()
             if clicked_item_id:
-                action = {"kind": "open", "item_id": clicked_item_id}
+                action = {
+                    "kind": "open",
+                    "item_id": clicked_item_id,
+                    "inherit_page_display": True,
+                }
         elif triggered in {"modal-nav-prev", "modal-nav-next"}:
             if not current_item_id or not page_item_ids:
                 raise PreventUpdate
@@ -248,6 +343,12 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
                 )
             pending_item_id = (action.get("item_id") or "").strip() if action.get("kind") == "open" else ""
             if pending_item_id and pending_item_id != current_item_id:
@@ -270,6 +371,12 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
                 )
 
         if action.get("kind") == "close":
@@ -289,6 +396,12 @@ def register_modal_lifecycle_navigation_callbacks(
                 {"dirty": False, "item_id": None},
                 False,
                 None,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -332,12 +445,82 @@ def register_modal_lifecycle_navigation_callbacks(
             explore_min=explore_y_axis_min_hz,
             explore_max=explore_y_axis_max_hz,
         )
+        page_use_hydrophone_colormap = resolve_mode_value(
+            mode,
+            label=label_use_hydrophone_colormap,
+            verify=verify_use_hydrophone_colormap,
+            explore=explore_use_hydrophone_colormap,
+        )
+        page_use_log_y_axis = resolve_mode_value(
+            mode,
+            label=label_use_log_y_axis,
+            verify=verify_use_log_y_axis,
+            explore=explore_use_log_y_axis,
+        )
+        page_color_min = resolve_mode_value(
+            mode,
+            label=label_color_min,
+            verify=verify_color_min,
+            explore=explore_color_min,
+        )
+        page_color_max = resolve_mode_value(
+            mode,
+            label=label_color_max,
+            verify=verify_color_max,
+            explore=explore_color_max,
+        )
+        page_y_axis_min_hz = y_axis_min_hz
+        page_y_axis_max_hz = y_axis_max_hz
+        page_display_color_min = page_color_min
+        page_display_color_max = page_color_max
+        display_cfg = (cfg or {}).get("display", {})
+        page_colormap = (
+            "hydrophone"
+            if page_use_hydrophone_colormap
+            else display_cfg.get("colormap", "default")
+        )
+        page_y_axis_scale = (
+            "log" if page_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
+        )
+        inherit_page_display = bool(action.get("inherit_page_display"))
+        if inherit_page_display:
+            colormap = page_colormap
+            y_axis_scale = page_y_axis_scale
+            modal_y_axis_min_hz = None
+            modal_y_axis_max_hz = None
+            color_min = None
+            color_max = None
         effective_y_axis_min_hz = (
-            modal_y_axis_min_hz if _coerce_float(modal_y_axis_min_hz) is not None else y_axis_min_hz
+            modal_y_axis_min_hz
+            if _coerce_float(modal_y_axis_min_hz) is not None
+            else page_y_axis_min_hz
         )
         effective_y_axis_max_hz = (
-            modal_y_axis_max_hz if _coerce_float(modal_y_axis_max_hz) is not None else y_axis_max_hz
+            modal_y_axis_max_hz
+            if _coerce_float(modal_y_axis_max_hz) is not None
+            else page_y_axis_max_hz
         )
+        use_page_y_range = (
+            _coerce_float(modal_y_axis_min_hz) is None
+            and _coerce_float(modal_y_axis_max_hz) is None
+        )
+        use_page_color_range = (
+            _coerce_float(color_min) is None and _coerce_float(color_max) is None
+        )
+        effective_color_min = page_display_color_min if use_page_color_range else color_min
+        effective_color_max = page_display_color_max if use_page_color_range else color_max
+        modal_image_source = None
+        if use_full_resolution_modal_image(cfg, y_axis_scale):
+            modal_image_source = build_modal_image_request_src(
+                source_item,
+                cfg=cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                y_axis_min_hz=effective_y_axis_min_hz,
+                y_axis_max_hz=effective_y_axis_max_hz,
+                color_min=effective_color_min,
+                color_max=effective_color_max,
+            )
         fig, spectrogram = create_item_spectrogram_figure(
             source_item,
             cfg,
@@ -345,9 +528,62 @@ def register_modal_lifecycle_navigation_callbacks(
             y_axis_scale,
             y_axis_min_hz=effective_y_axis_min_hz,
             y_axis_max_hz=effective_y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
+            color_min=effective_color_min,
+            color_max=effective_color_max,
+            image_source=modal_image_source,
         )
+        figure_meta = dict(fig.layout.meta or {})
+        figure_meta.update(
+            {
+                "uses_page_y_range": use_page_y_range,
+                "uses_page_color_range": use_page_color_range,
+                "modal_item_id": item_id,
+                "display_colormap": colormap,
+                "page_display_y_min_hz": page_y_axis_min_hz,
+                "page_display_y_max_hz": page_y_axis_max_hz,
+                "page_display_color_min": page_display_color_min,
+                "page_display_color_max": page_display_color_max,
+            }
+        )
+        fig.update_layout(meta=figure_meta)
+        modal_neighbors = []
+        if is_modal_prefetch_enabled(cfg):
+            modal_neighbors = _collect_modal_prefetch_neighbors(
+                mode,
+                item_id,
+                page_item_ids,
+                source_items,
+                verify_data_cache_key,
+            )
+            prefetch_page_modal_spectrograms_in_background(modal_neighbors, cfg)
+            if modal_image_source:
+                prefetch_modal_images_in_background(
+                    modal_neighbors,
+                    cfg,
+                    colormap=colormap,
+                    y_axis_scale=y_axis_scale,
+                    y_axis_min_hz=effective_y_axis_min_hz,
+                    y_axis_max_hz=effective_y_axis_max_hz,
+                    color_min=effective_color_min,
+                    color_max=effective_color_max,
+                )
+        if modal_image_source and modal_neighbors:
+            prefetch_urls = [
+                build_modal_image_request_src(
+                    neighbor,
+                    cfg=cfg,
+                    colormap=colormap,
+                    y_axis_scale=y_axis_scale,
+                    y_axis_min_hz=effective_y_axis_min_hz,
+                    y_axis_max_hz=effective_y_axis_max_hz,
+                    color_min=effective_color_min,
+                    color_max=effective_color_max,
+                )
+                for neighbor in modal_neighbors
+            ]
+            figure_meta = dict(fig.layout.meta or {})
+            figure_meta["prefetch_image_urls"] = prefetch_urls
+            fig.update_layout(meta=figure_meta)
         modal_boxes = _build_modal_boxes_from_item(source_item)
         fig = _apply_modal_boxes_to_figure(fig, modal_boxes)
         placeholder_min, placeholder_max, colorbar_hint = build_modal_colorbar_ui(fig)
@@ -369,7 +605,7 @@ def register_modal_lifecycle_navigation_callbacks(
                 eq_values[eq_key] = max(-24.0, min(24.0, float(raw_eq_value)))
             except (TypeError, ValueError):
                 eq_values[eq_key] = 0.0
-        gain_value = settings.get("gain", 1.0)
+        gain_value = get_modal_amplification(settings)
         visible_filter_enabled = bool(settings.get("visible_filter", False))
         audio_cfg = (cfg or {}).get("audio", {}) if isinstance(cfg, dict) else {}
         audio_transport = audio_cfg.get("transport", "direct")
@@ -478,4 +714,10 @@ def register_modal_lifecycle_navigation_callbacks(
             placeholder_min,
             placeholder_max,
             colorbar_hint,
+            colormap if inherit_page_display else no_update,
+            y_axis_scale if inherit_page_display else no_update,
+            None if inherit_page_display else no_update,
+            None if inherit_page_display else no_update,
+            None if inherit_page_display else no_update,
+            None if inherit_page_display else no_update,
         )

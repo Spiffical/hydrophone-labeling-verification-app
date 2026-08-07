@@ -28,9 +28,12 @@ display:
   items_per_page: 25
   y_axis_scale: linear   # linear or log
   colormap: default      # default or hydrophone
+  # Full source matrix rendered as a losslessly compressed image inside Plotly axes.
+  modal_render_mode: full_resolution_image
 
 cache:
   max_size: 75
+  modal_prefetch_enabled: true
 
 audio:
   # direct: serve the original source file; mp3_cached is an explicit fallback for browser seeking.

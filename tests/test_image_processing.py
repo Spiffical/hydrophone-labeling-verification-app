@@ -1,8 +1,13 @@
+import base64
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 import threading
 import time
 from unittest.mock import patch
+
+from matplotlib.image import imread
+import numpy as np
 
 from app.utils import image_processing
 from app.utils.image_processing import (
@@ -29,6 +34,46 @@ def test_generate_image_cached(mock_root):
     mat_path = next(mat_dir.glob("*.mat"))
     image_src = generate_image_cached(str(mat_path), colormap="default", y_axis_scale="linear")
     assert image_src.startswith("data:image/png;base64,")
+
+
+def test_modal_image_preserves_every_source_cell():
+    source = {
+        "psd": np.arange(35, dtype=float).reshape(5, 7),
+        "freq": np.linspace(0.0, 200.0, 5),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    image_src = image_processing._generate_modal_image_from_spectrogram_data(
+        source,
+        colormap="default",
+        color_min=None,
+        color_max=None,
+    )
+    image_bytes = base64.b64decode(image_src.split(",", 1)[1])
+    rendered = imread(BytesIO(image_bytes), format="png")
+
+    assert rendered.shape[:2] == source["psd"].shape
+
+
+def test_modal_image_figure_keeps_full_source_shape_in_plotly_metadata():
+    source = {
+        "psd": np.arange(35, dtype=float).reshape(5, 7),
+        "freq": np.linspace(0.0, 200.0, 5),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    fig = image_processing.create_spectrogram_figure(
+        source,
+        "default",
+        image_source="/modal-image/test-token",
+    )
+
+    assert fig.layout.images[0].source == "/modal-image/test-token"
+    assert fig.layout.meta["transport_mode"] == "full_resolution_lossless_png"
+    assert fig.layout.meta["source_matrix_shape"] == list(source["psd"].shape)
+    assert fig.layout.meta["modal_data_url"] == "/modal-data/test-token"
+    assert len(fig.layout.meta["raster_palette"]) == 256
+    assert len(fig.data[0].z) == 1
 
 
 def test_image_file_to_base64(mock_root):

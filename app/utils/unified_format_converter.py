@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from app.services.annotations import clean_box_annotation
+from taxonomy.hierarchical_labels import canonicalize_prediction_label
 
 
 def _now_iso() -> str:
@@ -86,7 +87,16 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
         verifications = item_data.get("verifications", [])
         latest_verification = verifications[-1] if verifications else None
 
-        model_outputs = item_data.get("model_outputs", [])
+        model_outputs = []
+        for output in item_data.get("model_outputs", []):
+            if not isinstance(output, dict):
+                continue
+            canonical_label = canonicalize_prediction_label(output.get("class_hierarchy"))
+            if not canonical_label:
+                continue
+            normalized_output = dict(output)
+            normalized_output["class_hierarchy"] = canonical_label
+            model_outputs.append(normalized_output)
 
         predictions = {
             "model_id": model.get("model_id"),

@@ -284,9 +284,14 @@ def get_config() -> Dict[str, Any]:
             "items_per_page": items_per_page,
             "colormap": colormap,
             "y_axis_scale": y_axis_scale,
+            "modal_render_mode": display_cfg.get(
+                "modal_render_mode",
+                "full_resolution_image",
+            ),
         },
         "cache": {
             "max_size": cache_max_size,
+            "modal_prefetch_enabled": cache_cfg.get("modal_prefetch_enabled", True),
         },
         "audio": {
             "transport": audio_transport,

@@ -134,6 +134,8 @@ def test_get_config_accepts_startup_data_and_fft_params(tmp_path, monkeypatch):
         "freq_min_hz": 10.0,
         "freq_max_hz": 250.0,
     }
+    assert config["display"]["modal_render_mode"] == "full_resolution_image"
+    assert config["cache"]["modal_prefetch_enabled"] is True
 
 
 def test_load_verify_mode(mock_config):
