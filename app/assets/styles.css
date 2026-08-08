@@ -5347,11 +5347,26 @@ body.theme-dark .display-range-bar--compact .display-range-title,
     display: grid;
     gap: 14px;
     padding: 16px 18px;
-    border-bottom: 1px solid var(--border-subtle);
+    border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 
 .spectrogram-settings-section:last-child {
     border-bottom: 0;
+}
+
+.spectrogram-settings-section--source {
+    background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+}
+
+.spectrogram-settings-section--frequency {
+    margin-top: -1px;
+    background: color-mix(in srgb, var(--surface) 88%, var(--surface-2) 12%);
+}
+
+.spectrogram-settings-section--appearance {
+    margin-top: -1px;
+    background: color-mix(in srgb, var(--surface) 94%, #7c43c3 6%);
 }
 
 .spectrogram-settings-section-title {
@@ -5361,6 +5376,14 @@ body.theme-dark .display-range-bar--compact .display-range-title,
     letter-spacing: 0;
     line-height: 1.2;
     text-transform: uppercase;
+}
+
+.spectrogram-settings-section--source .spectrogram-settings-section-title {
+    color: color-mix(in srgb, var(--text-secondary) 72%, var(--accent) 28%);
+}
+
+.spectrogram-settings-section--appearance .spectrogram-settings-section-title {
+    color: color-mix(in srgb, var(--text-secondary) 76%, #9b6bd3 24%);
 }
 
 .spectrogram-settings-section .spectrogram-source-controls,
