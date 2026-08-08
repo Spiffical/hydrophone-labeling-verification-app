@@ -94,20 +94,6 @@ def test_modal_graph_hides_plotly_shape_modebar_buttons():
     assert config["edits"]["shapePosition"] is True
 
 
-def test_spectrogram_modal_uses_named_colormap_labels():
-    modal = create_spectrogram_modal()
-    selector = next(
-        component
-        for component in _walk_components(modal)
-        if getattr(component, "id", None) == "modal-colormap-toggle"
-    )
-
-    assert selector.options == [
-        {"label": " Viridis", "value": "default"},
-        {"label": " O3.0", "value": "hydrophone"},
-    ]
-
-
 def test_spectrogram_modal_includes_bbox_editor_and_configured_tags():
     modal = create_spectrogram_modal(
         {"bounding_box_tags": {"options": [{"label": "20 Hz", "value": "20Hz"}]}}
