@@ -2,7 +2,7 @@
   const matrixCache = new Map();
   const renderState = {
     sequence: 0,
-    activeObjectUrl: null,
+    activeObjectUrls: [],
   };
   const rasterPreviewState = {
     generation: 0,
@@ -30,11 +30,14 @@
   function startViewRefresh(_colormap, _yAxisScale) {
     const trigger = triggeredId();
     if (trigger !== 'modal-colormap-toggle' && trigger !== 'modal-y-axis-toggle') {
-      return noUpdate();
+      return [noUpdate(), noUpdate()];
     }
     cancelRasterPreviews();
     renderState.sequence += 1;
-    return true;
+    if (window.hydrophoneModalLifecycle) {
+      window.hydrophoneModalLifecycle.beginRender();
+    }
+    return [true, false];
   }
 
   function modeValue(mode, labelValue, verifyValue, exploreValue) {
@@ -139,7 +142,7 @@
         throw error;
       });
     matrixCache.set(url, promise);
-    while (matrixCache.size > 3) {
+    while (matrixCache.size > 24) {
       const oldestKey = matrixCache.keys().next().value;
       if (oldestKey !== url) matrixCache.delete(oldestKey);
       else break;
@@ -202,11 +205,83 @@
     });
   }
 
-  function activateRasterObjectUrl(objectUrl) {
-    const previousUrl = renderState.activeObjectUrl;
-    renderState.activeObjectUrl = objectUrl;
-    if (previousUrl) {
-      window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
+  function tileDataUrl(baseUrl, tile) {
+    if (!tile || !baseUrl) return baseUrl;
+    const separator = baseUrl.indexOf('?') === -1 ? '?' : '&';
+    return `${baseUrl}${separator}tile_r0=${tile.row_start}&tile_r1=${tile.row_end}`
+      + `&tile_c0=${tile.column_start}&tile_c1=${tile.column_end}`;
+  }
+
+  function viewportDataUrl(baseUrl, crop) {
+    const target = new URL(baseUrl, window.location.href);
+    target.searchParams.set('tile_r0', String(crop.rowStart));
+    target.searchParams.set('tile_r1', String(crop.rowEnd));
+    target.searchParams.set('tile_c0', String(crop.columnStart));
+    target.searchParams.set('tile_c1', String(crop.columnEnd));
+    target.searchParams.set('mw', String(crop.width));
+    target.searchParams.set('mh', String(crop.height));
+    return `${target.pathname}${target.search}`;
+  }
+
+  function renderViewport(meta, crop) {
+    if (!meta || !meta.modal_data_url) {
+      return Promise.reject(new Error('No modal spectrogram data URL is available.'));
+    }
+    const zmin = numeric(meta.display_color_min);
+    const zmax = numeric(meta.display_color_max);
+    if (zmin === null || zmax === null || zmax <= zmin) {
+      return Promise.reject(new Error('The modal spectrogram contrast range is invalid.'));
+    }
+    return loadMatrix(viewportDataUrl(meta.modal_data_url, crop))
+      .then((matrix) => renderMatrix(
+        matrix,
+        meta.raster_palette,
+        meta.raster_palette_mode,
+        zmin,
+        zmax,
+      ));
+  }
+
+  function renderRasterTiles(meta, zmin, zmax, shouldContinue) {
+    const tiles = Array.isArray(meta.raster_tiles) && meta.raster_tiles.length
+      ? meta.raster_tiles
+      : [null];
+    const objectUrls = [];
+    let sequence = Promise.resolve();
+    tiles.forEach((tile) => {
+      sequence = sequence
+        .then(() => {
+          if (shouldContinue && !shouldContinue()) {
+            const error = new Error('Modal raster render superseded.');
+            error.superseded = true;
+            throw error;
+          }
+          return loadMatrix(tileDataUrl(meta.modal_data_url, tile));
+        })
+        .then((matrix) => renderMatrix(
+          matrix,
+          meta.raster_palette,
+          meta.raster_palette_mode,
+          zmin,
+          zmax,
+        ))
+        .then((objectUrl) => {
+          objectUrls.push(objectUrl);
+        });
+    });
+    return sequence
+      .then(() => objectUrls)
+      .catch((error) => {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        throw error;
+      });
+  }
+
+  function activateRasterObjectUrls(objectUrls) {
+    const previousUrls = renderState.activeObjectUrls;
+    renderState.activeObjectUrls = objectUrls.slice();
+    if (previousUrls.length) {
+      window.setTimeout(() => previousUrls.forEach((url) => URL.revokeObjectURL(url)), 5000);
     }
   }
 
@@ -215,13 +290,17 @@
     rasterPreviewState.pending = null;
   }
 
-  function applyRasterPreviewToPlot(objectUrl, zmin, zmax, localSequence) {
+  function applyRasterPreviewToPlot(objectUrls, zmin, zmax, localSequence) {
     const graph = document.querySelector('#modal-image-graph .js-plotly-plot');
     if (!graph || !window.Plotly || !graph.layout || !Array.isArray(graph.layout.images)) {
-      URL.revokeObjectURL(objectUrl);
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
       return;
     }
-    activateRasterObjectUrl(objectUrl);
+    if (objectUrls.length !== graph.layout.images.length) {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      return;
+    }
+    activateRasterObjectUrls(objectUrls);
     if (graph.layout.meta) {
       graph.layout.meta.display_color_min = zmin;
       graph.layout.meta.display_color_max = zmax;
@@ -231,7 +310,11 @@
       graph.data[0].zmin = zmin;
       graph.data[0].zmax = zmax;
     }
-    window.Plotly.relayout(graph, { 'images[0].source': objectUrl });
+    const imageUpdates = {};
+    objectUrls.forEach((url, index) => {
+      imageUpdates[`images[${index}].source`] = url;
+    });
+    window.Plotly.relayout(graph, imageUpdates);
     window.Plotly.restyle(graph, { zmin: [zmin], zmax: [zmax] }, [0]);
   }
 
@@ -240,28 +323,26 @@
     const job = rasterPreviewState.pending;
     rasterPreviewState.pending = null;
     rasterPreviewState.active = true;
-    loadMatrix(job.dataUrl)
-      .then((matrix) => renderMatrix(
-        matrix,
-        job.palette,
-        job.paletteMode,
-        job.zmin,
-        job.zmax,
-      ))
-      .then((objectUrl) => {
+    renderRasterTiles(
+      job.meta,
+      job.zmin,
+      job.zmax,
+      () => job.generation === rasterPreviewState.generation,
+    )
+      .then((objectUrls) => {
         if (job.generation !== rasterPreviewState.generation) {
-          URL.revokeObjectURL(objectUrl);
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return;
         }
         applyRasterPreviewToPlot(
-          objectUrl,
+          objectUrls,
           job.zmin,
           job.zmax,
           job.localSequence,
         );
       })
       .catch((error) => {
-        if (job.generation === rasterPreviewState.generation) {
+        if (job.generation === rasterPreviewState.generation && !error.superseded) {
           console.warn('[modal-display] browser preview recolor failed', error);
         }
       })
@@ -272,12 +353,11 @@
   }
 
   function queueRasterPreview(meta, zmin, zmax) {
+    rasterPreviewState.generation += 1;
     rasterPreviewState.pending = {
       generation: rasterPreviewState.generation,
       localSequence: ++renderState.sequence,
-      dataUrl: meta.modal_data_url,
-      palette: meta.raster_palette,
-      paletteMode: meta.raster_palette_mode,
+      meta,
       zmin,
       zmax,
     };
@@ -298,32 +378,30 @@
 
   function recolorRaster(figure, zmin, zmax, sequence) {
     const meta = figure.layout.meta;
-    return loadMatrix(meta.modal_data_url)
-      .then((matrix) => {
-        if (sequence !== renderState.sequence) return noUpdate();
-        return renderMatrix(
-          matrix,
-          meta.raster_palette,
-          meta.raster_palette_mode,
-          zmin,
-          zmax,
-        );
-      })
-      .then((objectUrl) => {
-        if (objectUrl === noUpdate()) return objectUrl;
+    return renderRasterTiles(
+      meta,
+      zmin,
+      zmax,
+      () => sequence === renderState.sequence,
+    )
+      .then((objectUrls) => {
         if (sequence !== renderState.sequence) {
-          URL.revokeObjectURL(objectUrl);
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return noUpdate();
         }
-        activateRasterObjectUrl(objectUrl);
-        if (figure.layout.images.length) {
-          figure.layout.images[0].source = objectUrl;
+        if (objectUrls.length !== figure.layout.images.length) {
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
+          return noUpdate();
         }
+        activateRasterObjectUrls(objectUrls);
+        objectUrls.forEach((url, index) => {
+          figure.layout.images[index].source = url;
+        });
         updateTraceContrast(figure, zmin, zmax);
         return figure;
       })
       .catch((error) => {
-        if (sequence === renderState.sequence) {
+        if (sequence === renderState.sequence && !error.superseded) {
           console.warn('[modal-display] browser recolor failed', error);
         }
         return noUpdate();
@@ -501,6 +579,7 @@
 
   window.hydrophoneModalDisplay = {
     preload: loadMatrix,
+    renderViewport,
     cancelPending: function () {
       cancelRasterPreviews();
       renderState.sequence += 1;

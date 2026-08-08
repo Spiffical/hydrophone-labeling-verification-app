@@ -24,16 +24,11 @@ _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "
 
 def _verify_page_info(current_page, items_per_page, filtered_total, *, index_available=True):
     if not index_available:
-        return "Showing available recordings while the index is built"
+        return "Indexing..."
     if filtered_total <= 0:
-        return "No matches"
-    first_item = (current_page * items_per_page) + 1
-    last_item = min(filtered_total, first_item + items_per_page - 1)
+        return "0 / 0"
     total_pages = max(1, (filtered_total + items_per_page - 1) // items_per_page)
-    return (
-        f"Showing {first_item:,}-{last_item:,} of {filtered_total:,} matches"
-        f" | Page {current_page + 1} of {total_pages}"
-    )
+    return f"{current_page + 1} / {total_pages}"
 
 
 def _prefetch_enabled(cfg):
@@ -314,6 +309,8 @@ def register_render_callbacks(
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -353,6 +350,8 @@ def register_render_callbacks(
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and modal_submitted:
@@ -471,7 +470,16 @@ def register_render_callbacks(
                 True,
             )
             return (
-                html.Div("Loading predictions and preparing spectrogram cards...", className="summary-info text-muted"),
+                html.Div(
+                    [
+                        html.Span("Loading...", className="command-match-count"),
+                        html.Div(
+                            "Preparing predictions and spectrogram cards",
+                            className="command-filter-context",
+                        ),
+                    ],
+                    className="summary-info",
+                ),
                 _spectrogram_grid_placeholder(),
                 "Preparing page...",
                 1,
@@ -525,34 +533,70 @@ def register_render_callbacks(
             and not summary.get("all_dates_index_available")
         )
         if index_available:
-            summary_children = [
-                html.Span(f"{filtered_total:,} matches", className="fw-semibold"),
+            match_summary = html.Span(
+                f"{filtered_total:,} matches",
+                className="command-match-count",
+            )
+            context_children = [
                 html.Span(
                     f"{int(summary.get('total_items', filtered_total)):,} recordings",
-                    className="ms-3 text-muted",
+                    className="command-filter-detail",
                 ),
                 html.Span(
                     f"{int(summary.get('verified', 0)):,} verified",
-                    className="ms-3 text-muted",
+                    className="command-filter-detail",
                 ),
             ]
         else:
-            summary_children = [
-                html.Span("Counting matches...", className="fw-semibold"),
-                html.Span("Counting recordings...", className="ms-3 text-muted"),
+            match_summary = html.Span(
+                "Counting...",
+                className="command-match-count",
+            )
+            context_children = [
+                html.Span(
+                    "Counting recordings",
+                    className="command-filter-detail",
+                ),
             ]
-        summary_children.extend(
+        context_children.extend(
             [
-                html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
-                html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
-                html.Span(f"Status: {_verify_status_filter_text(status_filter)}", className="ms-3 text-muted"),
+                html.Span(
+                    f"Threshold {current_threshold*100:.0f}%",
+                    className="command-filter-detail",
+                ),
+                html.Span(
+                    [
+                        html.Span("Class", className="command-filter-label"),
+                        html.Span(filter_text, className="command-filter-value"),
+                    ],
+                    className="command-filter-detail",
+                ),
+                html.Span(
+                    [
+                        html.Span("Status", className="command-filter-label"),
+                        html.Span(
+                            _verify_status_filter_text(status_filter),
+                            className="command-filter-value",
+                        ),
+                    ],
+                    className="command-filter-detail",
+                ),
             ]
         )
         if is_partial_selection:
-            summary_children.append(
-                html.Span("Updating...", className="ms-3 text-primary fw-semibold")
+            context_children.append(
+                html.Span(
+                    "Updating...",
+                    className="command-filter-detail command-filter-updating",
+                )
             )
-        summary_block = html.Div(summary_children, className="summary-info")
+        summary_block = html.Div(
+            [
+                match_summary,
+                html.Div(context_children, className="command-filter-context"),
+            ],
+            className="summary-info",
+        )
 
         page_info = _verify_page_info(
             current_page,
@@ -593,6 +637,8 @@ def register_render_callbacks(
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -637,6 +683,8 @@ def register_render_callbacks(
             modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 future_page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
             if _SPECGEN_DEBUG and modal_submitted:
                 print(
@@ -792,6 +840,8 @@ def register_render_callbacks(
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -831,6 +881,8 @@ def register_render_callbacks(
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and modal_submitted:

@@ -9,6 +9,7 @@ test("confidence threshold value is visible only while sliding", async ({ page }
   await page.goto(`${process.env.VERIFY_LIVE_BASE_URL}/?qa=threshold-${Date.now()}`, {
     waitUntil: "domcontentloaded",
   });
+  await page.locator(".command-tool--review > summary").click();
   await expect(page.locator("#verify-threshold-slider [role=slider]")).toBeVisible({
     timeout: 60_000,
   });

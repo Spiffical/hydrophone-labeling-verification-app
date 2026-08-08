@@ -349,6 +349,14 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='modal-force-action-store', data=None),
                 dcc.Store(id='modal-open-request-store', data=None),
                 dcc.Store(id='modal-busy-store', data=False, storage_type='memory'),
+                dcc.Store(id='modal-render-ready-store', data=True, storage_type='memory'),
+                dcc.Store(id='modal-viewport-store', data=None, storage_type='memory'),
+                dcc.Interval(
+                    id='modal-viewport-probe',
+                    interval=1000,
+                    n_intervals=0,
+                    max_intervals=-1,
+                ),
                 dcc.Store(id='modal-image-prefetch-store', data=None, storage_type='memory'),
             ], className="p-4"),
 

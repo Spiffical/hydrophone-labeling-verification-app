@@ -14,7 +14,11 @@ from app.callbacks.modal.display_helpers import (
     resolve_mode_y_axis_limits,
 )
 from app.utils.image_processing import create_item_spectrogram_figure
-from app.utils.image_utils import build_modal_image_request_src, use_full_resolution_modal_image
+from app.utils.image_utils import (
+    build_modal_image_request_src,
+    resolve_modal_image_target,
+    use_full_resolution_modal_image,
+)
 
 
 def _coerce_float(value):
@@ -228,6 +232,7 @@ def register_modal_view_callbacks(
     app.clientside_callback(
         ClientsideFunction(namespace="modalDisplay", function_name="startViewRefresh"),
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
         Input("modal-colormap-toggle", "value"),
         Input("modal-y-axis-toggle", "value"),
         prevent_initial_call=True,
@@ -315,6 +320,7 @@ def register_modal_view_callbacks(
         State("modal-bbox-store", "data"),
         State("config-store", "data"),
         State("modal-display-meta-store", "data"),
+        State("modal-viewport-store", "data"),
         prevent_initial_call=True,
     )
     def update_modal_view(
@@ -341,6 +347,7 @@ def register_modal_view_callbacks(
         bbox_store,
         cfg,
         current_meta,
+        modal_viewport,
     ):
         if not isinstance(modal_item, dict):
             raise PreventUpdate
@@ -411,6 +418,7 @@ def register_modal_view_callbacks(
         )
         effective_color_min = page_color_min if use_page_color_range else color_min
         effective_color_max = page_color_max if use_page_color_range else color_max
+        modal_image_width, modal_image_height = resolve_modal_image_target(modal_viewport)
         modal_image_source = None
         if use_full_resolution_modal_image(cfg, y_axis_scale):
             modal_image_source = build_modal_image_request_src(
@@ -422,6 +430,8 @@ def register_modal_view_callbacks(
                 y_axis_max_hz=effective_y_axis_max_hz,
                 color_min=effective_color_min,
                 color_max=effective_color_max,
+                max_width=modal_image_width,
+                max_height=modal_image_height,
             )
         fig, spectrogram = create_item_spectrogram_figure(
             modal_item,
@@ -433,6 +443,8 @@ def register_modal_view_callbacks(
             color_min=effective_color_min,
             color_max=effective_color_max,
             image_source=modal_image_source,
+            image_target_width=modal_image_width,
+            image_target_height=modal_image_height,
         )
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
             boxes = bbox_store.get("boxes") or []

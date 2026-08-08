@@ -177,6 +177,12 @@ def register_loading_overlay_callbacks(app):
                         return false;
                     }
                 }
+                if (
+                    a.colormap !== undefined &&
+                    String(a.colormap || "default") !== String(b.colormap || "default")
+                ) {
+                    return false;
+                }
                 return true;
             }
             function statusForMode(m) {
@@ -195,8 +201,13 @@ def register_loading_overlay_callbacks(app):
                     trigger === "verify-class-filter" ||
                     trigger === "verify-status-filter";
             }
-            function isConfigSaveRequest(req) {
-                return String((req || {}).trigger_id || "") === "app-config-save";
+            function requestRequiresCompletePageImages(req) {
+                var trigger = String((req || {}).trigger_id || "");
+                return trigger === "app-config-save" ||
+                    trigger.indexOf("-generate-spectrograms-btn") > 0 ||
+                    trigger.indexOf("-spectrogram-source") > 0 ||
+                    trigger.indexOf("-spectrogram-preset") > 0 ||
+                    trigger.indexOf("-colormap-toggle") > 0;
             }
             function sameVerifyFilterState(a, b) {
                 a = a || {};
@@ -271,7 +282,7 @@ def register_loading_overlay_callbacks(app):
                 for (var i = 0; i < imgs.length; i += 1) {
                     var img = imgs[i];
                     var src = String(img.getAttribute("src") || "");
-                    if (isDeferredLazySpectrogram(img) && !isConfigSaveRequest(request)) {
+                    if (isDeferredLazySpectrogram(img) && !requestRequiresCompletePageImages(request)) {
                         loaded += 1;
                     } else if (!!img.complete && !isTransparentPlaceholderSrc(src) && asInt(img.naturalWidth, 0) > 1) {
                         loaded += 1;
@@ -399,7 +410,7 @@ def register_loading_overlay_callbacks(app):
                 page: 0,
                 params: {
                     win_dur_s: asFloat(spec.win_dur_s, 1.0),
-                    overlap: asFloat(spec.overlap, 0.9),
+                    overlap: asFloat(spec.overlap, 0.5),
                     freq_min_hz: asFloat(spec.freq_min_hz, 5.0),
                     freq_max_hz: asFloat(spec.freq_max_hz, 100.0)
                 },
@@ -457,6 +468,24 @@ def register_loading_overlay_callbacks(app):
         """
         function(
             saveClicks,
+            labelSpectrogramPreset,
+            verifySpectrogramPreset,
+            exploreSpectrogramPreset,
+            labelSpectrogramSource,
+            verifySpectrogramSource,
+            exploreSpectrogramSource,
+            labelSpecWindow,
+            labelSpecOverlap,
+            verifySpecWindow,
+            verifySpecOverlap,
+            exploreSpecWindow,
+            exploreSpecOverlap,
+            labelUseHydrophoneColormap,
+            verifyUseHydrophoneColormap,
+            exploreUseHydrophoneColormap,
+            labelGenerateClicks,
+            verifyGenerateClicks,
+            exploreGenerateClicks,
             labelPrevClicks,
             labelNextClicks,
             labelGotoClicks,
@@ -474,11 +503,6 @@ def register_loading_overlay_callbacks(app):
             labelPage,
             verifyPage,
             explorePage,
-            modalSource,
-            modalWinDur,
-            modalOverlap,
-            modalFreqMin,
-            modalFreqMax,
             labelGotoValue,
             labelPageMax,
             verifyGotoValue,
@@ -496,6 +520,18 @@ def register_loading_overlay_callbacks(app):
             var triggerId = String(ctx.triggered[0].prop_id || "").split(".")[0];
             if (
                 triggerId !== "app-config-save" &&
+                triggerId !== "label-spectrogram-preset" &&
+                triggerId !== "verify-spectrogram-preset" &&
+                triggerId !== "explore-spectrogram-preset" &&
+                triggerId !== "label-spectrogram-source" &&
+                triggerId !== "verify-spectrogram-source" &&
+                triggerId !== "explore-spectrogram-source" &&
+                triggerId !== "label-colormap-toggle" &&
+                triggerId !== "verify-colormap-toggle" &&
+                triggerId !== "explore-colormap-toggle" &&
+                triggerId !== "label-generate-spectrograms-btn" &&
+                triggerId !== "verify-generate-spectrograms-btn" &&
+                triggerId !== "explore-generate-spectrograms-btn" &&
                 triggerId !== "label-prev-page" &&
                 triggerId !== "label-next-page" &&
                 triggerId !== "label-goto-page" &&
@@ -597,7 +633,8 @@ def register_loading_overlay_callbacks(app):
                     trigger === "verify-status-filter"
                 );
                 var requestSource = String((request || {}).source || "existing");
-                var overlayTitle = isVerifyFilter
+                var isColormapUpdate = String((request || {}).update_kind || "") === "colormap";
+                var overlayTitle = isVerifyFilter || isColormapUpdate
                         ? "Updating spectrograms"
                         : requestSource === "audio_generated"
                             ? "Generating spectrograms"
@@ -613,9 +650,11 @@ def register_loading_overlay_callbacks(app):
                 var estimatedPending = asInt((request || {}).estimated_pending, -1);
                 if (estimatedEligible > 0 && estimatedPending >= 0) {
                     if (subtitleEl) {
-                        subtitleEl.textContent =
-                            estimatedPending + " audio file" + (estimatedPending === 1 ? "" : "s") +
-                            " remaining on this page (0/" + estimatedEligible + " ready)";
+                        subtitleEl.textContent = isColormapUpdate
+                            ? "Computing the " + String((request || {}).colormap_label || "selected") +
+                                " colormap for this page (0/" + estimatedEligible + " ready)"
+                            : estimatedPending + " audio file" + (estimatedPending === 1 ? "" : "s") +
+                                " remaining on this page (0/" + estimatedEligible + " ready)";
                     }
                     if (progressEl) {
                         progressEl.textContent = "0 of " + estimatedEligible + " ready";
@@ -636,7 +675,10 @@ def register_loading_overlay_callbacks(app):
                     return;
                 }
                 if (subtitleEl) {
-                    subtitleEl.textContent = "Preparing spectrograms for this page...";
+                    subtitleEl.textContent = isColormapUpdate
+                        ? "Computing the " + String((request || {}).colormap_label || "selected") +
+                            " colormap for this page..."
+                        : "Preparing spectrograms for this page...";
                 }
                 if (progressEl) {
                     progressEl.textContent = "Preparing page";
@@ -648,24 +690,89 @@ def register_loading_overlay_callbacks(app):
                 window.__specgenOverlayLastChangedAtMs = Date.now();
             }
 
+            var activeMode = String(mode || "label");
+            var spectrogramControlIds = [
+                "label-spectrogram-preset", "verify-spectrogram-preset", "explore-spectrogram-preset",
+                "label-spectrogram-source", "verify-spectrogram-source", "explore-spectrogram-source",
+                "label-colormap-toggle", "verify-colormap-toggle", "explore-colormap-toggle",
+                "label-generate-spectrograms-btn", "verify-generate-spectrograms-btn",
+                "explore-generate-spectrograms-btn"
+            ];
+            var isSpectrogramControlTrigger = spectrogramControlIds.indexOf(triggerId) >= 0;
+            if (isSpectrogramControlTrigger && triggerId.split("-")[0] !== activeMode) {
+                return dc.no_update;
+            }
+
             var spec = ((cfg || {}).spectrogram_render || {});
             var source = String(spec.source || "existing");
             var params = {
                 win_dur_s: asFloat(spec.win_dur_s, 1.0),
-                overlap: asFloat(spec.overlap, 0.9),
+                overlap: asFloat(spec.overlap, 0.5),
                 freq_min_hz: asFloat(spec.freq_min_hz, 5.0),
                 freq_max_hz: asFloat(spec.freq_max_hz, 100.0)
             };
-            if (triggerId === "app-config-save") {
-                source = String(modalSource || source || "existing");
+            var activePreset = activeMode === "verify"
+                ? verifySpectrogramPreset
+                : activeMode === "explore"
+                    ? exploreSpectrogramPreset
+                    : labelSpectrogramPreset;
+            var activeSource = activeMode === "verify"
+                ? verifySpectrogramSource
+                : activeMode === "explore"
+                    ? exploreSpectrogramSource
+                    : labelSpectrogramSource;
+            var activeWindow = activeMode === "verify"
+                ? verifySpecWindow
+                : activeMode === "explore"
+                    ? exploreSpecWindow
+                    : labelSpecWindow;
+            var activeOverlap = activeMode === "verify"
+                ? verifySpecOverlap
+                : activeMode === "explore"
+                    ? exploreSpecOverlap
+                    : labelSpecOverlap;
+            var isSourceTrigger = triggerId.indexOf("-spectrogram-source") > 0;
+            var isGenerateTrigger = triggerId.indexOf("-generate-spectrograms-btn") > 0;
+            var isColormapTrigger = triggerId.indexOf("-colormap-toggle") > 0;
+            if (isSourceTrigger && String(activeSource || "existing") === "audio_generated") {
+                return dc.no_update;
+            }
+            if (isGenerateTrigger && String(activeSource || "existing") !== "audio_generated") {
+                return dc.no_update;
+            }
+            if (isSourceTrigger && String(activeSource || "existing") === source) {
+                return dc.no_update;
+            }
+            if (isSourceTrigger || isGenerateTrigger) {
+                source = String(activeSource || source || "existing");
+                params.win_dur_s = asFloat(activeWindow, params.win_dur_s);
+                params.overlap = asFloat(activeOverlap, params.overlap);
+            }
+            if (triggerId.indexOf("-spectrogram-preset") > 0) {
+                var rawPresets = spec.presets || [];
+                var selectedPreset = null;
+                if (Array.isArray(rawPresets)) {
+                    for (var presetIndex = 0; presetIndex < rawPresets.length; presetIndex += 1) {
+                        var candidatePreset = rawPresets[presetIndex] || {};
+                        var candidateId = String(candidatePreset.id || candidatePreset.name || "");
+                        if (candidateId === String(activePreset || "")) {
+                            selectedPreset = candidatePreset;
+                            break;
+                        }
+                    }
+                } else if (rawPresets && typeof rawPresets === "object") {
+                    selectedPreset = rawPresets[String(activePreset || "")] || null;
+                }
+                if (!selectedPreset) {
+                    return dc.no_update;
+                }
                 params = {
-                    win_dur_s: asFloat(modalWinDur, params.win_dur_s),
-                    overlap: asFloat(modalOverlap, params.overlap),
-                    freq_min_hz: asFloat(modalFreqMin, params.freq_min_hz),
-                    freq_max_hz: asFloat(modalFreqMax, params.freq_max_hz)
+                    win_dur_s: asFloat(selectedPreset.win_dur_s, params.win_dur_s),
+                    overlap: asFloat(selectedPreset.overlap, params.overlap),
+                    freq_min_hz: asFloat(selectedPreset.freq_min_hz, params.freq_min_hz),
+                    freq_max_hz: asFloat(selectedPreset.freq_max_hz, params.freq_max_hz)
                 };
             }
-            var activeMode = String(mode || "label");
             if (
                 (
                     triggerId === "verify-thresholds-store" ||
@@ -682,6 +789,15 @@ def register_loading_overlay_callbacks(app):
                     ? asInt(explorePage, 0)
                     : asInt(labelPage, 0);
             var nowMs = Date.now();
+            var activeUseHydrophoneColormap = activeMode === "verify"
+                ? !!verifyUseHydrophoneColormap
+                : activeMode === "explore"
+                    ? !!exploreUseHydrophoneColormap
+                    : !!labelUseHydrophoneColormap;
+            var activeColormap = activeUseHydrophoneColormap
+                ? "hydrophone"
+                : String((((cfg || {}).display || {}).colormap || "default"));
+            params.colormap = activeColormap;
 
             function clampPage(p, maxPages) {
                 var maxP = asInt(maxPages, 1);
@@ -744,6 +860,8 @@ def register_loading_overlay_callbacks(app):
                 dataset_selection: false,
                 requested_date: null,
                 requested_device: null,
+                update_kind: isColormapTrigger ? "colormap" : null,
+                colormap_label: activeColormap === "hydrophone" ? "O3.0" : "default",
                 verify_filter_state: activeMode === "verify"
                     ? verifyFilterState(verifyThresholds, verifyClassFilter, verifyStatusFilter)
                     : null
@@ -754,7 +872,7 @@ def register_loading_overlay_callbacks(app):
                 window.__specgenVisibleImageObserver.disconnect();
                 window.__specgenVisibleImageObserver = null;
             }
-            if (triggerId === "app-config-save") {
+            if (triggerId === "app-config-save" || isSpectrogramControlTrigger) {
                 invalidateCurrentSpectrograms(activeMode);
             }
             window.__specgenOverlayLatestRequest = request;
@@ -764,6 +882,24 @@ def register_loading_overlay_callbacks(app):
         """,
         Output("specgen-overlay-request-store", "data"),
         Input("app-config-save", "n_clicks"),
+        Input("label-spectrogram-preset", "value"),
+        Input("verify-spectrogram-preset", "value"),
+        Input("explore-spectrogram-preset", "value"),
+        Input("label-spectrogram-source", "value"),
+        Input("verify-spectrogram-source", "value"),
+        Input("explore-spectrogram-source", "value"),
+        Input("label-spec-win-dur", "value"),
+        Input("label-spec-overlap", "value"),
+        Input("verify-spec-win-dur", "value"),
+        Input("verify-spec-overlap", "value"),
+        Input("explore-spec-win-dur", "value"),
+        Input("explore-spec-overlap", "value"),
+        Input("label-colormap-toggle", "value"),
+        Input("verify-colormap-toggle", "value"),
+        Input("explore-colormap-toggle", "value"),
+        Input("label-generate-spectrograms-btn", "n_clicks"),
+        Input("verify-generate-spectrograms-btn", "n_clicks"),
+        Input("explore-generate-spectrograms-btn", "n_clicks"),
         Input("label-prev-page", "n_clicks"),
         Input("label-next-page", "n_clicks"),
         Input("label-goto-page", "n_clicks"),
@@ -781,11 +917,6 @@ def register_loading_overlay_callbacks(app):
         State("label-current-page", "data"),
         State("verify-current-page", "data"),
         State("explore-current-page", "data"),
-        State("app-config-spectrogram-source", "value"),
-        State("app-config-spec-win-dur", "value"),
-        State("app-config-spec-overlap", "value"),
-        State("app-config-spec-freq-min", "value"),
-        State("app-config-spec-freq-max", "value"),
         State("label-page-input", "value"),
         State("label-page-input", "max"),
         State("verify-page-input", "value"),
@@ -836,6 +967,12 @@ def register_loading_overlay_callbacks(app):
                         if (Math.abs(asFloat(a[k], NaN) - asFloat(b[k], NaN)) > 1e-6) {
                             return false;
                         }
+                    }
+                    if (
+                        a.colormap !== undefined &&
+                        String(a.colormap || "default") !== String(b.colormap || "default")
+                    ) {
+                        return false;
                     }
                     return true;
                 }
@@ -905,8 +1042,15 @@ def register_loading_overlay_callbacks(app):
                         fillClass = "specgen-load-progress-fill specgen-load-progress-fill--determinate";
                     }
                     var overlayTitle = window.__specgenOverlayTitle || "Loading spectrograms";
+                    var currentRequest = window.__specgenOverlayLatestRequest || {};
+                    var displaySubtitle = subtitle || "Preparing spectrograms for this page...";
+                    if (String(currentRequest.update_kind || "") === "colormap") {
+                        displaySubtitle = "Computing the " +
+                            String(currentRequest.colormap_label || "selected") +
+                            " colormap for this page...";
+                    }
                     if (titleEl) titleEl.textContent = overlayTitle;
-                    if (subtitleEl) subtitleEl.textContent = subtitle || "Preparing spectrograms for this page...";
+                    if (subtitleEl) subtitleEl.textContent = displaySubtitle;
                     if (progressEl) progressEl.textContent = progressText;
                     if (fillEl) {
                         fillEl.style.width = fillStyle.width;
@@ -916,7 +1060,7 @@ def register_loading_overlay_callbacks(app):
                     return [
                         {display: "flex"},
                         overlayTitle,
-                        subtitle || "Preparing spectrograms for this page...",
+                        displaySubtitle,
                         progressText,
                         fillStyle,
                         fillClass
@@ -941,8 +1085,13 @@ def register_loading_overlay_callbacks(app):
                         (!src || src.indexOf("data:image/gif;base64,R0lGODlhAQABA") === 0 || src !== deferredSrc)
                     );
                 }
-                function isConfigSaveRequest(req) {
-                    return String((req || {}).trigger_id || "") === "app-config-save";
+                function requestRequiresCompletePageImages(req) {
+                    var trigger = String((req || {}).trigger_id || "");
+                    return trigger === "app-config-save" ||
+                        trigger.indexOf("-generate-spectrograms-btn") > 0 ||
+                        trigger.indexOf("-spectrogram-source") > 0 ||
+                        trigger.indexOf("-spectrogram-preset") > 0 ||
+                        trigger.indexOf("-colormap-toggle") > 0;
                 }
                 function visibleImageStatsForMode(m, eligibleHint) {
                     var imgs = Array.from(document.querySelectorAll(selectorForMode(m)));
@@ -953,7 +1102,7 @@ def register_loading_overlay_callbacks(app):
                         var img = imgs[i];
                         var complete = !!img.complete;
                         var naturalWidth = asInt(img.naturalWidth, 0);
-                        if (isDeferredLazySpectrogram(img) && !isConfigSaveRequest(window.__specgenOverlayLatestRequest)) {
+                        if (isDeferredLazySpectrogram(img) && !requestRequiresCompletePageImages(window.__specgenOverlayLatestRequest)) {
                             loaded += 1;
                         } else if (complete && !isTransparentPlaceholderSrc(img.getAttribute("src") || "") && naturalWidth > 1) {
                             loaded += 1;
@@ -1006,9 +1155,13 @@ def register_loading_overlay_callbacks(app):
                             progressEl.textContent = stats.loaded + " of " + stats.expected + " ready";
                         }
                         if (subtitleEl) {
-                            subtitleEl.textContent = stats.pending > 0
-                                ? overlaySubtitleFor("image", stats.pending, stats.loaded, stats.expected)
-                                : "All spectrograms for this page are visible.";
+                            var currentRequest = window.__specgenOverlayLatestRequest || {};
+                            subtitleEl.textContent = String(currentRequest.update_kind || "") === "colormap"
+                                ? "Computing the " + String(currentRequest.colormap_label || "selected") +
+                                    " colormap for this page..."
+                                : stats.pending > 0
+                                    ? overlaySubtitleFor("image", stats.pending, stats.loaded, stats.expected)
+                                    : "All spectrograms for this page are visible.";
                         }
                         if (fillEl) {
                             fillEl.style.width = String(pct) + "%";
@@ -1075,7 +1228,11 @@ def register_loading_overlay_callbacks(app):
                                 return;
                             }
                             var currentSrc = String(img.getAttribute("src") || "");
-                            if (!currentSrc) {
+                            if (
+                                !currentSrc ||
+                                isTransparentPlaceholderSrc(currentSrc) ||
+                                currentSrc.indexOf("data:") === 0
+                            ) {
                                 return;
                             }
                             img.__specgenRetryCount = retryCount + 1;
@@ -1152,7 +1309,7 @@ def register_loading_overlay_callbacks(app):
                         var img = imgs[i];
                         var complete = !!img.complete;
                         var naturalWidth = asInt(img.naturalWidth, 0);
-                        if (isDeferredLazySpectrogram(img) && !isConfigSaveRequest(req)) {
+                        if (isDeferredLazySpectrogram(img) && !requestRequiresCompletePageImages(req)) {
                             loaded += 1;
                         } else if (complete && !isTransparentPlaceholderSrc(img.getAttribute("src") || "") && naturalWidth > 1) {
                             loaded += 1;

@@ -22,6 +22,7 @@ from app.callbacks.modal.view_callbacks import register_modal_view_callbacks
 from app.callbacks.ui.app_config_callbacks import register_app_config_callbacks
 from app.callbacks.ui.display_range_callbacks import register_display_range_callbacks
 from app.callbacks.ui.profile_callbacks import register_ui_callbacks
+from app.callbacks.ui.spectrogram_preset_callbacks import register_spectrogram_preset_callbacks
 from app.callbacks.ui.tab_switch_callbacks import register_mode_tab_callbacks
 from app.callbacks.ui.theme_callbacks import register_theme_callbacks
 from app.callbacks.verify.class_filter_callbacks import register_verify_filter_callbacks
@@ -46,6 +47,7 @@ def register_all_callback_sections(app, *, config, deps):
     )
     register_app_config_callbacks(app, set_cache_sizes=d["set_cache_sizes"])
     register_theme_callbacks(app)
+    register_spectrogram_preset_callbacks(app)
     register_display_range_callbacks(
         app,
         _filter_predictions=d["filter_predictions"],

@@ -27,12 +27,16 @@ test("modal navigation stays responsive across neighboring spectrograms", async 
     const sourceShape = graph && graph.layout && graph.layout.meta
       ? graph.layout.meta.source_matrix_shape
       : null;
+    const renderedShape = graph && graph.layout && graph.layout.meta
+      ? graph.layout.meta.rendered_image_shape
+      : null;
     const response = await fetch(source);
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob);
     return {
       source,
       sourceShape,
+      renderedShape,
       bytes: blob.size,
       width: bitmap.width,
       height: bitmap.height,
@@ -44,8 +48,9 @@ test("modal navigation stays responsive across neighboring spectrograms", async 
     bytes: renderedImage.bytes,
   }));
   expect(renderedImage.source).toContain("/modal-image/");
-  expect(renderedImage.sourceShape).toEqual([renderedImage.height, renderedImage.width]);
-  expect(renderedImage.sourceShape).toEqual([854, 1000]);
+  expect(renderedImage.renderedShape).toEqual([renderedImage.height, renderedImage.width]);
+  expect(renderedImage.height).toBeLessThanOrEqual(renderedImage.sourceShape[0]);
+  expect(renderedImage.width).toBeLessThanOrEqual(renderedImage.sourceShape[1]);
 
   if (process.env.MODAL_SCREENSHOT_PATH) {
     await page.screenshot({ path: process.env.MODAL_SCREENSHOT_PATH, fullPage: true });
@@ -56,10 +61,13 @@ test("modal navigation stays responsive across neighboring spectrograms", async 
     const previousHeader = await page.locator("#modal-header").innerText();
     const startedAt = Date.now();
     await page.locator("#modal-nav-next").click();
+    await expect(page.locator("#modal-busy-overlay")).toBeVisible({ timeout: 2_000 });
+    await expect(page.locator("#modal-image-graph")).toHaveCSS("visibility", "hidden");
     await expect(page.locator("#modal-header")).not.toHaveText(previousHeader, {
       timeout: 60_000,
     });
     await expect(page.locator("#modal-busy-overlay")).toBeHidden({ timeout: 60_000 });
+    await expect(page.locator("#modal-image-graph")).toHaveCSS("visibility", "visible");
     await expect(page.locator("#modal-image-graph")).not.toHaveAttribute(
       "data-dash-is-loading",
       "true",

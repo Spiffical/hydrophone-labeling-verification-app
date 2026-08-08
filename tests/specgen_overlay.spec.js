@@ -1,6 +1,6 @@
 const { test, expect } = require("playwright/test");
 
-test("specgen overlay appears for uncached page and config-save regen", async ({ page }) => {
+test("specgen overlay appears for uncached pages and source changes", async ({ page }) => {
   const logs = [];
   page.on("console", (msg) => {
     const t = `[${msg.type()}] ${msg.text()}`;
@@ -21,10 +21,12 @@ test("specgen overlay appears for uncached page and config-save regen", async ({
   console.log("OVERLAY_TEXT_1:", await subtitle.textContent());
   await expect(overlay).toBeHidden({ timeout: 30000 });
 
-  await page.click("#app-config-btn");
-  await expect(page.locator("#app-config-modal")).toBeVisible({ timeout: 5000 });
-  await page.fill("#app-config-spec-freq-max", "220");
-  await page.click("#app-config-save");
+  await page.locator("#label-display-settings-details > summary").click();
+  await page.getByRole("radio", { name: "Generate from audio" }).click();
+  await expect(page.locator("#label-fft-parameters-collapse")).toBeVisible();
+  await page.fill("#label-spec-overlap", "0.5");
+  await expect(overlay).toBeHidden();
+  await page.locator("#label-generate-spectrograms-btn").click();
   await expect(overlay).toBeVisible({ timeout: 15000 });
   await expect(subtitle).toContainText("remaining on this page", { timeout: 5000 });
   console.log("OVERLAY_TEXT_2:", await subtitle.textContent());

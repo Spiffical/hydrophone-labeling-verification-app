@@ -31,38 +31,51 @@ def register_modal_audio_callbacks(app):
         """
         function(prevClicks, nextClicks, confirmClicks, editClicks, isOpen, modalItem) {
             if (!isOpen) {
-                return false;
+                return [false, true];
             }
             if (!modalItem || !modalItem.item_id) {
-                return false;
+                return [false, true];
             }
             var dc = (window.dash_clientside || {});
             var ctx = dc.callback_context || {};
             var triggered = Array.isArray(ctx.triggered) && ctx.triggered.length ? ctx.triggered[0] : null;
             var propId = triggered && triggered.prop_id ? triggered.prop_id : '';
             if (!propId) {
-                return false;
+                return [false, window.dash_clientside.no_update];
             }
             if (propId === 'modal-nav-prev.n_clicks') {
-                return typeof prevClicks === 'number' && prevClicks > 0;
+                if (typeof prevClicks === 'number' && prevClicks > 0) {
+                    if (window.hydrophoneModalLifecycle) {
+                        window.hydrophoneModalLifecycle.beginRender();
+                    }
+                    return [true, false];
+                }
+                return [false, window.dash_clientside.no_update];
             }
             if (propId === 'modal-nav-next.n_clicks') {
-                return typeof nextClicks === 'number' && nextClicks > 0;
+                if (typeof nextClicks === 'number' && nextClicks > 0) {
+                    if (window.hydrophoneModalLifecycle) {
+                        window.hydrophoneModalLifecycle.beginRender();
+                    }
+                    return [true, false];
+                }
+                return [false, window.dash_clientside.no_update];
             }
             if (propId.indexOf('modal-action-confirm') !== -1) {
-                return Array.isArray(confirmClicks) && confirmClicks.some(function(value) {
+                return [Array.isArray(confirmClicks) && confirmClicks.some(function(value) {
                     return typeof value === 'number' && value > 0;
-                });
+                }), window.dash_clientside.no_update];
             }
             if (propId.indexOf('modal-action-edit') !== -1) {
-                return Array.isArray(editClicks) && editClicks.some(function(value) {
+                return [Array.isArray(editClicks) && editClicks.some(function(value) {
                     return typeof value === 'number' && value > 0;
-                });
+                }), window.dash_clientside.no_update];
             }
-            return false;
+            return [false, window.dash_clientside.no_update];
         }
         """,
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
         Input("modal-nav-prev", "n_clicks"),
         Input("modal-nav-next", "n_clicks"),
         Input({"type": "modal-action-confirm", "scope": ALL}, "n_clicks"),
@@ -74,12 +87,21 @@ def register_modal_audio_callbacks(app):
 
     app.clientside_callback(
         """
-        function(isBusy) {
-            return isBusy ? {display: 'flex'} : {display: 'none'};
+        function(isBusy, renderReady) {
+            var renderPending = renderReady === false;
+            return [
+                (isBusy || renderPending) ? {display: 'flex'} : {display: 'none'},
+                {
+                    height: '500px',
+                    visibility: renderPending ? 'hidden' : 'visible'
+                }
+            ];
         }
         """,
         Output("modal-busy-overlay", "style"),
+        Output("modal-image-graph", "style"),
         Input("modal-busy-store", "data"),
+        Input("modal-render-ready-store", "data"),
     )
 
     @app.callback(

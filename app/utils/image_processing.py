@@ -21,6 +21,7 @@ import scipy.signal as scipy_signal
 import soundfile as sf
 from cachetools import LRUCache
 from concurrent.futures import ThreadPoolExecutor
+from PIL import Image
 try:
     import torch
 except Exception:  # pragma: no cover - defensive fallback for broken installs
@@ -28,6 +29,10 @@ except Exception:  # pragma: no cover - defensive fallback for broken installs
 
 from app.utils.colmap_hyd import colmap_hyd_py
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.services.spectrogram_presets import (
+    get_item_spectrogram_recommendation,
+    get_spectrogram_presets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +49,12 @@ SPECTROGRAM_FILENAME_TIME_RANGE_RE = re.compile(
 MODAL_TRANSPORT_FLOAT64 = "float64"
 MODAL_TRANSPORT_FLOAT32 = "float32"
 MODAL_TRANSPORT_UINT16 = "uint16"
+MODAL_RASTER_TILE_MAX_DIMENSION = 4096
+MODAL_RASTER_TILE_OVERLAP_CELLS = 128
 DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
     "source": SPECTROGRAM_SOURCE_EXISTING,
     "win_dur_s": 1.0,
-    "overlap": 0.9,
+    "overlap": 0.5,
     "freq_min_hz": 5.0,
     "freq_max_hz": 100.0,
 }
@@ -64,6 +71,40 @@ _MATPLOTLIB_RENDER_LOCK = threading.Lock()
 _AUDIO_SPECTROGRAM_INFLIGHT = {}
 _SPECTROGRAM_INFLIGHT = {}
 _IMAGE_INFLIGHT = {}
+
+
+def _bounded_modal_pixel_dimension(value: Any) -> Optional[int]:
+    try:
+        parsed = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return max(1, min(MODAL_RASTER_TILE_MAX_DIMENSION, parsed))
+
+
+def fit_modal_matrix_to_pixel_bounds(
+    matrix: np.ndarray,
+    *,
+    max_width: Any = None,
+    max_height: Any = None,
+) -> np.ndarray:
+    """Downsample a display raster without ever upscaling source data."""
+    source = np.asarray(matrix)
+    if source.ndim != 2 or source.size == 0:
+        return source
+    rows, columns = source.shape
+    requested_width = _bounded_modal_pixel_dimension(max_width)
+    requested_height = _bounded_modal_pixel_dimension(max_height)
+    target_columns = min(columns, requested_width or columns)
+    target_rows = min(rows, requested_height or rows)
+    if (target_rows, target_columns) == (rows, columns):
+        return source
+
+    float_image = Image.fromarray(np.ascontiguousarray(source, dtype=np.float32))
+    resized = float_image.resize(
+        (target_columns, target_rows),
+        resample=Image.Resampling.LANCZOS,
+    )
+    return np.asarray(resized, dtype=source.dtype)
 
 
 def _get_or_compute_cached(
@@ -213,6 +254,39 @@ def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, 
     }
 
 
+def get_item_spectrogram_render_settings(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Resolve an item-scoped preset without mutating application config."""
+    settings = get_spectrogram_render_settings(cfg)
+    render_cfg = (cfg or {}).get("spectrogram_render", {})
+    if not isinstance(render_cfg, dict) or not isinstance(item, dict):
+        return settings
+
+    active_preset_id = str(render_cfg.get("active_preset") or "").strip()
+    active_preset = next(
+        (
+            preset
+            for preset in get_spectrogram_presets(cfg)
+            if preset["id"] == active_preset_id
+        ),
+        None,
+    )
+    if active_preset is None:
+        return settings
+
+    settings["active_preset"] = active_preset_id
+    if active_preset.get("scope") != "item":
+        return settings
+
+    recommendation = get_item_spectrogram_recommendation(item, active_preset)
+    settings["item_override_applied"] = recommendation is not None
+    if recommendation:
+        settings.update(recommendation)
+    return settings
+
+
 def _optional_float(value: Any) -> Optional[float]:
     try:
         if value in (None, ""):
@@ -227,6 +301,51 @@ def _display_limit_cache_token(value: Any) -> Optional[float]:
     if parsed is None or not np.isfinite(parsed):
         return None
     return round(float(parsed), 6)
+
+
+def get_effective_item_spectrogram_render_settings(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    custom_freq_min_hz: Any = None,
+    custom_freq_max_hz: Any = None,
+) -> Dict[str, Any]:
+    """Resolve presets first, then let explicit custom frequency limits win."""
+    settings = get_item_spectrogram_render_settings(item, cfg)
+    custom_min = _optional_float(custom_freq_min_hz)
+    custom_max = _optional_float(custom_freq_max_hz)
+    if custom_min is not None and (not np.isfinite(custom_min) or custom_min < 0.0):
+        custom_min = None
+    if custom_max is not None and (not np.isfinite(custom_max) or custom_max <= 0.0):
+        custom_max = None
+
+    candidate_min = custom_min if custom_min is not None else float(settings["freq_min_hz"])
+    candidate_max = custom_max if custom_max is not None else float(settings["freq_max_hz"])
+    custom_applied = (custom_min is not None or custom_max is not None) and candidate_max > candidate_min
+    if custom_applied:
+        settings["freq_min_hz"] = candidate_min
+        settings["freq_max_hz"] = candidate_max
+    settings["custom_frequency_override_applied"] = custom_applied
+    return settings
+
+
+def resolve_item_display_frequency_limits(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    custom_freq_min_hz: Any = None,
+    custom_freq_max_hz: Any = None,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Return custom bounds, or the active preset bounds when no custom range exists."""
+    settings = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=custom_freq_min_hz,
+        custom_freq_max_hz=custom_freq_max_hz,
+    )
+    if settings.get("custom_frequency_override_applied") or settings.get("active_preset"):
+        return float(settings["freq_min_hz"]), float(settings["freq_max_hz"])
+    return _optional_float(custom_freq_min_hz), _optional_float(custom_freq_max_hz)
 
 
 def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> Dict[str, Any]:
@@ -334,6 +453,53 @@ def summarize_spectrogram_display_ranges(
         "color_data_max": float(color_summary["data_max"]),
         "color_auto_min": float(color_summary["auto_min"]),
         "color_auto_max": float(color_summary["auto_max"]),
+    }
+
+
+def summarize_item_existing_spectrogram_ranges(
+    item: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+    """Summarize the uncropped stored spectrogram when one is available."""
+    if not isinstance(item, dict):
+        return {}
+
+    mat_path = item.get("mat_path")
+    existing = load_spectrogram_cached(mat_path) if mat_path else None
+    return summarize_spectrogram_display_ranges(existing)
+
+
+def summarize_item_available_frequency_range(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, float]:
+    """Describe the recording's full frequency range, independent of the active render crop."""
+    if not isinstance(item, dict):
+        return {}
+
+    existing_summary = summarize_item_existing_spectrogram_ranges(item)
+    if existing_summary:
+        return {
+            "freq_data_min_hz": float(existing_summary["freq_data_min_hz"]),
+            "freq_data_max_hz": float(existing_summary["freq_data_max_hz"]),
+            "freq_positive_min_hz": float(existing_summary["freq_positive_min_hz"]),
+        }
+
+    audio_path = item.get("audio_path")
+    if not audio_path or not os.path.exists(audio_path):
+        return {}
+    try:
+        sample_rate = float(sf.info(audio_path).samplerate)
+    except Exception:
+        return {}
+    if not np.isfinite(sample_rate) or sample_rate <= 0.0:
+        return {}
+
+    render_cfg = get_spectrogram_render_settings(cfg)
+    win_dur_s = max(0.05, float(render_cfg.get("win_dur_s", 1.0)))
+    return {
+        "freq_data_min_hz": 0.0,
+        "freq_data_max_hz": sample_rate / 2.0,
+        "freq_positive_min_hz": max(0.001, 1.0 / win_dur_s),
     }
 
 
@@ -664,11 +830,19 @@ def load_spectrogram_cached(mat_path: str):
 def resolve_item_spectrogram_with_key(
     item: Optional[Dict[str, Any]],
     cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
 ) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Tuple[Any, ...]]]:
     if not isinstance(item, dict):
         return None, None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     source = render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING)
     mat_path = item.get("mat_path")
     audio_path = item.get("audio_path")
@@ -725,16 +899,35 @@ def resolve_item_spectrogram_with_key(
     return None, None
 
 
-def resolve_item_spectrogram(item: Optional[Dict[str, Any]], cfg: Optional[Dict[str, Any]]) -> Optional[Dict[str, np.ndarray]]:
-    spec, _ = resolve_item_spectrogram_with_key(item, cfg)
+def resolve_item_spectrogram(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+) -> Optional[Dict[str, np.ndarray]]:
+    spec, _ = resolve_item_spectrogram_with_key(
+        item,
+        cfg,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+    )
     return spec
 
 
 def resolve_item_modal_matrix(
     item: Optional[Dict[str, Any]],
     cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
 ) -> Optional[np.ndarray]:
-    spectrogram = resolve_item_spectrogram(item, cfg)
+    spectrogram = resolve_item_spectrogram(
+        item,
+        cfg,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+    )
     if spectrogram is None:
         return None
     plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
@@ -767,6 +960,7 @@ def estimate_page_audio_generation_work(
             "overlap": float(render_cfg["overlap"]),
             "freq_min_hz": float(render_cfg["freq_min_hz"]),
             "freq_max_hz": float(render_cfg["freq_max_hz"]),
+            "colormap": str(colormap or "default"),
         },
     }
 
@@ -775,10 +969,18 @@ def estimate_page_audio_generation_work(
     if torch is None:
         return status
 
+    item_render_settings = []
     for item in page_items:
+        item_render_cfg = get_effective_item_spectrogram_render_settings(
+            item,
+            cfg,
+            custom_freq_min_hz=y_axis_min_hz,
+            custom_freq_max_hz=y_axis_max_hz,
+        )
+        item_render_settings.append(item_render_cfg)
         audio_key = _item_audio_generation_key(
             item,
-            render_cfg=render_cfg,
+            render_cfg=item_render_cfg,
         )
         if audio_key is None:
             continue
@@ -796,17 +998,30 @@ def estimate_page_audio_generation_work(
         if image_key is None or not _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
             status["pending"] += 1
 
+    if any(settings.get("item_override_applied") for settings in item_render_settings):
+        status["params"]["item_specific"] = True
+    if any(settings.get("custom_frequency_override_applied") for settings in item_render_settings):
+        status["params"]["custom_frequency"] = True
+
     return status
 
 
 def _item_spectrogram_generation_key(
     item: Any,
     cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
 ) -> Optional[Tuple[Any, ...]]:
     if not isinstance(item, dict):
         return None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    render_cfg = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
     if source == SPECTROGRAM_SOURCE_AUDIO_GENERATED:
         audio_key = _item_audio_generation_key(item, render_cfg=render_cfg)
@@ -874,7 +1089,18 @@ def _item_image_generation_key(
     if not isinstance(item, dict):
         return None
 
-    render_cfg = get_spectrogram_render_settings(cfg)
+    display_y_min_hz, display_y_max_hz = resolve_item_display_frequency_limits(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
+    render_cfg = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     source = str(render_cfg.get("source", SPECTROGRAM_SOURCE_EXISTING))
     source_key: Optional[Tuple[Any, ...]] = None
 
@@ -898,8 +1124,8 @@ def _item_image_generation_key(
         source_key,
         str(colormap or "default"),
         str(y_axis_scale or "linear"),
-        _display_limit_cache_token(y_axis_min_hz),
-        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(display_y_min_hz),
+        _display_limit_cache_token(display_y_max_hz),
         _display_limit_cache_token(color_min),
         _display_limit_cache_token(color_max),
     )
@@ -994,10 +1220,17 @@ def _prefetch_item_modal_spectrogram(
     item: dict,
     *,
     cfg: Optional[Dict[str, Any]],
+    y_axis_min_hz: Any,
+    y_axis_max_hz: Any,
     dedupe_key: Tuple[Any, ...],
 ) -> None:
     try:
-        resolve_item_spectrogram(item, cfg)
+        resolve_item_spectrogram(
+            item,
+            cfg,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+        )
     except Exception:
         logger.exception("Background modal spectrogram prefetch failed for item=%s", item.get("item_id"))
     finally:
@@ -1008,6 +1241,9 @@ def _prefetch_item_modal_spectrogram(
 def prefetch_page_modal_spectrograms_in_background(
     page_items: Any,
     cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
 ) -> int:
     submitted = 0
     items = page_items if isinstance(page_items, list) else []
@@ -1015,7 +1251,12 @@ def prefetch_page_modal_spectrograms_in_background(
         if not isinstance(item, dict):
             continue
 
-        spectrogram_key = _item_spectrogram_generation_key(item, cfg)
+        spectrogram_key = _item_spectrogram_generation_key(
+            item,
+            cfg,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+        )
         if spectrogram_key is None:
             continue
 
@@ -1029,6 +1270,8 @@ def prefetch_page_modal_spectrograms_in_background(
             _prefetch_item_modal_spectrogram,
             item,
             cfg=cfg,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
             dedupe_key=dedupe_key,
         )
         submitted += 1
@@ -1046,6 +1289,8 @@ def _prefetch_item_modal_image(
     y_axis_max_hz: Any,
     color_min: Any,
     color_max: Any,
+    max_width: Any,
+    max_height: Any,
     dedupe_key: Tuple[Any, ...],
 ) -> None:
     try:
@@ -1058,6 +1303,8 @@ def _prefetch_item_modal_image(
             y_axis_max_hz=y_axis_max_hz,
             color_min=color_min,
             color_max=color_max,
+            max_width=max_width,
+            max_height=max_height,
         )
     except Exception:
         logger.exception("Background modal image prefetch failed for item=%s", item.get("item_id"))
@@ -1076,6 +1323,8 @@ def prefetch_modal_images_in_background(
     y_axis_max_hz: Any = None,
     color_min: Any = None,
     color_max: Any = None,
+    max_width: Any = None,
+    max_height: Any = None,
 ) -> int:
     submitted = 0
     for item in items if isinstance(items, list) else []:
@@ -1091,7 +1340,15 @@ def prefetch_modal_images_in_background(
         )
         if base_key is None:
             continue
-        image_key = ("modal_full_resolution",) + tuple(base_key)
+        image_key = (
+            "modal_full_resolution",
+            None,
+            None,
+            None,
+            None,
+            _bounded_modal_pixel_dimension(max_width),
+            _bounded_modal_pixel_dimension(max_height),
+        ) + tuple(base_key)
         if _cache_contains(image_cache, image_key, _IMAGE_CACHE_LOCK):
             continue
         dedupe_key = ("modal_image", image_key)
@@ -1109,6 +1366,8 @@ def prefetch_modal_images_in_background(
             y_axis_max_hz=y_axis_max_hz,
             color_min=color_min,
             color_max=color_max,
+            max_width=max_width,
+            max_height=max_height,
             dedupe_key=dedupe_key,
         )
         submitted += 1
@@ -1163,9 +1422,15 @@ def prefetch_page_items_in_background(
         if not isinstance(item, dict):
             continue
 
+        item_render_cfg = get_effective_item_spectrogram_render_settings(
+            item,
+            cfg,
+            custom_freq_min_hz=y_axis_min_hz,
+            custom_freq_max_hz=y_axis_max_hz,
+        )
         audio_key = _item_audio_generation_key(
             item,
-            render_cfg=render_cfg,
+            render_cfg=item_render_cfg,
         )
         if audio_key is None:
             continue
@@ -1181,7 +1446,7 @@ def prefetch_page_items_in_background(
         _PREFETCH_EXECUTOR.submit(
             _prefetch_item_audio_spectrogram,
             item,
-            render_cfg=render_cfg,
+            render_cfg=item_render_cfg,
             dedupe_key=dedupe_key,
         )
         submitted += 1
@@ -1239,6 +1504,8 @@ def schedule_modal_prefetch_for_future_pages(
     current_page: int,
     items_per_page: int,
     cfg: Optional[Dict[str, Any]],
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
     pages_ahead: int = 1,
 ) -> int:
     items = all_items if isinstance(all_items, list) else []
@@ -1261,6 +1528,8 @@ def schedule_modal_prefetch_for_future_pages(
         submitted += prefetch_page_modal_spectrograms_in_background(
             items[start_idx:end_idx],
             cfg,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
         )
 
     return submitted
@@ -1338,27 +1607,38 @@ def generate_item_image_cached(
     color_min: Any = None,
     color_max: Any = None,
 ) -> Optional[str]:
+    display_y_min_hz, display_y_max_hz = resolve_item_display_frequency_limits(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     cache_key = _item_image_generation_key(
         item,
         cfg,
         colormap=colormap,
         y_axis_scale=y_axis_scale,
-        y_axis_min_hz=y_axis_min_hz,
-        y_axis_max_hz=y_axis_max_hz,
+        y_axis_min_hz=display_y_min_hz,
+        y_axis_max_hz=display_y_max_hz,
         color_min=color_min,
         color_max=color_max,
     )
 
     def _resolve_and_render():
-        spectrogram, _ = resolve_item_spectrogram_with_key(item, cfg)
+        spectrogram, _ = resolve_item_spectrogram_with_key(
+            item,
+            cfg,
+            y_axis_min_hz=display_y_min_hz,
+            y_axis_max_hz=display_y_max_hz,
+        )
         if spectrogram is None:
             return None
         return _generate_image_from_spectrogram_data(
             spectrogram,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
+            y_axis_min_hz=display_y_min_hz,
+            y_axis_max_hz=display_y_max_hz,
             color_min=color_min,
             color_max=color_max,
         )
@@ -1372,7 +1652,12 @@ def generate_item_image_cached(
             _resolve_and_render,
         )
 
-    spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
+    spectrogram, source_key = resolve_item_spectrogram_with_key(
+        item,
+        cfg,
+        y_axis_min_hz=display_y_min_hz,
+        y_axis_max_hz=display_y_max_hz,
+    )
     if spectrogram is None:
         return None
     cache_key = (
@@ -1380,8 +1665,8 @@ def generate_item_image_cached(
         source_key,
         colormap,
         y_axis_scale,
-        _display_limit_cache_token(y_axis_min_hz),
-        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(display_y_min_hz),
+        _display_limit_cache_token(display_y_max_hz),
         _display_limit_cache_token(color_min),
         _display_limit_cache_token(color_max),
     )
@@ -1394,8 +1679,8 @@ def generate_item_image_cached(
             spectrogram,
             colormap=colormap,
             y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
+            y_axis_min_hz=display_y_min_hz,
+            y_axis_max_hz=display_y_max_hz,
             color_min=color_min,
             color_max=color_max,
         ),
@@ -1412,21 +1697,38 @@ def generate_item_modal_image_cached(
     y_axis_max_hz: Any = None,
     color_min: Any = None,
     color_max: Any = None,
+    tile_row_start: Any = None,
+    tile_row_end: Any = None,
+    tile_column_start: Any = None,
+    tile_column_end: Any = None,
+    max_width: Any = None,
+    max_height: Any = None,
 ) -> Optional[str]:
-    """Render every source cell to a losslessly compressed PNG for the modal."""
+    """Render a lossless PNG capped to the browser's useful display resolution."""
+    display_y_min_hz, display_y_max_hz = resolve_item_display_frequency_limits(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     base_key = _item_image_generation_key(
         item,
         cfg,
         colormap=colormap,
         y_axis_scale=y_axis_scale,
-        y_axis_min_hz=y_axis_min_hz,
-        y_axis_max_hz=y_axis_max_hz,
+        y_axis_min_hz=display_y_min_hz,
+        y_axis_max_hz=display_y_max_hz,
         color_min=color_min,
         color_max=color_max,
     )
 
     def _resolve_and_render():
-        spectrogram, _ = resolve_item_spectrogram_with_key(item, cfg)
+        spectrogram, _ = resolve_item_spectrogram_with_key(
+            item,
+            cfg,
+            y_axis_min_hz=display_y_min_hz,
+            y_axis_max_hz=display_y_max_hz,
+        )
         if spectrogram is None:
             return None
         return _generate_modal_image_from_spectrogram_data(
@@ -1434,10 +1736,24 @@ def generate_item_modal_image_cached(
             colormap=colormap,
             color_min=color_min,
             color_max=color_max,
+            tile_row_start=tile_row_start,
+            tile_row_end=tile_row_end,
+            tile_column_start=tile_column_start,
+            tile_column_end=tile_column_end,
+            max_width=max_width,
+            max_height=max_height,
         )
 
     if base_key is not None:
-        cache_key = ("modal_full_resolution",) + tuple(base_key)
+        cache_key = (
+            "modal_full_resolution",
+            tile_row_start,
+            tile_row_end,
+            tile_column_start,
+            tile_column_end,
+            _bounded_modal_pixel_dimension(max_width),
+            _bounded_modal_pixel_dimension(max_height),
+        ) + tuple(base_key)
         return _get_or_compute_cached(
             image_cache,
             cache_key,
@@ -1446,16 +1762,27 @@ def generate_item_modal_image_cached(
             _resolve_and_render,
         )
 
-    spectrogram, source_key = resolve_item_spectrogram_with_key(item, cfg)
+    spectrogram, source_key = resolve_item_spectrogram_with_key(
+        item,
+        cfg,
+        y_axis_min_hz=display_y_min_hz,
+        y_axis_max_hz=display_y_max_hz,
+    )
     if spectrogram is None:
         return None
     cache_key = (
         "modal_full_resolution",
+        tile_row_start,
+        tile_row_end,
+        tile_column_start,
+        tile_column_end,
+        _bounded_modal_pixel_dimension(max_width),
+        _bounded_modal_pixel_dimension(max_height),
         source_key,
         str(colormap or "default"),
         str(y_axis_scale or "linear"),
-        _display_limit_cache_token(y_axis_min_hz),
-        _display_limit_cache_token(y_axis_max_hz),
+        _display_limit_cache_token(display_y_min_hz),
+        _display_limit_cache_token(display_y_max_hz),
         _display_limit_cache_token(color_min),
         _display_limit_cache_token(color_max),
     )
@@ -1469,6 +1796,12 @@ def generate_item_modal_image_cached(
             colormap=colormap,
             color_min=color_min,
             color_max=color_max,
+            tile_row_start=tile_row_start,
+            tile_row_end=tile_row_end,
+            tile_column_start=tile_column_start,
+            tile_column_end=tile_column_end,
+            max_width=max_width,
+            max_height=max_height,
         ),
     )
 
@@ -1479,26 +1812,58 @@ def _generate_modal_image_from_spectrogram_data(
     colormap: str,
     color_min: Any,
     color_max: Any,
+    tile_row_start: Any = None,
+    tile_row_end: Any = None,
+    tile_column_start: Any = None,
+    tile_column_end: Any = None,
+    max_width: Any = None,
+    max_height: Any = None,
 ) -> Optional[str]:
     plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
     psd = np.asarray(plot_axes["psd"])
-    color_summary = _compute_color_limit_summary(psd)
-    vmin, vmax = _resolve_color_limits(
-        color_min=color_min,
-        color_max=color_max,
-        auto_min=color_summary["auto_min"],
-        auto_max=color_summary["auto_max"],
-    )
+    requested_min = _optional_float(color_min)
+    requested_max = _optional_float(color_max)
+    if requested_min is not None and requested_max is not None and requested_max > requested_min:
+        vmin, vmax = requested_min, requested_max
+    else:
+        color_summary = _compute_color_limit_summary(psd)
+        vmin, vmax = _resolve_color_limits(
+            color_min=color_min,
+            color_max=color_max,
+            auto_min=color_summary["auto_min"],
+            auto_max=color_summary["auto_max"],
+        )
     if colormap == "hydrophone":
         cmap = mcolors.ListedColormap(colmap_hyd_py(36, 3))
     else:
         cmap = "viridis"
 
+    rows, columns = psd.shape
+    try:
+        row_start = 0 if tile_row_start is None else int(tile_row_start)
+        row_end = rows if tile_row_end is None else int(tile_row_end)
+        column_start = 0 if tile_column_start is None else int(tile_column_start)
+        column_end = columns if tile_column_end is None else int(tile_column_end)
+    except (TypeError, ValueError):
+        return None
+    row_start = max(0, min(rows, row_start))
+    row_end = max(row_start, min(rows, row_end))
+    column_start = max(0, min(columns, column_start))
+    column_end = max(column_start, min(columns, column_end))
+    if row_end <= row_start or column_end <= column_start:
+        return None
+    rendered_psd = psd[row_start:row_end, column_start:column_end]
+    rendered_psd = fit_modal_matrix_to_pixel_bounds(
+        rendered_psd,
+        max_width=max_width,
+        max_height=max_height,
+    )
+
     buffer = BytesIO()
     with _MATPLOTLIB_RENDER_LOCK:
         imsave(
             buffer,
-            psd,
+            rendered_psd,
             format="png",
             cmap=cmap,
             vmin=vmin,
@@ -1870,6 +2235,111 @@ def create_image_file_figure(
     return fig
 
 
+def _modal_raster_tile_url(
+    base_url: str,
+    row_start: int,
+    row_end: int,
+    column_start: int,
+    column_end: int,
+    zmin: float,
+    zmax: float,
+) -> str:
+    separator = "&" if "?" in str(base_url) else "?"
+    return (
+        f"{base_url}{separator}tile_r0={row_start}&tile_r1={row_end}"
+        f"&tile_c0={column_start}&tile_c1={column_end}"
+        f"&tile_zmin={zmin:.9g}&tile_zmax={zmax:.9g}"
+    )
+
+
+def _modal_raster_axis_edges(values: np.ndarray, start: int, end: int) -> Tuple[float, float]:
+    axis = np.asarray(values, dtype=np.float64)
+    if axis.size == 0:
+        return 0.0, 1.0
+    lower = float(axis[0]) if start <= 0 else float((axis[start - 1] + axis[start]) / 2.0)
+    upper = (
+        float(axis[-1])
+        if end >= axis.size
+        else float((axis[end - 1] + axis[end]) / 2.0)
+    )
+    if upper <= lower:
+        upper = lower + 1e-9
+    return lower, upper
+
+
+def _modal_raster_tiles(
+    image_source: str,
+    time_plot: np.ndarray,
+    freq_plot: np.ndarray,
+    matrix_shape: Tuple[int, int],
+    zmin: float,
+    zmax: float,
+    target_width: Any = None,
+    target_height: Any = None,
+) -> list:
+    rows, columns = matrix_shape
+    bounded_width = _bounded_modal_pixel_dimension(target_width)
+    bounded_height = _bounded_modal_pixel_dimension(target_height)
+    if bounded_width is not None or bounded_height is not None:
+        return [
+            {
+                "source": image_source,
+                "row_start": 0,
+                "row_end": rows,
+                "column_start": 0,
+                "column_end": columns,
+                "x_left": _modal_raster_axis_edges(time_plot, 0, columns)[0],
+                "x_right": _modal_raster_axis_edges(time_plot, 0, columns)[1],
+                "y_bottom": _modal_raster_axis_edges(freq_plot, 0, rows)[0],
+                "y_top": _modal_raster_axis_edges(freq_plot, 0, rows)[1],
+            }
+        ]
+    tile_size = max(1, int(MODAL_RASTER_TILE_MAX_DIMENSION))
+    tiled = rows > tile_size or columns > tile_size
+    overlap = min(
+        max(0, int(MODAL_RASTER_TILE_OVERLAP_CELLS)),
+        max(1, tile_size // 16),
+        max(0, tile_size - 1),
+    ) if tiled else 0
+    core_tile_size = max(1, tile_size - overlap)
+    tiles = []
+    for core_row_start in range(0, rows, core_tile_size):
+        row_start = max(0, core_row_start - overlap)
+        row_end = min(rows, core_row_start + core_tile_size)
+        y_bottom, y_top = _modal_raster_axis_edges(freq_plot, row_start, row_end)
+        for core_column_start in range(0, columns, core_tile_size):
+            column_start = max(0, core_column_start - overlap)
+            column_end = min(columns, core_column_start + core_tile_size)
+            x_left, x_right = _modal_raster_axis_edges(time_plot, column_start, column_end)
+            source = (
+                _modal_raster_tile_url(
+                    image_source,
+                    row_start,
+                    row_end,
+                    column_start,
+                    column_end,
+                    zmin,
+                    zmax,
+                )
+                if tiled
+                else image_source
+            )
+            tiles.append(
+                {
+                    "source": source,
+                    "row_start": row_start,
+                    "row_end": row_end,
+                    "column_start": column_start,
+                    "column_end": column_end,
+                    "x_left": x_left,
+                    "x_right": x_right,
+                    "y_bottom": y_bottom,
+                    "y_top": y_top,
+                }
+            )
+    return tiles
+
+
 def create_spectrogram_figure(
     spectrogram_data,
     colormap_value,
@@ -1882,6 +2352,9 @@ def create_spectrogram_figure(
     color_min: Any = None,
     color_max: Any = None,
     image_source: Optional[str] = None,
+    image_target_width: Any = None,
+    image_target_height: Any = None,
+    ui_revision_key: Any = None,
 ):
     if spectrogram_data is None:
         return go.Figure()
@@ -1963,9 +2436,10 @@ def create_spectrogram_figure(
     image_y_max = float(np.max(freq_plot)) if len(freq_plot) else 1.0
 
     fig = go.Figure()
+    raster_tiles = []
     if image_source:
-        # The PNG has exactly one output pixel per source cell. Plotly retains
-        # ownership of axes, zoom, playback, and annotation overlays.
+        # Plotly retains ownership of axes, zoom, playback, and annotation
+        # overlays while the PNG is capped to useful browser pixel density.
         fig.add_trace(
             go.Heatmap(
                 z=[[zmin, zmax]],
@@ -1980,20 +2454,31 @@ def create_spectrogram_figure(
                 showscale=True,
             )
         )
-        fig.add_layout_image(
-            dict(
-                source=image_source,
-                xref="x",
-                yref="y",
-                x=x_min,
-                y=image_y_max,
-                sizex=max(1e-9, x_max - x_min),
-                sizey=max(1e-9, image_y_max - image_y_min),
-                sizing="stretch",
-                opacity=1.0,
-                layer="below",
-            )
+        raster_tiles = _modal_raster_tiles(
+            image_source,
+            np.asarray(time_plot, dtype=np.float64),
+            np.asarray(freq_plot, dtype=np.float64),
+            (int(psd.shape[0]), int(psd.shape[1])),
+            zmin,
+            zmax,
+            target_width=image_target_width,
+            target_height=image_target_height,
         )
+        for tile in raster_tiles:
+            fig.add_layout_image(
+                dict(
+                    source=tile["source"],
+                    xref="x",
+                    yref="y",
+                    x=tile["x_left"],
+                    y=tile["y_top"],
+                    sizex=max(1e-9, tile["x_right"] - tile["x_left"]),
+                    sizey=max(1e-9, tile["y_top"] - tile["y_bottom"]),
+                    sizing="stretch",
+                    opacity=1.0,
+                    layer="below",
+                )
+            )
     else:
         heatmap_z, heatmap_zmin, heatmap_zmax, colorbar = _build_modal_heatmap_transport(
             psd,
@@ -2041,7 +2526,7 @@ def create_spectrogram_figure(
     y_max = float(y_window["display_max_plot"])
     figure_transport = "full_resolution_lossless_png" if image_source else resolved_transport_mode
     render_signature = (
-        f"{render_source}|{render_reason}|{figure_transport}|"
+        f"{str(ui_revision_key or '')}|{render_source}|{render_reason}|{figure_transport}|"
         f"{x_min:.6f}|{x_max:.6f}|{y_min:.6f}|{y_max:.6f}|"
         f"{zmin:.6f}|{zmax:.6f}|{psd.shape[0]}x{psd.shape[1]}"
     )
@@ -2083,13 +2568,33 @@ def create_spectrogram_figure(
             "y_unit": y_unit,
             "transport_mode": figure_transport,
             "source_matrix_shape": [int(psd.shape[0]), int(psd.shape[1])],
+            "rendered_image_shape": [
+                min(
+                    int(psd.shape[0]),
+                    _bounded_modal_pixel_dimension(image_target_height) or int(psd.shape[0]),
+                ),
+                min(
+                    int(psd.shape[1]),
+                    _bounded_modal_pixel_dimension(image_target_width) or int(psd.shape[1]),
+                ),
+            ] if image_source else None,
             "modal_data_url": (
                 image_source.replace("/modal-image/", "/modal-data/", 1)
                 if image_source
                 else None
             ),
+            "modal_image_url": image_source if image_source else None,
             "raster_palette": raster_palette if image_source else None,
             "raster_palette_mode": "listed" if image_source else None,
+            "raster_tiles": [
+                {
+                    "row_start": tile["row_start"],
+                    "row_end": tile["row_end"],
+                    "column_start": tile["column_start"],
+                    "column_end": tile["column_end"],
+                }
+                for tile in raster_tiles
+            ] if image_source else None,
             "render_source": render_source,
             "render_reason": render_reason,
         },
@@ -2127,8 +2632,31 @@ def create_item_spectrogram_figure(
     color_min: Any = None,
     color_max: Any = None,
     image_source: Optional[str] = None,
+    image_target_width: Any = None,
+    image_target_height: Any = None,
 ) -> Tuple[go.Figure, Optional[Dict[str, np.ndarray]]]:
-    spectrogram = resolve_item_spectrogram(item, cfg)
+    item_revision_key = ""
+    if isinstance(item, dict):
+        item_revision_key = next(
+            (
+                str(item.get(key))
+                for key in ("item_id", "mat_path", "spectrogram_path", "audio_path")
+                if item.get(key)
+            ),
+            "",
+        )
+    display_y_min_hz, display_y_max_hz = resolve_item_display_frequency_limits(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
+    spectrogram = resolve_item_spectrogram(
+        item,
+        cfg,
+        y_axis_min_hz=display_y_min_hz,
+        y_axis_max_hz=display_y_max_hz,
+    )
     if spectrogram is not None:
         return (
             create_spectrogram_figure(
@@ -2137,11 +2665,14 @@ def create_item_spectrogram_figure(
                 y_axis_scale,
                 cfg=cfg,
                 transport_mode=transport_mode,
-                y_axis_min_hz=y_axis_min_hz,
-                y_axis_max_hz=y_axis_max_hz,
+                y_axis_min_hz=display_y_min_hz,
+                y_axis_max_hz=display_y_max_hz,
                 color_min=color_min,
                 color_max=color_max,
                 image_source=image_source,
+                image_target_width=image_target_width,
+                image_target_height=image_target_height,
+                ui_revision_key=item_revision_key,
             ),
             spectrogram,
         )

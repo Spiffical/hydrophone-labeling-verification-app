@@ -36,6 +36,16 @@ def test_generate_image_cached(mock_root):
     assert image_src.startswith("data:image/png;base64,")
 
 
+def test_page_generation_status_identifies_requested_colormap():
+    status = image_processing.estimate_page_audio_generation_work(
+        [],
+        {"spectrogram_render": {"source": "existing"}},
+        colormap="hydrophone",
+    )
+
+    assert status["params"]["colormap"] == "hydrophone"
+
+
 def test_modal_image_preserves_every_source_cell():
     source = {
         "psd": np.arange(35, dtype=float).reshape(5, 7),
@@ -55,6 +65,29 @@ def test_modal_image_preserves_every_source_cell():
     assert rendered.shape[:2] == source["psd"].shape
 
 
+def test_modal_image_tile_preserves_requested_source_cells():
+    source = {
+        "psd": np.arange(35, dtype=float).reshape(5, 7),
+        "freq": np.linspace(0.0, 200.0, 5),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    image_src = image_processing._generate_modal_image_from_spectrogram_data(
+        source,
+        colormap="default",
+        color_min=None,
+        color_max=None,
+        tile_row_start=1,
+        tile_row_end=4,
+        tile_column_start=2,
+        tile_column_end=6,
+    )
+    image_bytes = base64.b64decode(image_src.split(",", 1)[1])
+    rendered = imread(BytesIO(image_bytes), format="png")
+
+    assert rendered.shape[:2] == (3, 4)
+
+
 def test_modal_image_figure_keeps_full_source_shape_in_plotly_metadata():
     source = {
         "psd": np.arange(35, dtype=float).reshape(5, 7),
@@ -72,8 +105,118 @@ def test_modal_image_figure_keeps_full_source_shape_in_plotly_metadata():
     assert fig.layout.meta["transport_mode"] == "full_resolution_lossless_png"
     assert fig.layout.meta["source_matrix_shape"] == list(source["psd"].shape)
     assert fig.layout.meta["modal_data_url"] == "/modal-data/test-token"
+    assert fig.layout.meta["modal_image_url"] == "/modal-image/test-token"
+    assert len(fig.layout.meta["raster_tiles"]) == 1
     assert len(fig.layout.meta["raster_palette"]) == 256
     assert len(fig.data[0].z) == 1
+
+
+def test_modal_image_figure_tiles_matrices_larger_than_browser_limits():
+    source = {
+        "psd": np.arange(63, dtype=float).reshape(9, 7),
+        "freq": np.linspace(0.0, 800.0, 9),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    with patch.object(image_processing, "MODAL_RASTER_TILE_MAX_DIMENSION", 4):
+        fig = image_processing.create_spectrogram_figure(
+            source,
+            "default",
+            image_source="/modal-image/test-token?rv=1",
+        )
+
+    assert len(fig.layout.images) == 9
+    assert len(fig.layout.meta["raster_tiles"]) == 9
+    assert all("tile_r0=" in image.source for image in fig.layout.images)
+    assert all("tile_c0=" in image.source for image in fig.layout.images)
+    assert fig.layout.images[0].x == source["time"][0]
+    assert fig.layout.images[-1].y == source["freq"][-1]
+    assert fig.layout.meta["raster_tiles"][3]["row_start"] == 2
+    assert fig.layout.meta["raster_tiles"][0]["row_end"] == 3
+    assert all(
+        tile["row_end"] - tile["row_start"] <= 4
+        and tile["column_end"] - tile["column_start"] <= 4
+        for tile in fig.layout.meta["raster_tiles"]
+    )
+
+
+def test_modal_image_figure_uses_one_viewport_sized_raster():
+    source = {
+        "psd": np.arange(63, dtype=float).reshape(9, 7),
+        "freq": np.linspace(0.0, 800.0, 9),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    with patch.object(image_processing, "MODAL_RASTER_TILE_MAX_DIMENSION", 4):
+        fig = image_processing.create_spectrogram_figure(
+            source,
+            "default",
+            image_source="/modal-image/test-token?mw=4&mh=3",
+            image_target_width=4,
+            image_target_height=3,
+        )
+
+    assert len(fig.layout.images) == 1
+    assert fig.layout.meta["source_matrix_shape"] == [9, 7]
+    assert fig.layout.meta["rendered_image_shape"] == [3, 4]
+    assert fig.layout.meta["raster_tiles"] == [
+        {
+            "row_start": 0,
+            "row_end": 9,
+            "column_start": 0,
+            "column_end": 7,
+        }
+    ]
+
+
+def test_item_figures_use_recording_specific_ui_revisions():
+    source = {
+        "psd": np.arange(35, dtype=float).reshape(5, 7),
+        "freq": np.linspace(0.0, 200.0, 5),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    with patch.object(image_processing, "resolve_item_spectrogram", return_value=source):
+        first, _ = create_item_spectrogram_figure(
+            {"item_id": "recording-a"},
+            {},
+            "default",
+            image_source="/modal-image/a",
+            image_target_width=4,
+            image_target_height=3,
+        )
+        second, _ = create_item_spectrogram_figure(
+            {"item_id": "recording-b"},
+            {},
+            "default",
+            image_source="/modal-image/b",
+            image_target_width=4,
+            image_target_height=3,
+        )
+
+    assert first.layout.uirevision != second.layout.uirevision
+    assert "recording-a" in first.layout.uirevision
+    assert "recording-b" in second.layout.uirevision
+
+
+def test_modal_image_render_is_downsampled_without_upscaling():
+    source = {
+        "psd": np.arange(63, dtype=np.float32).reshape(9, 7),
+        "freq": np.linspace(0.0, 800.0, 9),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+
+    encoded = image_processing._generate_modal_image_from_spectrogram_data(
+        source,
+        colormap="default",
+        color_min=None,
+        color_max=None,
+        max_width=4,
+        max_height=3,
+    )
+    rendered = imread(BytesIO(base64.b64decode(encoded.split(",", 1)[1])))
+
+    assert rendered.shape[:2] == (3, 4)
 
 
 def test_image_file_to_base64(mock_root):

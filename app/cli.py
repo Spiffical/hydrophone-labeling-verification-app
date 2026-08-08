@@ -42,7 +42,7 @@ def _apply_spectrogram_cli_args(config, args):
         maximum=30.0,
     )
     spec_cfg["overlap"] = _coerce_float(
-        args.spec_overlap if args.spec_overlap is not None else spec_cfg.get("overlap", 0.9),
+        args.spec_overlap if args.spec_overlap is not None else spec_cfg.get("overlap", 0.5),
         0.9,
         minimum=0.0,
         maximum=0.99,

@@ -122,7 +122,11 @@ def register_verify_filter_callbacks(
                 html.Div("No classes available", className="text-muted small"),
                 [
                     html.Span("No classes available", className="verify-class-filter-toggle-label"),
-                    html.Span("▾", className="verify-class-filter-toggle-caret"),
+                    html.I(
+                        className=(
+                            "bi bi-chevron-down verify-class-filter-toggle-caret"
+                        )
+                    ),
                 ],
                 False,
             )
@@ -148,7 +152,9 @@ def register_verify_filter_callbacks(
             html.Div(tree_rows),
             [
                 html.Span(toggle_label, className="verify-class-filter-toggle-label"),
-                html.Span("▾", className="verify-class-filter-toggle-caret"),
+                html.I(
+                    className="bi bi-chevron-down verify-class-filter-toggle-caret"
+                ),
             ],
             select_all_value,
         )

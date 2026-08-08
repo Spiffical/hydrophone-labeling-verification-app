@@ -24,6 +24,7 @@ from app.utils.audio_transport import (
     resolve_audio_delivery_path,
 )
 from app.utils.image_processing import (
+    fit_modal_matrix_to_pixel_bounds,
     generate_item_image_cached,
     generate_item_modal_image_cached,
     resolve_item_modal_matrix,
@@ -171,7 +172,7 @@ def create_app(config: Dict) -> dash.Dash:
     app = dash.Dash(
         __name__,
         title="Hydrophone Acoustic Review Suite",
-        update_title="Hydrophone Acoustic Review Suite",
+        update_title=None,
         assets_folder=assets_path,
         external_stylesheets=[
             dbc.themes.BOOTSTRAP,
@@ -330,8 +331,14 @@ def create_app(config: Dict) -> dash.Dash:
             y_axis_scale=str(payload.get("y_axis_scale") or "linear"),
             y_axis_min_hz=payload.get("y_axis_min_hz"),
             y_axis_max_hz=payload.get("y_axis_max_hz"),
-            color_min=payload.get("color_min"),
-            color_max=payload.get("color_max"),
+            color_min=request.args.get("tile_zmin", default=payload.get("color_min"), type=float),
+            color_max=request.args.get("tile_zmax", default=payload.get("color_max"), type=float),
+            tile_row_start=request.args.get("tile_r0", type=int),
+            tile_row_end=request.args.get("tile_r1", type=int),
+            tile_column_start=request.args.get("tile_c0", type=int),
+            tile_column_end=request.args.get("tile_c1", type=int),
+            max_width=request.args.get("mw", type=int),
+            max_height=request.args.get("mh", type=int),
         )
         if not image_src or not image_src.startswith("data:image/png;base64,"):
             abort(404)
@@ -358,9 +365,31 @@ def create_app(config: Dict) -> dash.Dash:
             "spectrogram_path": payload.get("spectrogram_path"),
         }
         cfg = {"spectrogram_render": payload.get("render_cfg") or {}}
-        matrix = resolve_item_modal_matrix(item, cfg)
+        matrix = resolve_item_modal_matrix(
+            item,
+            cfg,
+            y_axis_min_hz=payload.get("y_axis_min_hz"),
+            y_axis_max_hz=payload.get("y_axis_max_hz"),
+        )
         if matrix is None or matrix.ndim != 2:
             abort(404)
+        row_start = request.args.get("tile_r0", default=0, type=int)
+        row_end = request.args.get("tile_r1", default=matrix.shape[0], type=int)
+        column_start = request.args.get("tile_c0", default=0, type=int)
+        column_end = request.args.get("tile_c1", default=matrix.shape[1], type=int)
+        row_start = max(0, min(matrix.shape[0], row_start))
+        row_end = max(row_start, min(matrix.shape[0], row_end))
+        column_start = max(0, min(matrix.shape[1], column_start))
+        column_end = max(column_start, min(matrix.shape[1], column_end))
+        if row_end <= row_start or column_end <= column_start:
+            abort(400)
+        matrix = matrix[row_start:row_end, column_start:column_end]
+        matrix = fit_modal_matrix_to_pixel_bounds(
+            matrix,
+            max_width=request.args.get("mw", type=int),
+            max_height=request.args.get("mh", type=int),
+        )
+        matrix = matrix.astype("<f4", copy=False)
         rows, columns = matrix.shape
         return Response(
             matrix.tobytes(order="C"),

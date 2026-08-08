@@ -44,7 +44,7 @@ def create_explore_layout(config: dict) -> html.Div:
                 html.Span(id="explore-page-info", className="pagination-page-info"),
             ], className="pagination-controls"),
         ], className="pagination-sticky-bar"),
-        create_display_range_bar("explore", display_cfg=display_cfg),
+        create_display_range_bar("explore", display_cfg=display_cfg, config=config),
 
         html.Div(id="explore-summary", className="summary-bar"),
         dcc.Store(id="explore-current-page", data=0, storage_type="session"),

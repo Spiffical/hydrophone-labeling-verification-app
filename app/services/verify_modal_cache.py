@@ -5,6 +5,7 @@ from copy import deepcopy
 from threading import Lock
 
 from app.services.annotations import ordered_unique_labels
+from app.services.spectrogram_presets import get_item_spectrogram_recommendation
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
 
 _MAX_VERIFY_CACHE_KEYS = 8
@@ -347,6 +348,31 @@ def get_verify_modal_items(cache_key):
         ordered = sorted(item_indices.items(), key=lambda entry: entry[1])
         items = [items_by_id.get(item_id) for item_id, _ in ordered]
     return [deepcopy(item) for item in items if isinstance(item, dict)]
+
+
+def has_verify_spectrogram_recommendations(
+    cache_key,
+    *,
+    metadata_key="recommended_spectrogram",
+):
+    """Return whether any cached item has a valid spectrogram recommendation."""
+    if not cache_key:
+        return False
+    preset = {
+        "scope": "item",
+        "metadata_key": str(metadata_key or "recommended_spectrogram"),
+    }
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return False
+        items_by_id = cache_entry.get("items_by_id")
+        if not isinstance(items_by_id, dict):
+            return False
+        return any(
+            get_item_spectrogram_recommendation(item, preset) is not None
+            for item in items_by_id.values()
+        )
 
 
 def get_verify_filter_leaf_classes(cache_key):

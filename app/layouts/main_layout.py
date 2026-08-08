@@ -3,10 +3,16 @@ import dash_bootstrap_components as dbc
 import os
 
 from app.components.modal import create_spectrogram_modal
-from app.components.folder_browser import create_folder_browser_modal, create_browse_button
+from app.components.folder_browser import create_folder_browser_modal
 from app.layouts.label_mode import create_label_layout
-from app.layouts.verify_mode import create_verify_layout
+from app.layouts.verify_mode import (
+    create_verify_data_menu,
+    create_verify_layout,
+    create_verify_result_controls,
+    create_verify_review_menu,
+)
 from app.layouts.explore_mode import create_explore_layout
+from app.layouts.display_controls import create_display_range_bar
 from app.layouts.data_config_panel import create_data_config_modal, create_predictions_warning
 
 
@@ -114,93 +120,141 @@ def create_main_layout(config: dict) -> html.Div:
         html.Div(id="dummy-output-audio", style={"display": "none"}),
 
         dbc.Container([
-            # ── Header ──────────────────────────────────────────────
-            html.Div([
-                html.Div([
-                    html.Span("Hydrophone Acoustic Review Suite", className="brand-kicker"),
-                    html.H1("Unified Labeling Tool", className="brand-title"),
-                ], className="brand-block"),
-
-                html.Div([
-                    html.Div([
-                        html.Button(
-                            html.I(className="bi bi-gear"),
-                            id="app-config-btn",
-                            className="icon-btn",
-                            n_clicks=0,
-                            type="button",
-                            **{"aria-label": "App settings"},
-                        ),
-                        html.Button(
-                            html.I(className="bi bi-moon-stars"),
-                            id="theme-toggle",
-                            className="icon-btn theme-btn",
-                            n_clicks=0,
-                            type="button",
-                            **{"aria-label": "Toggle dark mode"},
-                        ),
-                    ], className="header-icons"),
-                    html.Button(
+            # ── Compact workspace command bar ──────────────────────
+            html.Header(
+                [
+                    html.Div(
                         [
-                            html.I(className="bi bi-person-circle"),
-                            html.Div(
-                                [
-                                    html.Span("Anonymous", id="profile-name-display", className="profile-name"),
-                                    html.Span("email not set", id="profile-email-display", className="profile-email"),
-                                ],
-                                className="profile-text",
+                            html.I(className="bi bi-soundwave command-brand-icon"),
+                            html.Span("Unified Labeling Tool", className="command-brand-title"),
+                        ],
+                        className="command-brand",
+                    ),
+                    html.Div(
+                        [
+                            html.Button(
+                                "Label",
+                                id="tab-btn-label",
+                                className=(
+                                    "mode-tab mode-tab--active"
+                                    if initial_mode == "label"
+                                    else "mode-tab"
+                                ),
+                            ),
+                            html.Button(
+                                "Verify",
+                                id="tab-btn-verify",
+                                className=(
+                                    "mode-tab mode-tab--active"
+                                    if initial_mode == "verify"
+                                    else "mode-tab"
+                                ),
+                            ),
+                            html.Button(
+                                "Explore",
+                                id="tab-btn-explore",
+                                className=(
+                                    "mode-tab mode-tab--active"
+                                    if initial_mode == "explore"
+                                    else "mode-tab"
+                                ),
                             ),
                         ],
-                        id="profile-btn",
-                        className="profile-summary",
-                        n_clicks=0,
-                        type="button",
+                        className="tab-buttons command-mode-tabs",
                     ),
-                ], className="header-actions"),
-            ], className="app-header"),
-
-            # ── Tab buttons ─────────────────────────────────────────
-            html.Div([
-                html.Button("Label", id="tab-btn-label",
-                            className="mode-tab mode-tab--active" if initial_mode == "label" else "mode-tab"),
-                html.Button("Verify", id="tab-btn-verify",
-                            className="mode-tab mode-tab--active" if initial_mode == "verify" else "mode-tab"),
-                html.Button("Explore", id="tab-btn-explore",
-                            className="mode-tab mode-tab--active" if initial_mode == "explore" else "mode-tab"),
-            ], className="tab-buttons"),
-
-            # ── Data selection bar ──────────────────────────────────
-            html.Div([
-                dbc.Row([
-                    dbc.Col([
-                        create_browse_button(),
-                    ], width="auto"),
-                    dbc.Col([
-                        dcc.Dropdown(
-                            id="global-date-selector",
-                            placeholder="Date",
-                            className="control-dropdown"
-                        ),
-                    ], width=4),
-                    dbc.Col([
-                        dcc.Dropdown(
-                            id="global-device-selector",
-                            placeholder="Device",
-                            className="control-dropdown"
-                        ),
-                    ], width=4),
-                    dbc.Col([
-                        dbc.Button("Load", id="global-load-btn", color="success", className="w-100"),
-                    ], width=2),
-                ], className="g-2 align-items-center"),
-                html.Div([
-                    html.Small("Data: ", className="text-muted small"),
-                    html.Span(id="global-data-dir-display", className="mono-muted small me-3",
-                              children=initial_data_root or "Not selected"),
-                    html.Small("Active: ", className="text-muted small"),
-                    html.Span(id="global-active-selection", className="mono-muted small"),
-                ], className="mt-1 text-end", style={"min-height": "1.5em"}),
-            ], id="global-selector-container", className="data-selection-bar"),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-calendar3 command-select-icon"),
+                                    dcc.Dropdown(
+                                        id="global-date-selector",
+                                        placeholder="Date",
+                                        className="control-dropdown command-dropdown",
+                                    ),
+                                ],
+                                className="command-select command-select--date",
+                            ),
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-broadcast-pin command-select-icon"),
+                                    dcc.Dropdown(
+                                        id="global-device-selector",
+                                        placeholder="Device",
+                                        className="control-dropdown command-dropdown",
+                                    ),
+                                ],
+                                className="command-select command-select--device",
+                            ),
+                        ],
+                        id="global-selector-container",
+                        className="command-source-selectors",
+                    ),
+                    create_verify_review_menu(),
+                    create_display_range_bar(
+                        "verify",
+                        display_cfg=config.get("display", {}),
+                        compact=True,
+                        config=config,
+                    ),
+                    create_verify_data_menu(config),
+                    create_verify_result_controls(),
+                    html.Div(
+                        [
+                            html.Button(
+                                html.I(className="bi bi-gear"),
+                                id="app-config-btn",
+                                className="icon-btn",
+                                n_clicks=0,
+                                type="button",
+                                title="Application settings",
+                                **{"aria-label": "Application settings"},
+                            ),
+                            html.Button(
+                                html.I(className="bi bi-moon-stars"),
+                                id="theme-toggle",
+                                className="icon-btn theme-btn",
+                                n_clicks=0,
+                                type="button",
+                                title="Toggle dark mode",
+                                **{"aria-label": "Toggle dark mode"},
+                            ),
+                            html.Button(
+                                [
+                                    html.I(className="bi bi-person-circle"),
+                                    html.Div(
+                                        [
+                                            html.Span(
+                                                "Anonymous",
+                                                id="profile-name-display",
+                                                className="profile-name",
+                                            ),
+                                            html.Span(
+                                                "email not set",
+                                                id="profile-email-display",
+                                                className="profile-email",
+                                            ),
+                                        ],
+                                        className="profile-text",
+                                    ),
+                                ],
+                                id="profile-btn",
+                                className="profile-summary",
+                                n_clicks=0,
+                                type="button",
+                                title="Profile",
+                            ),
+                        ],
+                        className="header-actions command-account-actions",
+                    ),
+                ],
+                id="app-command-bar",
+                className=(
+                    "app-command-bar app-command-bar--verify"
+                    if initial_mode == "verify"
+                    else "app-command-bar"
+                ),
+            ),
 
             html.Div(id="profile-required-banner", className="profile-required-banner", style={"display": "none"}),
 
@@ -278,7 +332,7 @@ def create_main_layout(config: dict) -> html.Div:
             ),
 
             dbc.Modal([
-                dbc.ModalHeader(dbc.ModalTitle("App Configuration")),
+                dbc.ModalHeader(dbc.ModalTitle("Application settings")),
                 dbc.ModalBody([
                     dbc.Form([
                         dbc.Label("Spectrograms per page", html_for="app-config-items-per-page", className="small fw-semibold"),
@@ -297,79 +351,6 @@ def create_main_layout(config: dict) -> html.Div:
                             step=1,
                         ),
                         dbc.FormText("Higher values keep more spectrograms cached in memory."),
-                        dbc.Label("Spectrogram source", html_for="app-config-spectrogram-source", className="small fw-semibold mt-3"),
-                        dcc.Dropdown(
-                            id="app-config-spectrogram-source",
-                            options=[
-                                {"label": "Use existing spectrogram files", "value": "existing"},
-                                {"label": "Generate from audio (CPU PyTorch)", "value": "audio_generated"},
-                            ],
-                            value="existing",
-                            clearable=False,
-                            className="control-dropdown",
-                        ),
-                        dbc.FormText("Choose between loaded MAT/PNG spectrograms or on-the-fly spectrogram generation from audio."),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Window duration (s)", html_for="app-config-spec-win-dur", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-win-dur",
-                                            type="number",
-                                            min=0.05,
-                                            max=30,
-                                            step=0.01,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Overlap ratio", html_for="app-config-spec-overlap", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-overlap",
-                                            type="number",
-                                            min=0.0,
-                                            max=0.99,
-                                            step=0.01,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                            ],
-                            className="g-2",
-                        ),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Min frequency (Hz)", html_for="app-config-spec-freq-min", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-freq-min",
-                                            type="number",
-                                            min=0.0,
-                                            step=0.1,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                                dbc.Col(
-                                    [
-                                        dbc.Label("Max frequency (Hz)", html_for="app-config-spec-freq-max", className="small fw-semibold mt-3"),
-                                        dbc.Input(
-                                            id="app-config-spec-freq-max",
-                                            type="number",
-                                            min=0.1,
-                                            step=0.1,
-                                        ),
-                                    ],
-                                    width=6,
-                                ),
-                            ],
-                            className="g-2",
-                        ),
-                        dbc.FormText("These parameters are used when spectrogram source is set to audio generation."),
                     ])
                 ]),
                 dbc.ModalFooter([

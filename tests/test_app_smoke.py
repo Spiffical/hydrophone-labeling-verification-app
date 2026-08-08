@@ -99,11 +99,19 @@ def test_modal_open_and_close_are_clientside(mock_config):
         "closeImmediately",
         "applyForcedAction",
         "finishLoading",
+        "measureViewport",
         "prefetchImages",
     }
     assert "image-modal.is_open" in modal_lifecycle_callbacks["openImmediately"]["output"]
     assert "image-modal.is_open" in modal_lifecycle_callbacks["closeImmediately"]["output"]
     assert "image-modal.is_open" in modal_lifecycle_callbacks["applyForcedAction"]["output"]
+    assert "modal-render-ready-store.data" in modal_lifecycle_callbacks["openImmediately"]["output"]
+    assert "modal-render-ready-store.data" in modal_lifecycle_callbacks["applyForcedAction"]["output"]
+    assert "modal-render-ready-store.data" in modal_lifecycle_callbacks["finishLoading"]["output"]
+    assert {
+        input_obj["id"] for input_obj in modal_lifecycle_callbacks["finishLoading"]["inputs"]
+    } == {"modal-image-graph"}
+    assert "modal-viewport-store.data" in modal_lifecycle_callbacks["measureViewport"]["output"]
 
     server_lifecycle_callbacks = [
         entry
@@ -131,6 +139,7 @@ def test_modal_open_and_close_are_clientside(mock_config):
         "verify-colorbar-min-input",
         "explore-colorbar-min-input",
     } <= lifecycle_state_ids
+    assert "modal-viewport-store" in lifecycle_state_ids
     assert not any(
         state_id.endswith("display-range-defaults-store")
         for state_id in lifecycle_state_ids
@@ -157,6 +166,7 @@ def test_modal_display_limit_updates_are_clientside(mock_config):
         item["id"] for item in modal_display_callbacks["previewRanges"]["inputs"]
     }
     assert "modal-busy-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
+    assert "modal-render-ready-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
 
     server_view_callbacks = [
         entry

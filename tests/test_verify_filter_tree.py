@@ -25,16 +25,10 @@ from app.callbacks.verify.class_filter_callbacks import preserve_dynamic_all_sel
 from app.utils.unified_format_converter import convert_unified_v2_to_internal
 
 
-def test_verify_page_info_distinguishes_page_range_from_filter_matches():
-    assert _verify_page_info(0, 25, 5737) == (
-        "Showing 1-25 of 5,737 matches | Page 1 of 230"
-    )
-    assert _verify_page_info(1, 25, 5737) == (
-        "Showing 26-50 of 5,737 matches | Page 2 of 230"
-    )
-    assert _verify_page_info(0, 25, 49, index_available=False) == (
-        "Showing available recordings while the index is built"
-    )
+def test_verify_page_info_uses_compact_page_count():
+    assert _verify_page_info(0, 25, 5737) == "1 / 230"
+    assert _verify_page_info(1, 25, 5737) == "2 / 230"
+    assert _verify_page_info(0, 25, 49, index_available=False) == "Indexing..."
 
 
 def test_modal_prefetch_defaults_on_for_existing_mat_spectrograms():

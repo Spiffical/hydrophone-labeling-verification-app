@@ -53,7 +53,7 @@ test("a settings refresh replaces the source of an already-wired image", async (
   await page.evaluate((nextSrc) => {
     window.__specgenOverlayLatestRequest = {
       mode: "verify",
-      trigger_id: "app-config-save",
+      trigger_id: "verify-generate-spectrograms-btn",
     };
     const container = document.createElement("div");
     container.className = "spectrogram-image-container spec-loading";
@@ -75,14 +75,49 @@ test("a settings refresh replaces the source of an already-wired image", async (
     .toBe(true);
 });
 
-test("the live app regenerates the visible page after saving settings", async ({ page }) => {
+test("an explicit spectrogram refresh eagerly loads every image on the current page", async ({ page }) => {
+  const images = Array.from({ length: 25 }, (_, index) => {
+    const generatedSrc = `data:image/svg+xml,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="black"/></svg>`,
+    )}#generated-${index}`;
+    return `
+      <div class="spectrogram-image-container" style="height: 500px">
+        <img
+          class="spectrogram-image"
+          data-lazy-spectrogram="true"
+          data-src="${generatedSrc}"
+          src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        >
+      </div>
+    `;
+  }).join("");
+
+  await page.setContent(`<div id="verify-grid">${images}</div>`);
+  await page.evaluate(() => {
+    window.__specgenOverlayLatestRequest = {
+      mode: "verify",
+      trigger_id: "verify-colormap-toggle",
+      update_kind: "colormap",
+      colormap_label: "O3.0",
+    };
+  });
+  await page.addScriptTag({
+    path: path.resolve(__dirname, "../app/assets/spectrogram_image_loading.js"),
+  });
+
+  await expect
+    .poll(() => page.locator("#verify-grid img[src*='#generated-']").count())
+    .toBe(25);
+});
+
+test("the live app regenerates the visible page after changing display settings", async ({ page }) => {
   test.skip(!process.env.SPECGEN_LIVE_BASE_URL, "Set SPECGEN_LIVE_BASE_URL for the live data check.");
   test.setTimeout(240_000);
 
   await page.goto(`${process.env.SPECGEN_LIVE_BASE_URL}/?qa=specgen-${Date.now()}`, {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("#verify-page-info")).toHaveText("No matches", {
+  await expect(page.locator("#verify-page-info")).toHaveText(/^(?:No matches|0 \/ 0)$/, {
     timeout: 30_000,
   });
   await page.locator("#global-date-selector").click();
@@ -97,10 +132,8 @@ test("the live app regenerates the visible page after saving settings", async ({
     })
     .toBe(true);
 
-  await page.locator("#app-config-btn").click();
-  await page.locator("#app-config-spectrogram-source").click();
-  await page.getByRole("option", { name: /Generate from audio/ }).click();
-  await page.locator("#app-config-spec-overlap").fill("0.5");
+  const displayTool = page.locator("#verify-display-settings-details");
+  await displayTool.locator(":scope > summary").click();
   await page.evaluate(() => {
     window.__qaSpecgenOverlayEvents = [];
     const overlay = document.querySelector("#specgen-page-loading-overlay");
@@ -119,7 +152,25 @@ test("the live app regenerates the visible page after saving settings", async ({
     });
   });
 
-  await page.locator("#app-config-save").click();
+  await page
+    .locator("#verify-spectrogram-source")
+    .getByText("Generate from audio", { exact: true })
+    .click();
+  await expect(page.locator("#verify-fft-parameters-collapse")).toBeVisible();
+  await page.locator("#verify-spec-overlap").fill("0.5");
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__qaSpecgenOverlayEvents)).toEqual([]);
+  await expect(firstImage).toHaveAttribute("data-src", /src=existing/);
+  await page.locator("#verify-generate-spectrograms-btn").click();
+  await expect(page.locator("#verify-generate-spectrograms-btn")).toBeDisabled();
+  await expect(page.locator("#verify-generate-spectrograms-btn")).toHaveAttribute(
+    "aria-busy",
+    "true",
+  );
+  await expect(page.locator("#verify-generate-spectrograms-label")).toContainText("Generating");
+  await expect(page.locator("#verify-generate-spectrograms-icon")).toHaveClass(
+    /spectrogram-button-spinner/,
+  );
   await expect
     .poll(() => page.evaluate(() => window.__qaSpecgenOverlayEvents), { timeout: 1_000 })
     .toContainEqual({ display: "flex", title: "Generating spectrograms" });
@@ -134,5 +185,39 @@ test("the live app regenerates the visible page after saving settings", async ({
       timeout: 120_000,
     })
     .toBe(true);
-  await expect(page.locator("#specgen-page-loading-overlay")).toBeHidden({ timeout: 120_000 });
+  await expect(page.locator("#specgen-load-progress-text")).toHaveText(
+    /(?:[1-9]|1\d|2[0-5]) of 25 ready/,
+    { timeout: 30_000 },
+  );
+  await expect
+    .poll(
+      () => page.locator("#verify-grid img[data-src*='src=audio_generated']").count(),
+      { timeout: 120_000 },
+    )
+    .toBe(25);
+  await expect(page.locator("#specgen-page-loading-overlay")).toBeHidden({ timeout: 180_000 });
+  await expect(page.locator("#verify-generate-spectrograms-label")).toHaveText(
+    "Generate spectrograms",
+  );
+  await expect(page.locator("#verify-generate-spectrograms-btn")).toBeEnabled();
+  await expect(page.locator("#verify-generate-spectrograms-btn")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+
+  const generatedDefaultSource = await firstImage.getAttribute("data-src");
+  await page.locator("#verify-colormap-toggle").check();
+  await expect(page.locator("#specgen-page-loading-overlay")).toBeVisible({ timeout: 1_000 });
+  await expect(page.locator("#specgen-load-title")).toHaveText("Updating spectrograms");
+  await expect(page.locator("#specgen-load-subtitle")).toContainText("O3.0 colormap");
+  await expect(firstImage).toHaveAttribute("data-src", /src=audio_generated.*cm=hydrophone/, {
+    timeout: 60_000,
+  });
+  await expect
+    .poll(() => firstImage.evaluate((element) => element.complete && element.naturalWidth > 1), {
+      timeout: 120_000,
+    })
+    .toBe(true);
+  expect(await firstImage.getAttribute("data-src")).not.toBe(generatedDefaultSource);
+  await expect(page.locator("#specgen-page-loading-overlay")).toBeHidden({ timeout: 180_000 });
 });

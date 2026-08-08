@@ -155,9 +155,22 @@
     return lazyImageObserver;
   }
 
+  function requestRequiresCompletePageImages(request) {
+    const trigger = String((request && request.trigger_id) || '');
+    return Boolean(
+      request && (
+        trigger === 'app-config-save' ||
+        trigger.endsWith('-generate-spectrograms-btn') ||
+        trigger.endsWith('-spectrogram-source') ||
+        trigger.endsWith('-spectrogram-preset') ||
+        trigger.endsWith('-colormap-toggle')
+      )
+    );
+  }
+
   function shouldForceImageForCurrentRequest(img) {
     const request = window.__specgenOverlayLatestRequest || null;
-    if (!request || String(request.trigger_id || '') !== 'app-config-save') {
+    if (!requestRequiresCompletePageImages(request)) {
       return false;
     }
     const grid = getGridForMode(String(request.mode || 'verify'));
@@ -171,6 +184,25 @@
     }
     container.classList.remove('spec-loaded', 'spec-error');
     container.classList.add('spec-loading');
+  }
+
+  function showGenerationButtonBusy(button) {
+    if (!button || !button.id) {
+      return;
+    }
+    const prefix = button.id.split('-')[0];
+    window['__spectrogramGenerateBusy_' + prefix] = true;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.classList.add('spectrogram-generate-btn--busy');
+    const icon = document.getElementById(prefix + '-generate-spectrograms-icon');
+    const label = document.getElementById(prefix + '-generate-spectrograms-label');
+    if (icon) {
+      icon.className = 'spectrogram-button-spinner';
+    }
+    if (label) {
+      label.textContent = 'Generating...';
+    }
   }
 
   function markPageSwitching(triggerId) {
@@ -399,6 +431,16 @@
     const button = event.target && event.target.closest ? event.target.closest('button') : null;
     if (button && PAGE_BUTTON_IDS.has(button.id) && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
       markPageSwitching(button.id);
+    }
+    if (
+      button &&
+      button.id &&
+      button.id.endsWith('-generate-spectrograms-btn') &&
+      !button.disabled
+    ) {
+      window.setTimeout(function () {
+        showGenerationButtonBusy(button);
+      }, 0);
     }
   }, true);
 

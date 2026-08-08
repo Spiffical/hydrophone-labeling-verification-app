@@ -25,7 +25,11 @@ from app.utils.image_processing import (
     prefetch_modal_images_in_background,
     prefetch_page_modal_spectrograms_in_background,
 )
-from app.utils.image_utils import build_modal_image_request_src, use_full_resolution_modal_image
+from app.utils.image_utils import (
+    build_modal_image_request_src,
+    resolve_modal_image_target,
+    use_full_resolution_modal_image,
+)
 
 
 MODAL_PREFETCH_NEXT_ITEMS = 6
@@ -98,6 +102,7 @@ def register_modal_lifecycle_navigation_callbacks(
         ),
         Output("image-modal", "is_open", allow_duplicate=True),
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
         Output("modal-open-request-store", "data"),
         Input({"type": "spectrogram-image", "item_id": ALL}, "n_clicks"),
         State("modal-unsaved-store", "data"),
@@ -134,6 +139,7 @@ def register_modal_lifecycle_navigation_callbacks(
         ),
         Output("image-modal", "is_open", allow_duplicate=True),
         Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
         Input("modal-force-action-store", "data"),
         prevent_initial_call=True,
     )
@@ -144,8 +150,19 @@ def register_modal_lifecycle_navigation_callbacks(
             function_name="finishLoading",
         ),
         Output("modal-busy-store", "data", allow_duplicate=True),
-        Input("modal-item-store", "data"),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
+        Input("modal-image-graph", "figure"),
         prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace="modalLifecycle",
+            function_name="measureViewport",
+        ),
+        Output("modal-viewport-store", "data"),
+        Input("modal-viewport-probe", "n_intervals"),
+        State("modal-viewport-store", "data"),
     )
 
     app.clientside_callback(
@@ -221,6 +238,7 @@ def register_modal_lifecycle_navigation_callbacks(
         State("explore-colorbar-max-input", "value"),
         State("modal-unsaved-store", "data"),
         State("config-store", "data"),
+        State("modal-viewport-store", "data"),
         prevent_initial_call=True,
     )
     def handle_modal_trigger(
@@ -262,6 +280,7 @@ def register_modal_lifecycle_navigation_callbacks(
         explore_color_max,
         unsaved_store,
         cfg,
+        modal_viewport,
     ):
         start = time.perf_counter()
         _ = prev_clicks, next_clicks
@@ -509,6 +528,7 @@ def register_modal_lifecycle_navigation_callbacks(
         )
         effective_color_min = page_display_color_min if use_page_color_range else color_min
         effective_color_max = page_display_color_max if use_page_color_range else color_max
+        modal_image_width, modal_image_height = resolve_modal_image_target(modal_viewport)
         modal_image_source = None
         if use_full_resolution_modal_image(cfg, y_axis_scale):
             modal_image_source = build_modal_image_request_src(
@@ -520,6 +540,8 @@ def register_modal_lifecycle_navigation_callbacks(
                 y_axis_max_hz=effective_y_axis_max_hz,
                 color_min=effective_color_min,
                 color_max=effective_color_max,
+                max_width=modal_image_width,
+                max_height=modal_image_height,
             )
         fig, spectrogram = create_item_spectrogram_figure(
             source_item,
@@ -531,8 +553,14 @@ def register_modal_lifecycle_navigation_callbacks(
             color_min=effective_color_min,
             color_max=effective_color_max,
             image_source=modal_image_source,
+            image_target_width=modal_image_width,
+            image_target_height=modal_image_height,
         )
         figure_meta = dict(fig.layout.meta or {})
+        modal_raster_tiles = figure_meta.get("raster_tiles")
+        uses_tiled_modal_raster = (
+            isinstance(modal_raster_tiles, list) and len(modal_raster_tiles) > 1
+        )
         figure_meta.update(
             {
                 "uses_page_y_range": use_page_y_range,
@@ -555,8 +583,13 @@ def register_modal_lifecycle_navigation_callbacks(
                 source_items,
                 verify_data_cache_key,
             )
-            prefetch_page_modal_spectrograms_in_background(modal_neighbors, cfg)
-            if modal_image_source:
+            prefetch_page_modal_spectrograms_in_background(
+                modal_neighbors,
+                cfg,
+                y_axis_min_hz=effective_y_axis_min_hz,
+                y_axis_max_hz=effective_y_axis_max_hz,
+            )
+            if modal_image_source and not uses_tiled_modal_raster:
                 prefetch_modal_images_in_background(
                     modal_neighbors,
                     cfg,
@@ -566,8 +599,10 @@ def register_modal_lifecycle_navigation_callbacks(
                     y_axis_max_hz=effective_y_axis_max_hz,
                     color_min=effective_color_min,
                     color_max=effective_color_max,
+                    max_width=modal_image_width,
+                    max_height=modal_image_height,
                 )
-        if modal_image_source and modal_neighbors:
+        if modal_image_source and modal_neighbors and not uses_tiled_modal_raster:
             prefetch_urls = [
                 build_modal_image_request_src(
                     neighbor,
@@ -578,6 +613,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     y_axis_max_hz=effective_y_axis_max_hz,
                     color_min=effective_color_min,
                     color_max=effective_color_max,
+                    max_width=modal_image_width,
+                    max_height=modal_image_height,
                 )
                 for neighbor in modal_neighbors
             ]

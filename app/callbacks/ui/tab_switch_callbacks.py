@@ -84,7 +84,16 @@ def register_mode_tab_callbacks(app):
             var labelClass = 'mode-tab' + (mode === 'label' ? ' mode-tab--active' : '');
             var verifyClass = 'mode-tab' + (mode === 'verify' ? ' mode-tab--active' : '');
             var exploreClass = 'mode-tab' + (mode === 'explore' ? ' mode-tab--active' : '');
-            return [labelStyle, verifyStyle, exploreStyle, labelClass, verifyClass, exploreClass];
+            var commandClass = 'app-command-bar' + (mode === 'verify' ? ' app-command-bar--verify' : '');
+            return [
+                labelStyle,
+                verifyStyle,
+                exploreStyle,
+                labelClass,
+                verifyClass,
+                exploreClass,
+                commandClass
+            ];
         }
         """,
         [Output("label-tab-content", "style"),
@@ -92,7 +101,8 @@ def register_mode_tab_callbacks(app):
          Output("explore-tab-content", "style"),
          Output("tab-btn-label", "className"),
          Output("tab-btn-verify", "className"),
-         Output("tab-btn-explore", "className")],
+         Output("tab-btn-explore", "className"),
+         Output("app-command-bar", "className")],
         Input("mode-tabs", "data"),
         prevent_initial_call=True,
     )

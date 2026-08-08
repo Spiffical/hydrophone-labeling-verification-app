@@ -109,6 +109,7 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
     const bitmap = await createImageBitmap(await (await fetch(source)).blob());
     const result = {
       source: graph.layout.meta.source_matrix_shape,
+      rendered: graph.layout.meta.rendered_image_shape,
       png: [bitmap.height, bitmap.width],
     };
     bitmap.close();
@@ -121,6 +122,8 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
   expect(latestWins.staleCancelled).toBe(true);
   expect(latestWins.latestMinimum).toBe(-65);
   expect(latestWins.latestSource).toMatch(/^blob:/);
-  expect(rawMatrixShape).toEqual(renderedShape.source);
-  expect(renderedShape.png).toEqual(renderedShape.source);
+  expect(rawMatrixShape).toEqual(renderedShape.rendered);
+  expect(renderedShape.png).toEqual(renderedShape.rendered);
+  expect(renderedShape.rendered[0]).toBeLessThanOrEqual(renderedShape.source[0]);
+  expect(renderedShape.rendered[1]).toBeLessThanOrEqual(renderedShape.source[1]);
 });
