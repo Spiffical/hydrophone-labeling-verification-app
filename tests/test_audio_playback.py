@@ -1,7 +1,7 @@
 from pathlib import Path
 import wave
 
-from app.components.audio_player import create_modal_audio_player
+from app.components.audio_player import create_audio_player, create_modal_audio_player
 from app.defaults import DEFAULT_AUDIO_TRANSPORT
 from app.main import create_app, set_audio_roots
 from app.utils.audio_request import encode_audio_request
@@ -89,6 +89,17 @@ def test_audio_controls_include_visible_spectrogram_filter_mode():
     assert "audio.playbackRate = rate;\n                    refreshVisibleFrequencyFilter();" in script
 
 
+def test_visible_frequency_toggle_tracks_dash_replacement_node():
+    script_path = Path(__file__).resolve().parents[1] / "app" / "assets" / "audio_controls.js"
+    script = script_path.read_text()
+
+    assert "const getLiveVisibleFilterInput = function ()" in script
+    assert "const currentInput = getLiveVisibleFilterInput();" in script
+    assert "addTrackedEventListener(document, 'change'" in script
+    assert "changedInput.id !== playerId + '-visible-filter-toggle'" in script
+    assert "!playerEntry.hasVisibleFrequencyFilterBinding" in script
+
+
 def test_audio_playback_marker_uses_figure_time_metadata():
     script_path = Path(__file__).resolve().parents[1] / "app" / "assets" / "audio_controls.js"
     script = script_path.read_text()
@@ -119,6 +130,23 @@ def test_modal_audio_player_uses_source_url_without_mp3_transport_query(tmp_path
     assert props["data-audio-src"] == props["src"]
     assert "transport=mp3_cached" not in props["src"]
     assert "mp3_bitrate" not in props["src"]
+
+
+def test_card_audio_player_uses_shrinkable_timeline_layout(tmp_path):
+    audio_path = tmp_path / "clip.wav"
+    _write_tiny_wav(audio_path)
+
+    player = create_audio_player(str(audio_path), "clip", player_id="card-player")
+
+    root_props = player.to_plotly_json()["props"]
+    timeline = _find_component_by_id(player, "card-player-time-slider")
+    current_time = _find_component_by_id(player, "card-player-current-time")
+    duration = _find_component_by_id(player, "card-player-duration")
+
+    assert root_props["className"] == "card-audio-player"
+    assert "card-time-slider" in timeline["props"]["className"]
+    assert current_time["props"]["className"] == "card-audio-time"
+    assert duration["props"]["className"] == "card-audio-time"
 
 
 def test_modal_audio_player_has_visible_frequency_filter_toggle(tmp_path):

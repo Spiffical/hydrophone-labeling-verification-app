@@ -22,10 +22,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             const gainSlider = document.getElementById(playerId + '-gain-slider');
             const gainDisplay = document.getElementById(playerId + '-gain-display');
             const visibleFilterToggle = document.getElementById(playerId + '-visible-filter-toggle');
-            const visibleFilterInput = visibleFilterToggle && visibleFilterToggle.matches
-                && visibleFilterToggle.matches('input[type="checkbox"]')
-                ? visibleFilterToggle
-                : (visibleFilterToggle ? visibleFilterToggle.querySelector('input[type="checkbox"]') : null);
+            const getLiveVisibleFilterInput = function () {
+                const toggle = document.getElementById(playerId + '-visible-filter-toggle');
+                if (!toggle) return null;
+                return toggle.matches && toggle.matches('input[type="checkbox"]')
+                    ? toggle
+                    : toggle.querySelector('input[type="checkbox"]');
+            };
+            const visibleFilterInput = getLiveVisibleFilterInput();
             const visibleFilterRoot = visibleFilterInput || visibleFilterToggle;
             const modalSourceChanged = updateAudioPlayerSourceKey(playerEntry, audio);
             if (typeof audio.userRequestedPlayback !== 'boolean') {
@@ -282,7 +286,8 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             };
 
             const isVisibleFrequencyFilterEnabled = function () {
-                return !!(visibleFilterInput && visibleFilterInput.checked);
+                const currentInput = getLiveVisibleFilterInput();
+                return !!(currentInput && currentInput.checked);
             };
 
             const applyEqBandGain = function (band, dbGain) {
@@ -344,12 +349,14 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 }, cleanupFns);
             }
 
-            if (visibleFilterInput && !visibleFilterInput.hasVisibleFrequencyFilterBinding) {
-                visibleFilterInput.hasVisibleFrequencyFilterBinding = true;
-                addTrackedEventListener(visibleFilterInput, 'change', function () {
+            if (visibleFilterInput && !playerEntry.hasVisibleFrequencyFilterBinding) {
+                playerEntry.hasVisibleFrequencyFilterBinding = true;
+                addTrackedEventListener(document, 'change', function (event) {
+                    const changedInput = event && event.target;
+                    if (!changedInput || changedInput.id !== playerId + '-visible-filter-toggle') return;
                     refreshEqFilterGains();
                     refreshVisibleFrequencyFilter();
-                }, undefined, cleanupFns);
+                }, { capture: true }, cleanupFns);
 
                 const visibleFilterRefreshInterval = setInterval(function () {
                     if (isVisibleFrequencyFilterEnabled()) {
@@ -358,7 +365,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                 }, 450);
 
                 registerPlayerCleanup(cleanupFns, function () {
-                    visibleFilterInput.hasVisibleFrequencyFilterBinding = false;
+                    playerEntry.hasVisibleFrequencyFilterBinding = false;
                     clearInterval(visibleFilterRefreshInterval);
                 });
             }

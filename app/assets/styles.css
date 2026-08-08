@@ -3244,6 +3244,58 @@ input.custom-time-slider::-moz-range-thumb {
     border-color: var(--surface-3) !important;
 }
 
+/* Keep card audio controls inside narrow spectrogram cards. */
+.card-audio-player {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.card-audio-header,
+.card-audio-filename {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.card-audio-controls {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    margin-bottom: 5px;
+}
+
+.card-audio-play {
+    display: flex;
+    align-items: center;
+}
+
+.card-audio-timeline {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.card-audio-time {
+    min-width: 0;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.card-audio-player .card-time-slider {
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
 /* ============================================
    FOLDER BROWSER
    ============================================ */

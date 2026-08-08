@@ -106,7 +106,7 @@ def create_audio_player(
                 'font-size': '14px',
                 'flex-shrink': '0'  # Keep icon size fixed
             }),
-            html.Span(f"Audio: {audio_filename}", style={
+            html.Span(f"Audio: {audio_filename}", className="card-audio-filename", style={
                 'font-size': '12px',
                 'font-weight': '500',
                 'color': '#495057',
@@ -115,7 +115,7 @@ def create_audio_player(
                 'white-space': 'nowrap',
                 'min-width': '0'  # Allow shrinking
             })
-        ], style={
+        ], className="card-audio-header", style={
             'display': 'flex',
             'align-items': 'center',
             'margin-bottom': '8px',
@@ -134,7 +134,7 @@ def create_audio_player(
                         id=f'{player_id}-play-icon', 
                         style={'font-size': '10px'}
                     )
-                ], 
+                ],
                 id=f'{player_id}-play-btn', 
                 size='sm',
                 title='Play audio',
@@ -147,20 +147,15 @@ def create_audio_player(
                     'border-radius': '50%',
                     'display': 'flex',
                     'align-items': 'center',
-                    'justify-content': 'center',
-                    'margin-right': '8px'
+                    'justify-content': 'center'
                 })
-            ], style={'display': 'flex', 'align-items': 'center'}),
+            ], className="card-audio-play"),
             
             # Time slider and duration
             html.Div([
-                # Time display and slider
-                html.Div([
-                    html.Span("0:00", id=f'{player_id}-current-time', style={
+                    html.Span("0:00", id=f'{player_id}-current-time', className="card-audio-time", style={
                         'font-size': '10px',
-                        'color': '#6c757d',
-                        'margin-right': '8px',
-                        'min-width': '30px'
+                        'color': '#6c757d'
                     }),
                     
                     # Dash slider with better interaction handling
@@ -171,26 +166,15 @@ def create_audio_player(
                         max=100,
                         step=0.001,
                         value='0',
-                        className='custom-time-slider native-time-slider',
+                        className='custom-time-slider native-time-slider card-time-slider',
                     ),
                     
-                    html.Span("0:00", id=f'{player_id}-duration', style={
+                    html.Span("0:00", id=f'{player_id}-duration', className="card-audio-time", style={
                         'font-size': '10px',
-                        'color': '#6c757d',
-                        'margin-left': '8px',
-                        'min-width': '30px'
+                        'color': '#6c757d'
                     })
-                ], style={
-                    'display': 'flex',
-                    'align-items': 'center',
-                    'flex': '1'
-                })
-            ], style={'flex': '1'})
-        ], style={
-            'display': 'flex',
-            'align-items': 'center',
-            'margin-bottom': '5px'
-        }),
+            ], className="card-audio-timeline")
+        ], className="card-audio-controls"),
         
         # Hidden HTML5 audio element for actual playback
         html.Audio(
@@ -206,7 +190,7 @@ def create_audio_player(
         
         # Hidden dummy element for slider callback
         html.Div(id={'type': 'slider-dummy', 'id': player_id}, style={'display': 'none'})
-    ], style={
+    ], className="card-audio-player", style={
         'padding': '10px',
         'background': 'rgba(102, 126, 234, 0.05)',
         'border-radius': '8px',
