@@ -131,7 +131,7 @@ def create_display_range_bar(
                                 id=f"{prefix}-colormap-toggle",
                                 options=[
                                     {"label": "Viridis", "value": "default"},
-                                    {"label": "Hydrophone", "value": "hydrophone"},
+                                    {"label": "O3.0", "value": "hydrophone"},
                                 ],
                                 value=(
                                     display_cfg.get("colormap")

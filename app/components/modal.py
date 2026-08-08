@@ -86,8 +86,8 @@ def create_spectrogram_modal(config=None):
                             dcc.RadioItems(
                                 id='modal-colormap-toggle',
                                 options=[
-                                    {'label': ' Default', 'value': 'default'},
-                                    {'label': ' Hydrophone', 'value': 'hydrophone'},
+                                    {'label': ' Viridis', 'value': 'default'},
+                                    {'label': ' O3.0', 'value': 'hydrophone'},
                                 ],
                                 value='default',
                                 className="custom-radio-group",

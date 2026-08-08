@@ -206,6 +206,7 @@ def test_display_range_analysis_is_collapsed_by_default():
     assert selector.id == "verify-colormap-toggle"
     assert selector.value == "default"
     assert [option["value"] for option in selector.options] == ["default", "hydrophone"]
+    assert [option["label"] for option in selector.options] == ["Viridis", "O3.0"]
     assert summary.id == "verify-display-settings-summary"
     assert summary.n_clicks == 0
 
