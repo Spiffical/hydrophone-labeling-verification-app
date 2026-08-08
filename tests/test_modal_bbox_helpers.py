@@ -111,6 +111,20 @@ def test_spectrogram_modal_includes_bbox_editor_and_configured_tags():
     assert tag_dropdown.options == [{"label": "20 Hz", "value": "20Hz"}]
 
 
+def test_spectrogram_modal_uses_canonical_colormap_names():
+    modal = create_spectrogram_modal()
+    colormap_toggle = next(
+        component
+        for component in _walk_components(modal)
+        if getattr(component, "id", None) == "modal-colormap-toggle"
+    )
+
+    assert colormap_toggle.options == [
+        {"label": " Viridis", "value": "default"},
+        {"label": " O3.0", "value": "hydrophone"},
+    ]
+
+
 def test_filter_payload_shapes_keeps_only_rectangles():
     payload_shapes = filter_payload_shapes(
         {
