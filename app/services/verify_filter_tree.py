@@ -4,43 +4,22 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 from app.services.annotations import ordered_unique_labels, split_hierarchy_label
-
-
-def extract_item_review_filter_classes(item):
-    if not isinstance(item, dict):
-        return []
-    metadata = item.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-    configured = metadata.get("review_filter_classes")
-    if not isinstance(configured, list):
-        configured = item.get("review_filter_classes")
-    if not isinstance(configured, list):
-        return []
-    return ordered_unique_labels(configured)
-
-
-def extract_item_review_filter_labels(item):
-    if not isinstance(item, dict):
-        return []
-    metadata = item.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-    assigned = metadata.get("review_filter_labels")
-    if not isinstance(assigned, list):
-        assigned = item.get("review_filter_labels")
-    if not isinstance(assigned, list):
-        return []
-    return ordered_unique_labels(assigned)
+from taxonomy.hierarchical_labels import canonicalize_prediction_label
 
 
 def extract_verify_leaf_classes(items):
     classes = set()
+
+    def _add_canonical(label):
+        canonical = canonicalize_prediction_label(label)
+        if canonical:
+            classes.add(canonical)
+
     for item in items or []:
         if not isinstance(item, dict):
             continue
-        classes.update(extract_item_review_filter_classes(item))
-        classes.update(extract_item_review_filter_labels(item))
+        for label in extract_item_review_filter_classes(item) + extract_item_review_filter_labels(item):
+            _add_canonical(label)
         predictions = item.get("predictions") or {}
 
         model_outputs = predictions.get("model_outputs")
@@ -48,27 +27,22 @@ def extract_verify_leaf_classes(items):
             for output in model_outputs:
                 if not isinstance(output, dict):
                     continue
-                label = output.get("class_hierarchy")
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(output.get("class_hierarchy"))
+            # Unified prediction files define classes in model_outputs. Do not
+            # mix in derived display labels or legacy confidence keys.
+            continue
 
         probs = predictions.get("confidence") or {}
         if isinstance(probs, dict):
             for label in probs.keys():
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(label)
+            if probs:
+                continue
 
         labels = predictions.get("labels") or []
         if isinstance(labels, list):
             for label in labels:
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
-
-        annotations = item.get("annotations") or {}
-        if isinstance(annotations, dict):
-            for label in (annotations.get("labels") or []) + (annotations.get("rejected_labels") or []):
-                if isinstance(label, str) and label.strip():
-                    classes.add(label.strip())
+                _add_canonical(label)
     return sorted(classes, key=lambda text: text.lower())
 
 
@@ -269,3 +243,30 @@ def predicted_labels_match_filter(predicted_labels, selected_filter_paths):
             if normalized_label == selected_path or normalized_label.startswith(f"{selected_path} > "):
                 return True
     return False
+
+
+def extract_item_review_filter_classes(item):
+    if not isinstance(item, dict):
+        return []
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    configured = metadata.get("review_filter_classes")
+    if not isinstance(configured, list):
+        configured = item.get("review_filter_classes")
+    if not isinstance(configured, list):
+        return []
+    return ordered_unique_labels(configured)
+
+def extract_item_review_filter_labels(item):
+    if not isinstance(item, dict):
+        return []
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    assigned = metadata.get("review_filter_labels")
+    if not isinstance(assigned, list):
+        assigned = item.get("review_filter_labels")
+    if not isinstance(assigned, list):
+        return []
+    return ordered_unique_labels(assigned)

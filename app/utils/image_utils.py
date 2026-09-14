@@ -10,13 +10,17 @@ from cachetools import LRUCache
 from app.utils.image_processing import (
     SPECTROGRAM_SOURCE_AUDIO_GENERATED,
     SPECTROGRAM_SOURCE_EXISTING,
-    generate_image_cached,
     generate_item_image_cached,
-    get_item_spectrogram_render_settings,
+    get_effective_item_spectrogram_render_settings,
+    resolve_item_display_frequency_limits,
 )
 
 _file_image_cache = LRUCache(maxsize=256)
 _ITEM_IMAGE_URL_VERSION = str(int(time.time() * 1000))
+MODAL_IMAGE_MIN_WIDTH = 1
+MODAL_IMAGE_MIN_HEIGHT = 1
+MODAL_IMAGE_MAX_WIDTH = 2560
+MODAL_IMAGE_MAX_HEIGHT = 1200
 
 
 def _urlsafe_b64encode_json(payload: dict) -> str:
@@ -47,39 +51,113 @@ def build_item_image_request_src(
     color_min: Optional[float] = None,
     color_max: Optional[float] = None,
 ) -> str:
-    render_cfg = get_item_spectrogram_render_settings(item, cfg)
+    render_cfg = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
+    display_y_min_hz, display_y_max_hz = resolve_item_display_frequency_limits(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
+    request_render_cfg = dict(render_cfg)
+    if request_render_cfg.get("source") == SPECTROGRAM_SOURCE_EXISTING:
+        request_render_cfg.pop("win_dur_s", None)
+        request_render_cfg.pop("overlap", None)
     payload = {
         "audio_path": item.get("audio_path"),
         "mat_path": item.get("mat_path"),
         "spectrogram_path": item.get("spectrogram_path"),
         "colormap": str(colormap or "default"),
         "y_axis_scale": str(y_axis_scale or "linear"),
-        "y_axis_min_hz": y_axis_min_hz,
-        "y_axis_max_hz": y_axis_max_hz,
+        "y_axis_min_hz": display_y_min_hz,
+        "y_axis_max_hz": display_y_max_hz,
         "color_min": color_min,
         "color_max": color_max,
-        "render_cfg": render_cfg,
+        "render_cfg": request_render_cfg,
     }
     token = _urlsafe_b64encode_json(payload)
     # Include a compact query string so browser caches separate render settings independently.
     cache_key = urlencode(
         {
-            "src": render_cfg.get("source"),
-            "ov": render_cfg.get("overlap"),
-            "wd": render_cfg.get("win_dur_s"),
-            "fmin": render_cfg.get("freq_min_hz"),
-            "fmax": render_cfg.get("freq_max_hz"),
+            "src": request_render_cfg.get("source"),
+            "ov": request_render_cfg.get("overlap"),
+            "wd": request_render_cfg.get("win_dur_s"),
+            "fmin": request_render_cfg.get("freq_min_hz"),
+            "fmax": request_render_cfg.get("freq_max_hz"),
             "rec": int(bool(render_cfg.get("item_override_applied"))),
+            "custom": int(bool(render_cfg.get("custom_frequency_override_applied"))),
             "cm": colormap,
             "ys": y_axis_scale,
-            "ymin": y_axis_min_hz,
-            "ymax": y_axis_max_hz,
+            "ymin": display_y_min_hz,
+            "ymax": display_y_max_hz,
             "cmin": color_min,
             "cmax": color_max,
             "rv": _ITEM_IMAGE_URL_VERSION,
         }
     )
     return f"/item-image/{token}?{cache_key}"
+
+
+def use_full_resolution_modal_image(cfg: Optional[dict], y_axis_scale: str) -> bool:
+    display_cfg = (cfg or {}).get("display", {})
+    if not isinstance(display_cfg, dict):
+        display_cfg = {}
+    mode = str(display_cfg.get("modal_render_mode", "full_resolution_image")).strip().lower()
+    return mode in {"full_resolution_image", "lossless_image"} and y_axis_scale != "log"
+
+
+def resolve_modal_image_target(viewport: Optional[dict]) -> tuple[Optional[int], Optional[int]]:
+    if not isinstance(viewport, dict):
+        return None, None
+
+    def _bounded(value, minimum, maximum):
+        try:
+            parsed = int(round(float(value)))
+        except (TypeError, ValueError):
+            return None
+        return max(minimum, min(maximum, parsed))
+
+    return (
+        _bounded(viewport.get("pixel_width"), MODAL_IMAGE_MIN_WIDTH, MODAL_IMAGE_MAX_WIDTH),
+        _bounded(viewport.get("pixel_height"), MODAL_IMAGE_MIN_HEIGHT, MODAL_IMAGE_MAX_HEIGHT),
+    )
+
+
+def build_modal_image_request_src(
+    item: dict,
+    *,
+    cfg: Optional[dict] = None,
+    colormap: str = "default",
+    y_axis_scale: str = "linear",
+    y_axis_min_hz: Optional[float] = None,
+    y_axis_max_hz: Optional[float] = None,
+    color_min: Optional[float] = None,
+    color_max: Optional[float] = None,
+    max_width: Optional[int] = None,
+    max_height: Optional[int] = None,
+) -> str:
+    card_src = build_item_image_request_src(
+        item,
+        cfg=cfg,
+        colormap=colormap,
+        y_axis_scale=y_axis_scale,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+        color_min=color_min,
+        color_max=color_max,
+    )
+    modal_src = card_src.replace("/item-image/", "/modal-image/", 1)
+    target_width = resolve_modal_image_target({"pixel_width": max_width})[0]
+    target_height = resolve_modal_image_target({"pixel_height": max_height})[1]
+    if target_width is not None:
+        modal_src = f"{modal_src}&mw={target_width}"
+    if target_height is not None:
+        modal_src = f"{modal_src}&mh={target_height}"
+    return modal_src
 
 
 def image_file_to_base64(image_path: str) -> str:
@@ -117,7 +195,12 @@ def get_item_image_src(
     if not item:
         return None
 
-    render_cfg = get_item_spectrogram_render_settings(item, cfg)
+    render_cfg = get_effective_item_spectrogram_render_settings(
+        item,
+        cfg,
+        custom_freq_min_hz=y_axis_min_hz,
+        custom_freq_max_hz=y_axis_max_hz,
+    )
     source = render_cfg.get("source")
     use_existing = source == SPECTROGRAM_SOURCE_EXISTING
 
@@ -146,6 +229,20 @@ def get_item_image_src(
         if spectrogram_path and os.path.splitext(spectrogram_path)[1].lower() in {".png", ".jpg", ".jpeg", ".webp"}:
             return image_file_to_base64(spectrogram_path)
 
+    mat_path = item.get("mat_path")
+    audio_path = item.get("audio_path")
+    if mat_path or audio_path:
+        return build_item_image_request_src(
+            item,
+            cfg=cfg,
+            colormap=colormap,
+            y_axis_scale=y_axis_scale,
+            y_axis_min_hz=y_axis_min_hz,
+            y_axis_max_hz=y_axis_max_hz,
+            color_min=color_min,
+            color_max=color_max,
+        )
+
     dynamic_src = generate_item_image_cached(
         item,
         cfg,
@@ -158,17 +255,5 @@ def get_item_image_src(
     )
     if dynamic_src:
         return dynamic_src
-
-    mat_path = item.get("mat_path")
-    if use_existing and mat_path and os.path.exists(mat_path):
-        return generate_image_cached(
-            mat_path,
-            colormap=colormap,
-            y_axis_scale=y_axis_scale,
-            y_axis_min_hz=y_axis_min_hz,
-            y_axis_max_hz=y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
-        )
 
     return None

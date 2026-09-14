@@ -86,8 +86,8 @@ def create_spectrogram_modal(config=None):
                             dcc.RadioItems(
                                 id='modal-colormap-toggle',
                                 options=[
-                                    {'label': ' Default', 'value': 'default'},
-                                    {'label': ' Hydrophone', 'value': 'hydrophone'},
+                                    {'label': ' Viridis', 'value': 'default'},
+                                    {'label': ' O3.0', 'value': 'hydrophone'},
                                 ],
                                 value='default',
                                 className="custom-radio-group",
@@ -280,41 +280,73 @@ def create_spectrogram_modal(config=None):
                             "colorbar_readout": "Auto contrast",
                         },
                     ),
+                    dcc.Store(id="modal-display-meta-store", data={}),
                     ], className="display-range-content modal-display-settings-content"),
                 ], className="modal-controls-card display-settings-details mb-4"),
 
-                # Interactive Plotly Graph
-                dbc.Card([
-                    dbc.CardBody([
-                        dcc.Graph(
-                            id='modal-image-graph',
-                            style={'height': '500px'},
-                            config={
-                                'displayModeBar': True,
-                                'displaylogo': False,
-                                # Kept in the DOM for instant programmatic bbox activation.
-                                'modeBarButtonsToAdd': ['drawrect'],
-                                'modeBarButtonsToRemove': [
-                                    'lasso2d',
-                                    'select2d',
-                                    'drawline',
-                                    'drawopenpath',
-                                    'drawclosedpath',
-                                    'drawcircle',
-                                    'eraseshape',
-                                ],
-                                # Keep shape editing enabled, but disable text/title editing.
-                                'editable': False,
-                                'edits': {
-                                    'shapePosition': True,
-                                    'annotationText': False,
-                                    'annotationPosition': False,
-                                    'titleText': False,
-                                },
-                            }
-                        )
-                    ], className="p-0")
-                ], className="spectrogram-zoom-card mb-4"),
+                html.Div(
+                    id="modal-visible-ranges-above",
+                    className="spectrogram-modal-range-stack",
+                ),
+
+                html.Section(
+                    [
+                        html.Div(
+                            [
+                                html.Span(
+                                    id="modal-active-range-title",
+                                    className="spectrogram-range-title",
+                                ),
+                                html.Span(
+                                    id="modal-active-range-readout",
+                                    className="spectrogram-range-frequency",
+                                ),
+                            ],
+                            className="spectrogram-range-header",
+                        ),
+                        dbc.Card([
+                            dbc.CardBody([
+                                dcc.Graph(
+                                    id='modal-image-graph',
+                                    style={'height': '500px'},
+                                    config={
+                                        'displayModeBar': True,
+                                        'displaylogo': False,
+                                        # Kept in the DOM for instant programmatic bbox activation.
+                                        'modeBarButtonsToAdd': ['drawrect'],
+                                        'modeBarButtonsToRemove': [
+                                            'lasso2d',
+                                            'select2d',
+                                            'drawline',
+                                            'drawopenpath',
+                                            'drawclosedpath',
+                                            'drawcircle',
+                                            'eraseshape',
+                                        ],
+                                        # Keep shape editing enabled, but disable text/title editing.
+                                        'editable': False,
+                                        'edits': {
+                                            'shapePosition': True,
+                                            'annotationText': False,
+                                            'annotationPosition': False,
+                                            'titleText': False,
+                                        },
+                                    }
+                                )
+                            ], className="p-0")
+                        ], className="spectrogram-zoom-card"),
+                    ],
+                    id="modal-active-range-section",
+                    className=(
+                        "spectrogram-range-section spectrogram-range-section--visible "
+                        "spectrogram-range-accent-0 spectrogram-modal-plot-section"
+                    ),
+                ),
+
+                html.Div(
+                    id="modal-visible-ranges-below",
+                    className="spectrogram-modal-range-stack",
+                ),
 
                 html.Div(
                     "Use the BBox + button to draw a box for a label. Click + again to add another box for the same label. Delete boxes from the red × on each box.",
@@ -339,6 +371,8 @@ def create_spectrogram_modal(config=None):
                 # Current filename store
                 dcc.Store(id='current-filename', data=None),
                 dcc.Store(id='modal-item-store', data=None),
+                dcc.Store(id='modal-figure-context-store', data=None),
+                dcc.Store(id='modal-figure-meta-store', data=None),
                 dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
                 dcc.Store(id='modal-bbox-interaction-store', data=None),
                 dcc.Store(id='modal-active-box-label', data=None),
@@ -348,6 +382,15 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='modal-force-action-store', data=None),
                 dcc.Store(id='modal-open-request-store', data=None),
                 dcc.Store(id='modal-busy-store', data=False, storage_type='memory'),
+                dcc.Store(id='modal-render-ready-store', data=True, storage_type='memory'),
+                dcc.Store(id='modal-viewport-store', data=None, storage_type='memory'),
+                dcc.Interval(
+                    id='modal-viewport-probe',
+                    interval=1000,
+                    n_intervals=0,
+                    max_intervals=-1,
+                ),
+                dcc.Store(id='modal-image-prefetch-store', data=None, storage_type='memory'),
             ], className="p-4"),
 
             dbc.ModalFooter([
@@ -359,7 +402,7 @@ def create_spectrogram_modal(config=None):
                 )
             ]),
             html.Div(
-                html.Div("Updating modal...", className="modal-busy-indicator"),
+                html.Div("Updating spectrogram...", className="modal-busy-indicator"),
                 id="modal-busy-overlay",
                 className="modal-busy-overlay",
                 style={"display": "none"},

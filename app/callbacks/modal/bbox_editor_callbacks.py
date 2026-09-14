@@ -6,6 +6,8 @@ from datetime import datetime
 from dash import ALL, ClientsideFunction, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
+from app.callbacks.modal.figure_helpers import patch_modal_boxes
+
 from app.services.annotations import clean_box_tag
 
 
@@ -204,7 +206,7 @@ def register_modal_bbox_editor_callbacks(
         Input({"type": "modal-bbox-tag-dropdown", "index": ALL}, "value"),
         State({"type": "modal-bbox-tag-dropdown", "index": ALL}, "id"),
         State("modal-bbox-store", "data"),
-        State("modal-image-graph", "figure"),
+        State("modal-figure-context-store", "data"),
         State("current-filename", "data"),
         State("mode-tabs", "data"),
         State("user-profile-store", "data"),
@@ -252,9 +254,10 @@ def register_modal_bbox_editor_callbacks(
             boxes[box_index].pop("tag", None)
 
         store["boxes"] = boxes
-        updated_fig = _apply_modal_boxes_to_figure(
-            deepcopy(figure) if isinstance(figure, dict) else {},
+        updated_fig = patch_modal_boxes(
+            figure,
             boxes,
+            apply_boxes=_apply_modal_boxes_to_figure,
         )
         return store, updated_fig, {"dirty": True, "item_id": current_item_id}
 
@@ -313,7 +316,7 @@ def register_modal_bbox_editor_callbacks(
         State("bbox-editor-freq-min-input", "value"),
         State("bbox-editor-freq-max-input", "value"),
         State("modal-bbox-store", "data"),
-        State("modal-image-graph", "figure"),
+        State("modal-figure-context-store", "data"),
         State("modal-item-store", "data"),
         State("verify-thresholds-store", "data"),
         State("modal-active-box-label", "data"),
@@ -379,9 +382,10 @@ def register_modal_bbox_editor_callbacks(
         boxes[box_index] = previous
 
         store["boxes"] = boxes
-        updated_fig = _apply_modal_boxes_to_figure(
-            deepcopy(figure) if isinstance(figure, dict) else {},
+        updated_fig = patch_modal_boxes(
+            figure,
             boxes,
+            apply_boxes=_apply_modal_boxes_to_figure,
         )
         updated_item = update_modal_item_for_box_edit(
             modal_item,

@@ -38,11 +38,11 @@ def _apply_spectrogram_cli_args(config, args):
     spec_cfg["win_dur_s"] = _coerce_float(
         args.spec_win_dur if args.spec_win_dur is not None else spec_cfg.get("win_dur_s", 1.0),
         1.0,
-        minimum=0.05,
+        minimum=0.001,
         maximum=30.0,
     )
     spec_cfg["overlap"] = _coerce_float(
-        args.spec_overlap if args.spec_overlap is not None else spec_cfg.get("overlap", 0.9),
+        args.spec_overlap if args.spec_overlap is not None else spec_cfg.get("overlap", 0.5),
         0.9,
         minimum=0.0,
         maximum=0.99,

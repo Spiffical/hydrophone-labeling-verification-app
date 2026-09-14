@@ -1,0 +1,8 @@
+/* A viewport-constrained panel may move away from its original arrow anchor. */
+.display-range-bar--compact > .display-range-content::before {
+    display: none;
+}
+
+.display-range-bar--compact > .display-range-content {
+    overscroll-behavior: contain;
+}

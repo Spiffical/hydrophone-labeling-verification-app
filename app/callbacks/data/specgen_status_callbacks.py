@@ -7,7 +7,6 @@ from dash import Input, Output, State, ctx
 from dash.exceptions import PreventUpdate
 
 from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
-from app.services.display_settings import resolve_colormap_choice
 
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -161,7 +160,7 @@ def register_specgen_status_callbacks(
             page_items_override = filtered_page["items"]
             page_index_override = filtered_page["page_index"]
             total_pages_override = filtered_page["total_pages"]
-            colormap = resolve_colormap_choice(verify_use_hydrophone_colormap, display_cfg)
+            colormap = "hydrophone" if verify_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if verify_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
             y_axis_min_hz = verify_y_axis_min_hz
             y_axis_max_hz = verify_y_axis_max_hz
@@ -170,7 +169,7 @@ def register_specgen_status_callbacks(
         elif request_mode == "explore":
             explore_data = explore_data or {"items": []}
             items = explore_data.get("items", []) or []
-            colormap = resolve_colormap_choice(explore_use_hydrophone_colormap, display_cfg)
+            colormap = "hydrophone" if explore_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if explore_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
             y_axis_min_hz = explore_y_axis_min_hz
             y_axis_max_hz = explore_y_axis_max_hz
@@ -179,7 +178,7 @@ def register_specgen_status_callbacks(
         else:
             label_data = label_data or {"items": []}
             items = label_data.get("items", []) or []
-            colormap = resolve_colormap_choice(label_use_hydrophone_colormap, display_cfg)
+            colormap = "hydrophone" if label_use_hydrophone_colormap else display_cfg.get("colormap", "default")
             y_axis_scale = "log" if label_use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
             y_axis_min_hz = label_y_axis_min_hz
             y_axis_max_hz = label_y_axis_max_hz
@@ -258,7 +257,7 @@ def register_specgen_status_callbacks(
         data = data or {"items": []}
         items = data.get("items", []) or []
         display_cfg = cfg.get("display", {})
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, display_cfg)
+        colormap = "hydrophone" if use_hydrophone_colormap else display_cfg.get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
         items_per_page = display_cfg.get("items_per_page", 25)
         effective_page = _coerce_page_index(current_page)
@@ -346,7 +345,7 @@ def register_specgen_status_callbacks(
             selected_filters = [value for value in selected_filters if value in available_value_set]
 
         display_cfg = cfg.get("display", {})
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, display_cfg)
+        colormap = "hydrophone" if use_hydrophone_colormap else display_cfg.get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
         items_per_page = display_cfg.get("items_per_page", 25)
         effective_page = _coerce_page_index(current_page)
@@ -429,7 +428,7 @@ def register_specgen_status_callbacks(
         data = data or {"items": []}
         items = data.get("items", []) or []
         display_cfg = cfg.get("display", {})
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, display_cfg)
+        colormap = "hydrophone" if use_hydrophone_colormap else display_cfg.get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else display_cfg.get("y_axis_scale", "linear")
         items_per_page = display_cfg.get("items_per_page", 25)
         effective_page = _coerce_page_index(current_page)

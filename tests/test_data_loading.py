@@ -127,14 +127,34 @@ def test_get_config_accepts_startup_data_and_fft_params(tmp_path, monkeypatch):
 
     assert config["mode"] == "label"
     assert config["data"]["data_dir"] == str(tmp_path)
-    assert config["spectrogram_render"] == {
+    # Configured named presets coexist with CLI overrides of the active settings.
+    assert {key: config["spectrogram_render"][key] for key in (
+        "source", "win_dur_s", "overlap", "freq_min_hz", "freq_max_hz"
+    )} == {
         "source": "audio_generated",
         "win_dur_s": 2.5,
         "overlap": 0.75,
         "freq_min_hz": 10.0,
         "freq_max_hz": 250.0,
-        "presets": [],
     }
+    assert config["display"]["modal_render_mode"] == "full_resolution_image"
+    assert config["cache"]["modal_prefetch_enabled"] is True
+
+
+def test_load_verify_mode(mock_config):
+    data = load_verify_mode(mock_config)
+    assert data["items"], "Expected verify items"
+    assert data["summary"]["total_items"] == len(data["items"])
+    first = data["items"][0]
+    assert first.get("predictions") is not None
+    assert first.get("spectrogram_path")
+
+
+def test_load_whale_mode(mock_config):
+    data = load_whale_mode(mock_config)
+    assert data["items"], "Expected whale items"
+    assert data["summary"]["total_items"] == len(data["items"])
+    assert any(item.get("predictions") for item in data["items"])
 
 
 def test_get_config_preserves_named_spectrogram_presets(tmp_path, monkeypatch):
@@ -166,19 +186,3 @@ spectrogram_render:
     assert config["mode"] == "verify"
     assert config["spectrogram_render"]["active_preset"] == "low"
     assert config["spectrogram_render"]["presets"][0]["id"] == "low"
-
-
-def test_load_verify_mode(mock_config):
-    data = load_verify_mode(mock_config)
-    assert data["items"], "Expected verify items"
-    assert data["summary"]["total_items"] == len(data["items"])
-    first = data["items"][0]
-    assert first.get("predictions") is not None
-    assert first.get("spectrogram_path")
-
-
-def test_load_whale_mode(mock_config):
-    data = load_whale_mode(mock_config)
-    assert data["items"], "Expected whale items"
-    assert data["summary"]["total_items"] == len(data["items"])
-    assert any(item.get("predictions") for item in data["items"])

@@ -6,6 +6,7 @@ from typing import Dict, Optional, Tuple
 
 from app.utils.audio_matching import find_matching_audio_files, get_representative_audio_file
 from app.utils.file_io import read_json
+from app.utils.filesystem_index import DirectoryIndex
 from app.utils.format_converters import (
     convert_hydrophonedashboard_to_unified,
     convert_legacy_labeling_to_unified,
@@ -514,18 +515,13 @@ def _apply_item_deduplication(data: Dict) -> Dict:
     return data
 
 
-def _build_audio_index(audio_dir: Optional[str]) -> Dict[str, str]:
+def _build_audio_index(audio_dir: Optional[str], path_index=None) -> Dict[str, str]:
     index: Dict[str, str] = {}
-    if not audio_dir or not os.path.exists(audio_dir):
+    if not audio_dir:
         return index
-    for entry in os.listdir(audio_dir):
-        full_path = os.path.join(audio_dir, entry)
-        if not os.path.isfile(full_path):
-            continue
-        ext = os.path.splitext(entry)[1].lower()
-        if ext not in {".flac", ".wav", ".mp3", ".ogg"}:
-            continue
-        base_name = os.path.splitext(entry)[0]
+    path_index = path_index or DirectoryIndex()
+    for full_path in path_index.files(audio_dir, set(AUDIO_EXTENSIONS)):
+        base_name = os.path.splitext(os.path.basename(full_path))[0]
         if base_name and base_name not in index:
             index[base_name] = full_path
     return index
@@ -537,10 +533,12 @@ def _resolve_audio_path_for_item(
     base_path: Optional[str],
     audio_dir: Optional[str],
     predictions_path: Optional[str],
+    path_exists=None,
 ) -> Optional[str]:
+    path_exists = path_exists or os.path.exists
     if not raw_path:
         return None
-    if os.path.exists(raw_path):
+    if path_exists(raw_path):
         return raw_path
 
     candidates = []
@@ -554,16 +552,22 @@ def _resolve_audio_path_for_item(
             candidates.append(os.path.join(audio_dir, os.path.basename(raw_path)))
 
     for candidate in candidates:
-        if candidate and os.path.exists(candidate):
+        if candidate and path_exists(candidate):
             return candidate
     return None
 
 
-def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_path: Optional[str] = None) -> None:
-    if not items or not audio_dir or not os.path.exists(audio_dir):
+def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_path: Optional[str] = None, *, path_index=None) -> None:
+    if not items or not audio_dir:
         return
 
-    audio_index = _build_audio_index(audio_dir)
+    path_index = path_index or DirectoryIndex()
+    audio_index = _build_audio_index(audio_dir, path_index)
+    matching_files = [
+        path
+        for extension in (".flac", ".wav", ".mp3")
+        for path in path_index.files(audio_dir, {extension})
+    ]
 
     for item in items:
         if not isinstance(item, dict):
@@ -577,6 +581,7 @@ def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_p
             base_path=base_path,
             audio_dir=audio_dir,
             predictions_path=predictions_path,
+            path_exists=path_index.exists,
         )
         if resolved:
             item["audio_path"] = resolved
@@ -607,7 +612,7 @@ def _enrich_items_with_audio_paths(items: list, audio_dir: Optional[str], base_p
                 probe_name = item_id
 
             if probe_name:
-                matches = find_matching_audio_files(probe_name, audio_dir)
+                matches = find_matching_audio_files(probe_name, audio_dir, audio_files=matching_files)
                 matched = get_representative_audio_file(matches)
 
         if matched:
@@ -1208,6 +1213,7 @@ def load_verify_mode(
     hydrophone: Optional[str] = None,
     allow_unlabeled: bool = False,
 ) -> Dict:
+    path_index = DirectoryIndex()
     verify_cfg = config.get("verify", {})
     data_cfg = config.get("data", {})
     dashboard_root = data_cfg.get("data_dir") or verify_cfg.get("dashboard_root")
@@ -1223,7 +1229,7 @@ def load_verify_mode(
     predictions_file_override = data_cfg.get("predictions_file")
     if not isinstance(predictions_file_override, str) or not predictions_file_override.strip():
         predictions_file_override = None
-    elif not os.path.exists(predictions_file_override):
+    elif not path_index.exists(predictions_file_override):
         predictions_file_override = None
     predictions_overrides = data_cfg.get("predictions_overrides")
     override_index = _build_predictions_override_index(predictions_overrides)
@@ -1233,7 +1239,7 @@ def load_verify_mode(
         if predictions_path in override_cache:
             return override_cache[predictions_path]
         whale_config = {"whale": {"predictions_json": predictions_path}}
-        loaded = load_whale_mode(whale_config)
+        loaded = load_whale_mode(whale_config, path_exists=path_index.exists)
         _attach_predictions_path(loaded.get("items", []), predictions_path)
         override_cache[predictions_path] = loaded
         return loaded
@@ -1260,17 +1266,17 @@ def load_verify_mode(
         predictions_path = predictions_file_override
         
         # If we have predictions, load them
-        if predictions_path and os.path.exists(predictions_path):
+        if predictions_path and path_index.exists(predictions_path):
             whale_config = {"whale": {"predictions_json": predictions_path}}
-            data = load_whale_mode(whale_config)
+            data = load_whale_mode(whale_config, path_exists=path_index.exists)
             _attach_predictions_path(data.get("items", []), predictions_path)
         
         # Add items from mat files if no predictions or to supplement
-        if mat_dir and os.path.exists(mat_dir):
+        if mat_dir and path_index.exists(mat_dir):
             existing_ids = {item["item_id"] for item in data.get("items", [])}
-            mat_files = sorted(glob.glob(os.path.join(mat_dir, "*.mat")))
-            npy_files = sorted(glob.glob(os.path.join(mat_dir, "*.npy")))
-            png_files = sorted(glob.glob(os.path.join(mat_dir, "*.png")))
+            mat_files = sorted(path_index.files(mat_dir, {".mat"}))
+            npy_files = sorted(path_index.files(mat_dir, {".npy"}))
+            png_files = sorted(path_index.files(mat_dir, {".png"}))
             
             all_files = mat_files + npy_files + png_files
             
@@ -1290,7 +1296,7 @@ def load_verify_mode(
                     if audio_dir:
                         for ext in ['.flac', '.wav', '.mp3']:
                             candidate = os.path.join(audio_dir, item_id + ext)
-                            if os.path.exists(candidate):
+                            if path_index.exists(candidate):
                                 audio_path = candidate
                                 break
                     
@@ -1315,7 +1321,7 @@ def load_verify_mode(
             
             data["summary"]["total_items"] = len(data["items"])
 
-        _enrich_items_with_audio_paths(data.get("items", []), audio_dir, base_path=mat_dir)
+        _enrich_items_with_audio_paths(data.get("items", []), audio_dir, base_path=mat_dir, path_index=path_index)
         _ensure_items_scope(data.get("items", []))
         available_dates, available_devices = _available_item_scopes(data.get("items", []))
         data["items"] = _filter_items_for_scope(data.get("items", []), date_str, hydrophone)
@@ -1362,18 +1368,18 @@ def load_verify_mode(
         root_predictions_path = None
         root_data = None
 
-        if predictions_file_override and os.path.exists(predictions_file_override):
+        if predictions_file_override and path_index.exists(predictions_file_override):
             whale_config = {"whale": {"predictions_json": predictions_file_override}}
-            root_data = load_whale_mode(whale_config)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
             predictions_path = predictions_file_override
             predictions_paths_loaded.append(predictions_file_override)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
         else:
             root_pred_candidate = os.path.join(dashboard_root, "predictions.json")
-            if os.path.exists(root_pred_candidate):
+            if path_index.exists(root_pred_candidate):
                 root_predictions_path = root_pred_candidate
                 whale_config = {"whale": {"predictions_json": root_pred_candidate}}
-                root_data = load_whale_mode(whale_config)
+                root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
                 predictions_path = root_pred_candidate
                 predictions_paths_loaded.append(root_pred_candidate)
                 _attach_predictions_path(root_data.get("items", []), predictions_path)
@@ -1386,7 +1392,7 @@ def load_verify_mode(
                 continue
 
             base_path = os.path.join(dashboard_root, active_device)
-            if not os.path.exists(base_path):
+            if not path_index.exists(base_path):
                 continue
 
             # Try common spectrogram folder names if no override
@@ -1402,7 +1408,7 @@ def load_verify_mode(
                 local_audio_dir = None
                 for audio_name in audio_folder_names:
                     candidate = os.path.join(base_path, audio_name)
-                    if os.path.exists(candidate):
+                    if path_index.exists(candidate):
                         local_audio_dir = candidate
                         break
 
@@ -1412,7 +1418,7 @@ def load_verify_mode(
             if not predictions_file_override:
                 override_path = _get_predictions_override_path(override_index, active_date_label, active_device)
 
-            if override_path and os.path.exists(override_path):
+            if override_path and path_index.exists(override_path):
                 override_data = load_predictions_cached(override_path)
                 filtered_override_items = [
                     deepcopy(i)
@@ -1434,26 +1440,26 @@ def load_verify_mode(
             else:
                 # Check device-level predictions
                 local_predictions_path = os.path.join(base_path, "predictions.json")
-                if os.path.exists(local_predictions_path):
+                if path_index.exists(local_predictions_path):
                     whale_config = {"whale": {"predictions_json": local_predictions_path}}
-                    folder_data = load_whale_mode(whale_config)
+                    folder_data = load_whale_mode(whale_config, path_exists=path_index.exists)
                     predictions_paths_loaded.append(local_predictions_path)
                     _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
                 else:
                     # Fallback to legacy labels.json if it exists
                     labels_path = os.path.join(base_path, "labels.json")
-                    labels_json = read_json(labels_path) if os.path.exists(labels_path) else {}
+                    labels_json = read_json(labels_path) if path_index.exists(labels_path) else {}
                     image_dir = os.path.join(base_path, "images")
                     folder_data = convert_hydrophonedashboard_to_unified(labels_json, active_date_label, active_device, image_dir)
 
             # Enrich items with spectrogram/mat file paths
             spec_files = []
-            if local_mat_dir and os.path.exists(local_mat_dir):
-                mat_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.mat")))
-                npy_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.npy")))
-                png_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.png")))
-                jpg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpg")))
-                jpeg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpeg")))
+            if local_mat_dir and path_index.exists(local_mat_dir):
+                mat_files = sorted(path_index.files(local_mat_dir, {".mat"}))
+                npy_files = sorted(path_index.files(local_mat_dir, {".npy"}))
+                png_files = sorted(path_index.files(local_mat_dir, {".png"}))
+                jpg_files = sorted(path_index.files(local_mat_dir, {".jpg"}))
+                jpeg_files = sorted(path_index.files(local_mat_dir, {".jpeg"}))
                 image_files = png_files + jpg_files + jpeg_files
                 spec_files = mat_files + npy_files + image_files
 
@@ -1485,8 +1491,8 @@ def load_verify_mode(
 
                 mat_dirs_loaded.append(local_mat_dir)
 
-            if local_audio_dir and os.path.exists(local_audio_dir):
-                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path)
+            if local_audio_dir and path_index.exists(local_audio_dir):
+                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path, path_index=path_index)
                 audio_roots.append(local_audio_dir)
                 audio_folders_loaded.append(local_audio_dir)
 
@@ -1501,11 +1507,11 @@ def load_verify_mode(
         # When showing summary, use the actual folders based on selection
         if len(devices_to_load) == 1:
             single_base = os.path.join(dashboard_root, devices_to_load[0])
-            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if os.path.exists(single_base) else None
+            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if path_index.exists(single_base) else None
             audio_dir = None
             for audio_name in audio_folder_names:
                 candidate = os.path.join(single_base, audio_name)
-                if os.path.exists(candidate):
+                if path_index.exists(candidate):
                     audio_dir = candidate
                     break
             if predictions_file_override:
@@ -1556,25 +1562,25 @@ def load_verify_mode(
         if not predictions_file_override:
             # Check for predictions.json at the root
             root_pred_candidate = os.path.join(dashboard_root, "predictions.json")
-            if os.path.exists(root_pred_candidate):
+            if path_index.exists(root_pred_candidate):
                 root_predictions_path = root_pred_candidate
             else:
                 # Check for labels.json at the root (legacy)
                 root_labels_candidate = os.path.join(dashboard_root, "labels.json")
-                if os.path.exists(root_labels_candidate):
+                if path_index.exists(root_labels_candidate):
                     root_labels_path = root_labels_candidate
         
         # If we found root-level predictions, load them once
         root_data = None
-        if predictions_file_override and os.path.exists(predictions_file_override):
+        if predictions_file_override and path_index.exists(predictions_file_override):
             whale_config = {"whale": {"predictions_json": predictions_file_override}}
-            root_data = load_whale_mode(whale_config)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
             predictions_path = predictions_file_override
             predictions_paths_loaded.append(predictions_file_override)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
         elif root_predictions_path:
             whale_config = {"whale": {"predictions_json": root_predictions_path}}
-            root_data = load_whale_mode(whale_config)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
             predictions_path = root_predictions_path
             predictions_paths_loaded.append(root_predictions_path)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
@@ -1589,7 +1595,7 @@ def load_verify_mode(
             date_override_data = None
             if not predictions_file_override:
                 date_override_path = date_overrides.get(active_date)
-                if date_override_path and os.path.exists(date_override_path):
+                if date_override_path and path_index.exists(date_override_path):
                     date_override_data = load_predictions_cached(date_override_path)
                     predictions_paths_loaded.append(date_override_path)
 
@@ -1601,15 +1607,15 @@ def load_verify_mode(
             if not root_data and not predictions_file_override:
                 date_path = os.path.join(dashboard_root, active_date)
                 date_pred_candidate = os.path.join(date_path, "predictions.json")
-                if os.path.exists(date_pred_candidate):
+                if path_index.exists(date_pred_candidate):
                     date_predictions_path = date_pred_candidate
                     whale_config = {"whale": {"predictions_json": date_predictions_path}}
-                    date_data = load_whale_mode(whale_config)
+                    date_data = load_whale_mode(whale_config, path_exists=path_index.exists)
                     predictions_paths_loaded.append(date_predictions_path)
                     _attach_predictions_path(date_data.get("items", []), date_predictions_path)
                 else:
                     date_labels_candidate = os.path.join(date_path, "labels.json")
-                    if os.path.exists(date_labels_candidate):
+                    if path_index.exists(date_labels_candidate):
                         date_labels_path = date_labels_candidate
             
             for active_device in devices_to_load:
@@ -1617,7 +1623,7 @@ def load_verify_mode(
                     continue
                     
                 base_path = os.path.join(dashboard_root, active_date, active_device)
-                if not os.path.exists(base_path):
+                if not path_index.exists(base_path):
                     continue
                 
                 # Try common spectrogram folder names if no override
@@ -1633,7 +1639,7 @@ def load_verify_mode(
                     local_audio_dir = None
                     for audio_name in audio_folder_names:
                         candidate = os.path.join(base_path, audio_name)
-                        if os.path.exists(candidate):
+                        if path_index.exists(candidate):
                             local_audio_dir = candidate
                             break
                 
@@ -1645,7 +1651,7 @@ def load_verify_mode(
                 if not predictions_file_override:
                     device_override_path = date_device_overrides.get((active_date, active_device))
 
-                if device_override_path and os.path.exists(device_override_path):
+                if device_override_path and path_index.exists(device_override_path):
                     override_data = load_predictions_cached(device_override_path)
                     filtered_override_items = [
                         deepcopy(i)
@@ -1688,15 +1694,15 @@ def load_verify_mode(
                 else:
                     # Check device-level predictions
                     local_predictions_path = os.path.join(base_path, "predictions.json")
-                    if os.path.exists(local_predictions_path):
+                    if path_index.exists(local_predictions_path):
                         whale_config = {"whale": {"predictions_json": local_predictions_path}}
-                        folder_data = load_whale_mode(whale_config)
+                        folder_data = load_whale_mode(whale_config, path_exists=path_index.exists)
                         predictions_paths_loaded.append(local_predictions_path)
                         _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
                     else:
                         # Fallback to legacy labels.json if it exists
                         labels_path = os.path.join(base_path, "labels.json")
-                        labels_json = read_json(labels_path) if os.path.exists(labels_path) else {}
+                        labels_json = read_json(labels_path) if path_index.exists(labels_path) else {}
                         image_dir = os.path.join(base_path, "images")
                         folder_data = convert_hydrophonedashboard_to_unified(labels_json, active_date, active_device, image_dir)
                 
@@ -1705,12 +1711,12 @@ def load_verify_mode(
                 mat_files_map = {}
                 npy_files_map = {}
                 image_files_map = {}
-                if local_mat_dir and os.path.exists(local_mat_dir):
-                    mat_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.mat")))
-                    npy_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.npy")))
-                    png_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.png")))
-                    jpg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpg")))
-                    jpeg_files = sorted(glob.glob(os.path.join(local_mat_dir, "*.jpeg")))
+                if local_mat_dir and path_index.exists(local_mat_dir):
+                    mat_files = sorted(path_index.files(local_mat_dir, {".mat"}))
+                    npy_files = sorted(path_index.files(local_mat_dir, {".npy"}))
+                    png_files = sorted(path_index.files(local_mat_dir, {".png"}))
+                    jpg_files = sorted(path_index.files(local_mat_dir, {".jpg"}))
+                    jpeg_files = sorted(path_index.files(local_mat_dir, {".jpeg"}))
                     image_files = png_files + jpg_files + jpeg_files
                     spec_files = mat_files + npy_files + image_files
 
@@ -1760,7 +1766,7 @@ def load_verify_mode(
                         if local_audio_dir:
                             for ext in [".flac", ".wav", ".mp3"]:
                                 candidate = os.path.join(local_audio_dir, item_id + ext)
-                                if os.path.exists(candidate):
+                                if path_index.exists(candidate):
                                     audio_path = candidate
                                     break
 
@@ -1788,9 +1794,9 @@ def load_verify_mode(
                         existing_ids.add(item_id)
                         existing_ids.add(filename)
 
-                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path)
+                _enrich_items_with_audio_paths(folder_data.get("items", []), local_audio_dir, base_path=base_path, path_index=path_index)
                 
-                if local_audio_dir and os.path.exists(local_audio_dir):
+                if local_audio_dir and path_index.exists(local_audio_dir):
                     audio_roots.append(local_audio_dir)
                     audio_folders_loaded.append(local_audio_dir)
                 
@@ -1807,11 +1813,11 @@ def load_verify_mode(
         if len(dates_to_load) == 1 and len(devices_to_load) == 1:
             # Single date and device selected - show exact paths
             single_base = os.path.join(dashboard_root, dates_to_load[0], devices_to_load[0])
-            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if os.path.exists(single_base) else None
+            mat_dir = _get_spectrogram_folder(single_base, spec_folder_names) if path_index.exists(single_base) else None
             audio_dir = None
             for audio_name in audio_folder_names:
                 candidate = os.path.join(single_base, audio_name)
-                if os.path.exists(candidate):
+                if path_index.exists(candidate):
                     audio_dir = candidate
                     break
             # Use device-specific predictions if not using root-level
@@ -1821,7 +1827,7 @@ def load_verify_mode(
                 predictions_path = root_predictions_path
             else:
                 device_pred = os.path.join(single_base, "predictions.json")
-                if os.path.exists(device_pred):
+                if path_index.exists(device_pred):
                     predictions_path = device_pred
                 else:
                     predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
@@ -1832,9 +1838,9 @@ def load_verify_mode(
             predictions_path = predictions_paths_loaded[0] if predictions_paths_loaded else None
 
     # Enrich with mat files if they exist
-    if mat_dir and os.path.exists(mat_dir) and data["items"]:
-        mat_files = {os.path.basename(f): f for f in glob.glob(os.path.join(mat_dir, "*.mat"))}
-        npy_files = {os.path.basename(f): f for f in glob.glob(os.path.join(mat_dir, "*.npy"))}
+    if mat_dir and path_index.exists(mat_dir) and data["items"]:
+        mat_files = {os.path.basename(f): f for f in path_index.files(mat_dir, {".mat"})}
+        npy_files = {os.path.basename(f): f for f in path_index.files(mat_dir, {".npy"})}
         all_specs = {**mat_files, **npy_files}
         
         for item in data["items"]:
@@ -1847,7 +1853,7 @@ def load_verify_mode(
                 item["mat_path"] = all_specs[f"{item_id}.npy"]
 
     # Ensure audio roots are set for the serve_audio route
-    if audio_dir and os.path.exists(audio_dir):
+    if audio_dir and path_index.exists(audio_dir):
         data["audio_roots"] = [audio_dir]
     else:
         data.setdefault("audio_roots", [])
@@ -1938,7 +1944,7 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
     return load_label_mode(config)
 
 
-def load_whale_mode(config: Dict) -> Dict:
+def load_whale_mode(config: Dict, *, path_exists=None) -> Dict:
     # Check multiple locations for predictions path (legacy whale section or verify section)
     whale_cfg = config.get("whale", {})
     verify_cfg = config.get("verify", {})
@@ -1950,7 +1956,7 @@ def load_whale_mode(config: Dict) -> Dict:
 
     # Detect format and convert appropriately
     if is_unified_v2_format(predictions_json):
-        data = convert_unified_v2_to_internal(predictions_json, base_path=base_path)
+        data = convert_unified_v2_to_internal(predictions_json, base_path=base_path, path_exists=path_exists)
     else:
         # Legacy format
         data = convert_whale_predictions_to_unified(predictions_json)

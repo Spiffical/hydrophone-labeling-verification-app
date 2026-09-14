@@ -3,8 +3,11 @@
 from dash import Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
-from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_ITEMS_PER_PAGE
-from app.services.spectrogram_presets import find_matching_spectrogram_preset
+from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.services.spectrogram_grid import (
+    config_with_spectrogram_grid,
+    normalize_spectrogram_grid,
+)
 
 
 def _coerce_positive_int(value, fallback):
@@ -15,42 +18,23 @@ def _coerce_positive_int(value, fallback):
     return value if value > 0 else fallback
 
 
-def _coerce_float(value, fallback, *, minimum=None, maximum=None):
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        value = float(fallback)
-    if minimum is not None:
-        value = max(float(minimum), value)
-    if maximum is not None:
-        value = min(float(maximum), value)
-    return float(value)
-
-
 def register_app_config_callbacks(app, *, set_cache_sizes):
     """Register app config modal open/save/cancel callbacks."""
 
     @app.callback(
         Output("app-config-modal", "is_open"),
-        Output("app-config-items-per-page", "value"),
+        Output("spectrogram-grid-rows", "value"),
+        Output("spectrogram-grid-columns", "value"),
+        Output("spectrogram-grid-layout-summary", "children", allow_duplicate=True),
         Output("app-config-cache-size", "value"),
-        Output("app-config-spectrogram-source", "value"),
-        Output("app-config-spec-win-dur", "value"),
-        Output("app-config-spec-overlap", "value"),
-        Output("app-config-spec-freq-min", "value"),
-        Output("app-config-spec-freq-max", "value"),
         Output("config-store", "data", allow_duplicate=True),
         Input("app-config-btn", "n_clicks"),
         Input("app-config-cancel", "n_clicks"),
         Input("app-config-save", "n_clicks"),
         State("config-store", "data"),
-        State("app-config-items-per-page", "value"),
+        State("spectrogram-grid-rows", "value"),
+        State("spectrogram-grid-columns", "value"),
         State("app-config-cache-size", "value"),
-        State("app-config-spectrogram-source", "value"),
-        State("app-config-spec-win-dur", "value"),
-        State("app-config-spec-overlap", "value"),
-        State("app-config-spec-freq-min", "value"),
-        State("app-config-spec-freq-max", "value"),
         prevent_initial_call=True,
     )
     def handle_app_config(
@@ -58,73 +42,43 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
         cancel_clicks,
         save_clicks,
         cfg,
-        items_per_page,
+        grid_rows,
+        grid_columns,
         cache_size,
-        spectrogram_source,
-        spec_win_dur,
-        spec_overlap,
-        spec_freq_min,
-        spec_freq_max,
     ):
         _ = open_clicks, cancel_clicks, save_clicks
         triggered = ctx.triggered_id
         cfg = cfg or {}
         display_cfg = cfg.get("display", {}) or {}
         cache_cfg = cfg.get("cache", {}) or {}
-        spec_cfg = cfg.get("spectrogram_render", {}) or {}
 
         if triggered == "app-config-btn":
+            layout = normalize_spectrogram_grid(cfg)
             return (
                 True,
-                display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE),
+                layout["rows"],
+                layout["columns"],
+                f"{layout['items_per_page']} spectrograms per page",
                 cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE),
-                spec_cfg.get("source", "existing"),
-                spec_cfg.get("win_dur_s", 1.0),
-                spec_cfg.get("overlap", 0.9),
-                spec_cfg.get("freq_min_hz", 5.0),
-                spec_cfg.get("freq_max_hz", 100.0),
                 no_update,
             )
 
         if triggered == "app-config-cancel":
-            return False, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return False, no_update, no_update, no_update, no_update, no_update
 
         if triggered != "app-config-save":
             raise PreventUpdate
 
-        new_items_per_page = _coerce_positive_int(items_per_page, display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE))
         new_cache_size = _coerce_positive_int(cache_size, cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE))
-        new_source = str(spectrogram_source or spec_cfg.get("source", "existing")).strip().lower()
-        if new_source not in {"existing", "audio_generated"}:
-            new_source = "existing"
-        new_win_dur = _coerce_float(spec_win_dur, spec_cfg.get("win_dur_s", 1.0), minimum=0.05, maximum=30.0)
-        new_overlap = _coerce_float(spec_overlap, spec_cfg.get("overlap", 0.9), minimum=0.0, maximum=0.99)
-        new_freq_min = _coerce_float(spec_freq_min, spec_cfg.get("freq_min_hz", 5.0), minimum=0.0, maximum=200000.0)
-        new_freq_max = _coerce_float(spec_freq_max, spec_cfg.get("freq_max_hz", 100.0), minimum=0.01, maximum=200000.0)
-        if new_freq_max <= new_freq_min:
-            new_freq_max = max(new_freq_min + 1.0, float(spec_cfg.get("freq_max_hz", 100.0)))
 
-        updated_cfg = dict(cfg)
-        updated_cfg["display"] = dict(display_cfg)
-        updated_cfg["display"]["items_per_page"] = new_items_per_page
+        updated_cfg = config_with_spectrogram_grid(
+            cfg,
+            rows=grid_rows,
+            columns=grid_columns,
+        )
+        layout = normalize_spectrogram_grid(updated_cfg)
         updated_cfg["cache"] = dict(cache_cfg)
         updated_cfg["cache"]["max_size"] = new_cache_size
-        updated_spec_cfg = dict(spec_cfg)
-        updated_spec_cfg.update(
-            {
-                "source": new_source,
-                "win_dur_s": float(new_win_dur),
-                "overlap": float(new_overlap),
-                "freq_min_hz": float(new_freq_min),
-                "freq_max_hz": float(new_freq_max),
-            }
-        )
-        updated_cfg["spectrogram_render"] = updated_spec_cfg
-        matching_preset = find_matching_spectrogram_preset(updated_cfg)
-        if matching_preset:
-            updated_spec_cfg["active_preset"] = matching_preset
-        else:
-            updated_spec_cfg.pop("active_preset", None)
 
         previous_cache_size = _coerce_positive_int(
             cache_cfg.get("max_size", DEFAULT_CACHE_MAX_SIZE),
@@ -135,12 +89,23 @@ def register_app_config_callbacks(app, *, set_cache_sizes):
 
         return (
             False,
-            new_items_per_page,
+            layout["rows"],
+            layout["columns"],
+            f"{layout['items_per_page']} spectrograms per page",
             new_cache_size,
-            new_source,
-            float(new_win_dur),
-            float(new_overlap),
-            float(new_freq_min),
-            float(new_freq_max),
             updated_cfg,
         )
+
+    app.clientside_callback(
+        """
+        function(rows, columns) {
+            var parsedRows = Math.max(1, Math.min(8, Number(rows) || 1));
+            var parsedColumns = Math.max(1, Math.min(6, Number(columns) || 1));
+            return String(parsedRows * parsedColumns) + " spectrograms per page";
+        }
+        """,
+        Output("spectrogram-grid-layout-summary", "children", allow_duplicate=True),
+        Input("spectrogram-grid-rows", "value"),
+        Input("spectrogram-grid-columns", "value"),
+        prevent_initial_call=True,
+    )

@@ -4,7 +4,7 @@ import json
 from copy import deepcopy
 from datetime import datetime
 
-from dash import ALL, Input, Output, Patch, State, ctx, no_update
+from dash import ALL, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.verify.badge_helpers import (
@@ -26,6 +26,7 @@ from app.services.verify_modal_cache import (
     get_verify_modal_item_index,
     get_verify_modal_summary,
     update_verify_modal_item,
+    verify_item_store_patch,
 )
 
 
@@ -273,11 +274,7 @@ def register_verify_badge_callbacks(
                     "boxes": _build_modal_boxes_from_item(active_item),
                 }
         update_verify_modal_item(verify_data_cache_key, active_item)
-        updated_data = Patch()
-        updated_data["items"][active_item_index] = active_item
-        summary_obj = get_verify_modal_summary(verify_data_cache_key)
-        if isinstance(summary_obj, dict):
-            updated_data["summary"] = summary_obj
+        updated_data = verify_item_store_patch(verify_data_cache_key, active_item)
 
         pending = not reverted_to_baseline
         unsaved_update = (

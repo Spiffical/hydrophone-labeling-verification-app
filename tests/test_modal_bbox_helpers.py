@@ -111,6 +111,20 @@ def test_spectrogram_modal_includes_bbox_editor_and_configured_tags():
     assert tag_dropdown.options == [{"label": "20 Hz", "value": "20Hz"}]
 
 
+def test_spectrogram_modal_uses_canonical_colormap_names():
+    modal = create_spectrogram_modal()
+    colormap_toggle = next(
+        component
+        for component in _walk_components(modal)
+        if getattr(component, "id", None) == "modal-colormap-toggle"
+    )
+
+    assert colormap_toggle.options == [
+        {"label": " Viridis", "value": "default"},
+        {"label": " O3.0", "value": "hydrophone"},
+    ]
+
+
 def test_filter_payload_shapes_keeps_only_rectangles():
     payload_shapes = filter_payload_shapes(
         {
@@ -350,28 +364,6 @@ def test_apply_modal_boxes_to_figure_preserves_marker_and_adds_delete_handle():
     assert edit_traces[0]["marker"]["size"] == 22
 
 
-def test_apply_modal_boxes_to_figure_preserves_spectrogram_source_annotation():
-    source_annotation = {
-        "name": "__spectrogram_source__",
-        "xref": "paper",
-        "yref": "paper",
-        "text": "Source: generated from audio | Nyquist limit: 4000 Hz",
-    }
-    updated = apply_modal_boxes_to_figure(
-        {
-            "data": [{"type": "heatmap", "z": [[1, 2], [3, 4]]}],
-            "layout": {
-                "xaxis": {"range": [0, 10]},
-                "yaxis": {"range": [0, 100]},
-                "annotations": [source_annotation],
-            },
-        },
-        [],
-    )
-
-    assert updated["layout"]["annotations"] == [source_annotation]
-
-
 def test_apply_modal_boxes_to_figure_clears_stale_bbox_overlays():
     with_box = apply_modal_boxes_to_figure(
         {
@@ -508,3 +500,25 @@ def test_bbox_species_edit_rejects_original_label_in_verify_mode():
             "tag": "20Hz",
         }
     ]
+
+
+def test_apply_modal_boxes_to_figure_preserves_spectrogram_source_annotation():
+    source_annotation = {
+        "name": "__spectrogram_source__",
+        "xref": "paper",
+        "yref": "paper",
+        "text": "Source: generated from audio | Nyquist limit: 4000 Hz",
+    }
+    updated = apply_modal_boxes_to_figure(
+        {
+            "data": [{"type": "heatmap", "z": [[1, 2], [3, 4]]}],
+            "layout": {
+                "xaxis": {"range": [0, 10]},
+                "yaxis": {"range": [0, 100]},
+                "annotations": [source_annotation],
+            },
+        },
+        [],
+    )
+
+    assert updated["layout"]["annotations"] == [source_annotation]

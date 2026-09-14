@@ -1,0 +1,32 @@
+[
+  {
+    "path": "app/utils/data_loading.py",
+    "before": "298e7ca3d29d1a5da07faabbc8c6a08bdaab70508989de8aa6f96558873ade39",
+    "after": "b6912ed7a5c8b78278bb48cd152666144ed7581ce8fa9de36c051521af65b58d"
+  },
+  {
+    "path": "app/utils/audio_matching.py",
+    "before": "3403a49cc8ef02ede62cc341b838f15cdc7377a81ef126f2a63db46e7e1a0948",
+    "after": "7ea5a7b8853ab7773eb4bae9a89501992df63f250b01477553d6ca8deaee4cba"
+  },
+  {
+    "path": "app/utils/unified_format_converter.py",
+    "before": "9fb0ca478c339630444d3d6aaa23f127282e1b3ceeb5b0a8a7fbe62fdbf1b82a",
+    "after": "cbb73600fb92dbd848fb6e0716733aecbe897bbbfd09de11f1fb824728f1b776"
+  },
+  {
+    "path": "app/utils/filesystem_index.py",
+    "before": null,
+    "after": "f5008e8de13741f4606561f99a34793b9fecbd0713928c40761e097226506de4"
+  },
+  {
+    "path": "app/callbacks/data/load_verify_callbacks.py",
+    "before": "a3ee55c008dde9ca07747f76953b242c6fdbaf056b7471c737933425fb695ede",
+    "after": "fc0a0c4ae68f2d97bf8c1a37d97a33154e8d29d4483002408d742ee82834bd18"
+  },
+  {
+    "path": "tests/test_filesystem_index.py",
+    "before": null,
+    "after": "9452158385b7e7f1b1877fdca919c5014079301341d1f496a82b6346dc32b4fc"
+  }
+]

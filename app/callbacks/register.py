@@ -127,6 +127,7 @@ def register_callbacks(app, config):
         color_max,
         items_per_page,
         cfg,
+        spectrogram_ranges=None,
         *,
         empty_message="No items loaded.",
     ):
@@ -141,6 +142,7 @@ def register_callbacks(app, config):
             color_max,
             items_per_page,
             cfg,
+            spectrogram_ranges,
             empty_message=empty_message,
             get_item_image_src=get_item_image_src,
             create_spectrogram_card=create_spectrogram_card,

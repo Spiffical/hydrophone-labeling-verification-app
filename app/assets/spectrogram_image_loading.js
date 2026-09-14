@@ -14,6 +14,12 @@
   const TRANSPARENT_IMAGE_PREFIX = 'data:image/gif;base64,R0lGODlhAQABA';
   let lazyImageObserver = null;
 
+  function isLazySpectrogramImage(img) {
+    return Boolean(
+      img && img.matches && img.matches('img[data-lazy-spectrogram="true"]')
+    );
+  }
+
   function getDeferredSrc(img) {
     return String((img && img.dataset && img.dataset.src) || '').trim();
   }
@@ -78,7 +84,19 @@
   }
 
   function getImageSrc(img) {
-    return String((img && (img.currentSrc || img.src || img.getAttribute('src'))) || '').trim();
+    return String((img && (img.getAttribute('src') || img.src || img.currentSrc)) || '').trim();
+  }
+
+  function normalizeImageUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || isTransparentPlaceholder(raw)) {
+      return raw;
+    }
+    try {
+      return new URL(raw, document.baseURI).href;
+    } catch (error) {
+      return raw;
+    }
   }
 
   function isDeferredAndInactive(img) {
@@ -87,7 +105,11 @@
       return false;
     }
     const src = getImageSrc(img);
-    return !src || isTransparentPlaceholder(src) || src !== deferredSrc;
+    return (
+      !src ||
+      isTransparentPlaceholder(src) ||
+      normalizeImageUrl(src) !== normalizeImageUrl(deferredSrc)
+    );
   }
 
   function isNearViewport(img) {
@@ -111,6 +133,13 @@
     if (!img || !deferredSrc || !isDeferredAndInactive(img)) {
       return;
     }
+    const awaitingSrc = String(img.__spectrogramAwaitingDataSrc || '').trim();
+    if (awaitingSrc && normalizeImageUrl(awaitingSrc) === normalizeImageUrl(deferredSrc)) {
+      return;
+    }
+    if (awaitingSrc) {
+      img.__spectrogramAwaitingDataSrc = '';
+    }
     setContainerLoading(img);
     img.__spectrogramLazyActivated = true;
     img.src = deferredSrc;
@@ -132,6 +161,28 @@
     return lazyImageObserver;
   }
 
+  function requestRequiresCompletePageImages(request) {
+    const trigger = String((request && request.trigger_id) || '');
+    return Boolean(
+      request && (
+        trigger === 'app-config-save' ||
+        trigger.endsWith('-generate-spectrograms-btn') ||
+        trigger.endsWith('-spectrogram-source') ||
+        trigger === 'spectrogram-ranges-store' ||
+        trigger.endsWith('-colormap-toggle')
+      )
+    );
+  }
+
+  function shouldForceImageForCurrentRequest(img) {
+    const request = window.__specgenOverlayLatestRequest || null;
+    if (!requestRequiresCompletePageImages(request)) {
+      return false;
+    }
+    const grid = getGridForMode(String(request.mode || 'verify'));
+    return Boolean(grid && img && grid.contains(img));
+  }
+
   function setContainerLoading(img) {
     const container = img && img.closest ? img.closest('.spectrogram-image-container') : null;
     if (!container) {
@@ -139,6 +190,25 @@
     }
     container.classList.remove('spec-loaded', 'spec-error');
     container.classList.add('spec-loading');
+  }
+
+  function showGenerationButtonBusy(button) {
+    if (!button || !button.id) {
+      return;
+    }
+    const prefix = button.id.split('-')[0];
+    window['__spectrogramGenerateBusy_' + prefix] = true;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.classList.add('spectrogram-generate-btn--busy');
+    const icon = document.getElementById(prefix + '-generate-spectrograms-icon');
+    const label = document.getElementById(prefix + '-generate-spectrograms-label');
+    if (icon) {
+      icon.className = 'spectrogram-button-spinner';
+    }
+    if (label) {
+      label.textContent = 'Generating...';
+    }
   }
 
   function markPageSwitching(triggerId) {
@@ -164,8 +234,8 @@
         return false;
       }
       return (
-        (node.matches && node.matches('.grid-shell, .spectrogram-card, .spectrogram-image-container, img.spectrogram-image')) ||
-        (node.querySelector && node.querySelector('.spectrogram-card, .spectrogram-image-container, img.spectrogram-image'))
+        (node.matches && node.matches('.grid-shell, .spectrogram-card, .spectrogram-image-container, img[data-lazy-spectrogram="true"]')) ||
+        (node.querySelector && node.querySelector('.spectrogram-card, .spectrogram-image-container, img[data-lazy-spectrogram="true"]'))
       );
     });
     if (target || addedInGrid) {
@@ -211,6 +281,21 @@
     }
     const request = window.__specgenOverlayLatestRequest || null;
     const mode = String((request && request.mode) || '').trim() || 'verify';
+    const trigger = String((request && request.trigger_id) || '');
+    const requiresPayloadMatch = Boolean(
+      request && (
+        request.dataset_selection ||
+        trigger === 'global-date-selector' ||
+        trigger === 'global-device-selector' ||
+        trigger === 'app-config-save' ||
+        trigger === 'verify-thresholds-store' ||
+        trigger === 'verify-class-filter' ||
+        trigger === 'verify-status-filter'
+      )
+    );
+    if (requiresPayloadMatch) {
+      return;
+    }
     if (request && !pageInfoMatchesRequest(mode, request.page)) {
       return;
     }
@@ -250,7 +335,7 @@
   }
 
   function updateImageState(img) {
-    if (!img || !img.classList || !img.classList.contains('spectrogram-image')) {
+    if (!isLazySpectrogramImage(img)) {
       return;
     }
     const container = img.closest('.spectrogram-image-container');
@@ -280,7 +365,18 @@
   }
 
   function wireImage(img) {
-    if (!img || img.__spectrogramLoadingWired) {
+    if (!img) {
+      return;
+    }
+    if (img.__spectrogramLoadingWired) {
+      if (getDeferredSrc(img) && isDeferredAndInactive(img)) {
+        const observer = getLazyImageObserver();
+        if (img.__spectrogramForceLoad || shouldForceImageForCurrentRequest(img) || isNearViewport(img) || !observer) {
+          activateDeferredImage(img);
+        } else {
+          observer.observe(img);
+        }
+      }
       updateImageState(img);
       return;
     }
@@ -288,15 +384,17 @@
     img.setAttribute('decoding', 'async');
     img.addEventListener('load', function () {
       img.__spectrogramSrcChanging = false;
+      img.__spectrogramForceLoad = false;
       updateImageState(img);
     });
     img.addEventListener('error', function () {
       img.__spectrogramSrcChanging = false;
+      img.__spectrogramForceLoad = false;
       updateImageState(img);
     });
     if (getDeferredSrc(img) && isDeferredAndInactive(img)) {
       const observer = getLazyImageObserver();
-      if (observer) {
+      if (observer && !shouldForceImageForCurrentRequest(img)) {
         observer.observe(img);
       } else {
         activateDeferredImage(img);
@@ -308,7 +406,7 @@
   }
 
   function handleImageSrcMutation(img) {
-    if (!img || !img.matches || !img.matches('img.spectrogram-image')) {
+    if (!isLazySpectrogramImage(img)) {
       return;
     }
     const src = getImageSrc(img);
@@ -330,7 +428,7 @@
   }
 
   function scan() {
-    document.querySelectorAll('img.spectrogram-image').forEach(wireImage);
+    document.querySelectorAll('img[data-lazy-spectrogram="true"]').forEach(wireImage);
     maybeReleasePageSwitching();
     maybeHideSpecgenOverlayWhenGridReady('scan');
   }
@@ -339,6 +437,16 @@
     const button = event.target && event.target.closest ? event.target.closest('button') : null;
     if (button && PAGE_BUTTON_IDS.has(button.id) && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
       markPageSwitching(button.id);
+    }
+    if (
+      button &&
+      button.id &&
+      button.id.endsWith('-generate-spectrograms-btn') &&
+      !button.disabled
+    ) {
+      window.setTimeout(function () {
+        showGenerationButtonBusy(button);
+      }, 0);
     }
   }, true);
 
@@ -356,7 +464,7 @@
         shouldScan = true;
         continue;
       }
-      if (mutation.type === 'attributes' && mutation.target && mutation.target.matches && mutation.target.matches('img.spectrogram-image')) {
+      if (mutation.type === 'attributes' && isLazySpectrogramImage(mutation.target)) {
         handleImageSrcMutation(mutation.target);
       }
     }
@@ -369,7 +477,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['src']
+    attributeFilter: ['src', 'data-src']
   });
 
   window.setInterval(scan, 1000);

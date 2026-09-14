@@ -27,7 +27,7 @@ data:
 display:
   items_per_page: 25
   y_axis_scale: linear   # linear or log
-  colormap: default      # default or hydrophone
+  colormap: default      # default = Viridis; hydrophone = O3.0
 
 cache:
   max_size: 75
@@ -49,7 +49,8 @@ spectrogram_render:
   overlap: 0.9              # overlap ratio [0, 0.99] (audio_generated mode)
   freq_min_hz: 5.0          # min displayed frequency for generated spectrograms
   freq_max_hz: 100.0        # max displayed frequency for generated spectrograms
-  presets: []               # optional named render presets shown in Verify mode
+  presets: []               # empty uses Low/Mid/Social/High/Ultrasonic templates;
+                            # range choices are shown only for Generate from audio
 
 bounding_box_tags:
   options_file: config/bounding_box_tags.yaml

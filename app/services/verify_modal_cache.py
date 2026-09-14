@@ -4,6 +4,9 @@ from collections import OrderedDict
 from copy import deepcopy
 from threading import Lock
 
+from dash import Patch
+
+from app.services.spectrogram_presets import get_item_spectrogram_recommendation
 from app.services.annotations import ordered_unique_labels
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
 from app.services.verify_filter_tree import (
@@ -225,7 +228,7 @@ def _verification_status_tokens(record, predicted_labels):
         tokens.add("rejected_only")
     elif has_accepted and has_rejected:
         tokens.add("mixed")
-    elif not record.get("is_verified"):
+    if not record.get("is_verified") or record.get("has_pending_verify_changes"):
         tokens.add("unverified")
     return tokens
 
@@ -349,6 +352,10 @@ def has_pending_verify_modal_changes(cache_key):
 
 def ensure_verify_modal_items(data):
     """Register verify items only when this dataset is not already cached."""
+    summary = data.get("summary", {}) if isinstance(data, dict) else {}
+    indexed_key = summary.get("verify_modal_cache_key") if isinstance(summary, dict) else None
+    if indexed_key and has_verify_modal_items(indexed_key):
+        return indexed_key
     cache_key = _build_verify_cache_key(data)
     if not cache_key:
         return None
@@ -423,6 +430,7 @@ def get_filtered_verify_items_page(
             "page_index": 0,
             "total_pages": 1,
             "total_items": 0,
+            "remaining_items": 0,
         }
 
     with _VERIFY_MODAL_CACHE_LOCK:
@@ -434,6 +442,7 @@ def get_filtered_verify_items_page(
                 "page_index": 0,
                 "total_pages": 1,
                 "total_items": 0,
+                "remaining_items": 0,
             }
         items_by_id = cache_entry.get("items_by_id")
         item_indices = cache_entry.get("item_indices")
@@ -445,6 +454,7 @@ def get_filtered_verify_items_page(
                 "page_index": 0,
                 "total_pages": 1,
                 "total_items": 0,
+                "remaining_items": 0,
             }
         if not isinstance(filter_records, dict):
             filter_records = {}
@@ -455,6 +465,7 @@ def get_filtered_verify_items_page(
             if item_id in items_by_id
         ]
         visible_ids = []
+        remaining_items = 0
         predicted_labels_by_id = {}
         for item_id in ordered_ids:
             record = filter_records.get(item_id)
@@ -491,6 +502,8 @@ def get_filtered_verify_items_page(
                 continue
             if not _status_matches_filter(record, predicted_labels, status_filter):
                 continue
+            if "unverified" in _verification_status_tokens(record, predicted_labels):
+                remaining_items += 1
             visible_ids.append(item_id)
             predicted_labels_by_id[item_id] = predicted_labels
 
@@ -516,6 +529,7 @@ def get_filtered_verify_items_page(
         "page_index": page_index,
         "total_pages": total_pages,
         "total_items": total_items,
+        "remaining_items": remaining_items,
     }
 
 
@@ -607,6 +621,8 @@ def get_verify_modal_summary(cache_key):
             return None
         summary_copy = deepcopy(summary) if isinstance(summary, dict) else {}
         items = list(items_by_id.values())
+    # Preserve the full dataset identity when callbacks replace the browser summary.
+    summary_copy["verify_modal_cache_key"] = cache_key
     summary_copy["annotated"] = sum(
         1
         for item in items
@@ -618,3 +634,42 @@ def get_verify_modal_summary(cache_key):
         if isinstance(item, dict) and bool((item.get("annotations") or {}).get("verified"))
     )
     return summary_copy
+
+
+def verify_item_store_patch(cache_key, item):
+    """Sync a review without treating a compact preview as the whole dataset."""
+    patch = Patch()
+    summary = get_verify_modal_summary(cache_key)
+    index = get_verify_modal_item_index(cache_key, item.get("item_id"))
+    # All Dates ships a bounded preview; server indices need not exist in it.
+    # Its consumers resolve items through verify_modal_cache_key instead.
+    if index is not None and not (summary or {}).get("all_dates_index_available"):
+        patch["items"][index] = item
+    if isinstance(summary, dict):
+        patch["summary"] = summary
+    return patch
+
+
+def has_verify_spectrogram_recommendations(
+    cache_key,
+    *,
+    metadata_key="recommended_spectrogram",
+):
+    """Return whether any cached item has a valid spectrogram recommendation."""
+    if not cache_key:
+        return False
+    preset = {
+        "scope": "item",
+        "metadata_key": str(metadata_key or "recommended_spectrogram"),
+    }
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return False
+        items_by_id = cache_entry.get("items_by_id")
+        if not isinstance(items_by_id, dict):
+            return False
+        return any(
+            get_item_spectrogram_recommendation(item, preset) is not None
+            for item in items_by_id.values()
+        )

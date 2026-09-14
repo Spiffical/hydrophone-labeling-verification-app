@@ -2,7 +2,7 @@
 
 import time
 
-from dash import ALL, Input, Output, Patch, State, ctx, dcc, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.common.debug import perf_debug
@@ -14,6 +14,7 @@ from app.services.verify_modal_cache import (
     get_verify_modal_item_index,
     get_verify_modal_summary,
     update_verify_modal_item,
+    verify_item_store_patch,
 )
 from app.services.verify_pagination import save_single_verify_item_change
 
@@ -463,13 +464,10 @@ def register_label_editor_modal_callbacks(
             if not isinstance(updated_item, dict):
                 raise PreventUpdate
             update_verify_modal_item(verify_data_cache_key, updated_item)
-            verify_patch = Patch()
-            verify_patch["items"][active_item_index] = updated_item
+            verify_patch = verify_item_store_patch(verify_data_cache_key, updated_item)
             next_summary = get_verify_modal_summary(verify_data_cache_key)
-            if isinstance(next_summary, dict):
-                verify_patch["summary"] = next_summary
             updated = {"items": [updated_item], "summary": next_summary or summary}
-            verify_store_update = no_update if active_item_id == current_modal_item_id else verify_patch
+            verify_store_update = verify_patch
             direct_ui_updates = build_verify_card_ui_updates(
                 active_item_id,
                 updated_item,

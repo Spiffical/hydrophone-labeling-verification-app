@@ -15,6 +15,7 @@ from app.defaults import (
     DEFAULT_ITEMS_PER_PAGE,
 )
 from app.services.bbox_tags import load_bbox_tag_options
+from app.services.spectrogram_grid import normalize_spectrogram_grid
 from app.utils.audio_transport import DEFAULT_AUDIO_CACHE_DIR
 from app.utils.audio_transport import normalize_audio_transport
 
@@ -194,6 +195,11 @@ def get_config() -> Dict[str, Any]:
 
     display_cfg = config.get("display", {})
     items_per_page = args.items_per_page or display_cfg.get("items_per_page", DEFAULT_ITEMS_PER_PAGE)
+    if args.items_per_page is None and any(key in display_cfg for key in ("grid_rows", "grid_columns")):
+        grid = normalize_spectrogram_grid({"display": display_cfg})
+        items_per_page = grid["items_per_page"]
+    else:
+        grid = normalize_spectrogram_grid({"display": {"items_per_page": items_per_page}})
     colormap = args.colormap or display_cfg.get("colormap", "default")
     y_axis_scale = args.y_axis_scale or display_cfg.get("y_axis_scale", "linear")
 
@@ -238,12 +244,12 @@ def get_config() -> Dict[str, Any]:
     spec_win_dur = _coerce_float(
         args.spec_win_dur if args.spec_win_dur is not None else spec_render_cfg.get("win_dur_s", 1.0),
         1.0,
-        minimum=0.05,
+        minimum=0.001,
         maximum=30.0,
     )
     spec_overlap = _coerce_float(
-        args.spec_overlap if args.spec_overlap is not None else spec_render_cfg.get("overlap", 0.9),
-        0.9,
+        args.spec_overlap if args.spec_overlap is not None else spec_render_cfg.get("overlap", 0.5),
+        0.5,
         minimum=0.0,
         maximum=0.99,
     )
@@ -293,11 +299,18 @@ def get_config() -> Dict[str, Any]:
         },
         "display": {
             "items_per_page": items_per_page,
+            "grid_rows": grid["rows"],
+            "grid_columns": grid["columns"],
             "colormap": colormap,
             "y_axis_scale": y_axis_scale,
+            "modal_render_mode": display_cfg.get(
+                "modal_render_mode",
+                "full_resolution_image",
+            ),
         },
         "cache": {
             "max_size": cache_max_size,
+            "modal_prefetch_enabled": cache_cfg.get("modal_prefetch_enabled", True),
         },
         "audio": {
             "transport": audio_transport,

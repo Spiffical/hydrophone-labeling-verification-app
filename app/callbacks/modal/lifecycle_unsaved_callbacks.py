@@ -12,6 +12,7 @@ from app.services.verify_modal_cache import (
     get_verify_modal_item,
     get_verify_modal_summary,
     update_verify_modal_item,
+    verify_item_store_patch,
 )
 from app.services.verify_pagination import save_single_verify_item_change
 
@@ -82,6 +83,13 @@ def register_modal_lifecycle_unsaved_callbacks(
         save_button_ids,
     ):
         triggered = ctx.triggered_id
+        # Dash validates ALL outputs as lists, even when no components match.
+        unchanged_ui = (
+            [no_update] * len(label_block_ids or []),
+            [no_update] * len(save_button_ids or []),
+            [no_update] * len(save_button_ids or []),
+            [no_update] * len(save_button_ids or []),
+        )
         if triggered == "unsaved-stay-btn":
             if not stay_clicks:
                 raise PreventUpdate
@@ -96,10 +104,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                 no_update,
                 no_update,
                 no_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
+                *unchanged_ui,
             )
 
         force_payload = no_update
@@ -118,7 +123,7 @@ def register_modal_lifecycle_unsaved_callbacks(
             next_explore_data = no_update
             updated_modal_item = no_update
             modal_actions_update = no_update
-            direct_ui_updates = (no_update, no_update, no_update, no_update)
+            direct_ui_updates = unchanged_ui
 
             if (mode or "").strip() == "verify":
                 active_item = modal_item if isinstance(modal_item, dict) else None
@@ -134,6 +139,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                     )
                     if isinstance(updated_item, dict):
                         update_verify_modal_item(verify_data_cache_key, updated_item)
+                        next_verify_data = verify_item_store_patch(verify_data_cache_key, updated_item)
                         updated_modal_item = updated_item
                         modal_actions_update = _build_modal_item_actions(
                             updated_item,
@@ -187,7 +193,7 @@ def register_modal_lifecycle_unsaved_callbacks(
         restored_modal_item = no_update
         restored_bbox_store = no_update
         restored_modal_actions = no_update
-        direct_ui_updates = (no_update, no_update, no_update, no_update)
+        direct_ui_updates = unchanged_ui
         dirty_update = {"dirty": False, "item_id": current_item_id}
 
         snap = snapshot_store if isinstance(snapshot_store, dict) else {}
@@ -201,6 +207,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                 restored_label_data = _replace_item_in_data(label_data, snap_item_id, snap_item)
             elif snap_mode == "verify":
                 update_verify_modal_item(verify_data_cache_key, snap_item)
+                restored_verify_data = verify_item_store_patch(verify_data_cache_key, snap_item)
                 direct_ui_updates = build_verify_card_ui_updates(
                     snap_item_id,
                     snap_item,

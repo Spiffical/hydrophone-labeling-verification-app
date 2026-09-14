@@ -21,11 +21,11 @@ def register_label_data_loading_callback(
         Input("data-load-trigger-store", "data"),
         Input("global-date-selector", "value"),
         Input("global-device-selector", "value"),
+        Input("mode-tabs", "data"),
         State("config-store", "data"),
-        State("mode-tabs", "data"),
         State("label-data-store", "data"),
     )
-    def load_label_data(reload_clicks, config_load_trigger, date_val, device_val, cfg, mode, current_label_data):
+    def load_label_data(reload_clicks, config_load_trigger, date_val, device_val, mode, cfg, current_label_data):
         """Load data specifically for Label mode."""
         _ = reload_clicks
         triggered_props = {t["prop_id"].split(".")[0] for t in ctx.triggered}
@@ -60,12 +60,18 @@ def register_label_data_loading_callback(
         filter_triggered = triggered_props & {"global-date-selector", "global-device-selector"}
         has_source = bool(current_label_data and current_label_data.get("source_data_dir"))
 
+        # First entry must load even when the shared selectors keep their values.
+        # Returning to an initialized tab preserves its data and pending edits.
+        has_configured_source = bool(config_default_data_dir(cfg or {}, mode))
+        first_tab_load = "mode-tabs" in triggered_props and not has_source and has_configured_source
+
         config_panel_trigger = "data-load-trigger-store" in triggered_props and trigger_source == "data-config-load"
         should_load = (
             "label-reload" in triggered_props
-            or trigger_mode == "label"
+            or ("data-load-trigger-store" in triggered_props and trigger_mode == "label")
+            or first_tab_load
             or config_panel_trigger
-            or (filter_triggered and has_source)
+            or (filter_triggered and (has_source or has_configured_source))
         )
         tab_iso_debug(
             "load_label_decision",

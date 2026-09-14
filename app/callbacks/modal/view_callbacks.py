@@ -3,16 +3,30 @@
 import time
 from math import log10
 
-from dash import Input, Output, State, ctx, no_update
+from dash import ClientsideFunction, Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
 
 from app.callbacks.common.debug import perf_debug
 from app.callbacks.modal.display_helpers import (
     build_modal_colorbar_ui,
     build_modal_display_range_ui,
+    resolve_mode_value,
     resolve_mode_y_axis_limits,
 )
+from app.services.spectrogram_ranges import (
+    config_for_spectrogram_range,
+    format_frequency_range,
+    normalize_spectrogram_range_state,
+    resolve_visible_spectrogram_ranges,
+    resolve_active_spectrogram_range,
+)
 from app.utils.image_processing import create_item_spectrogram_figure
+from app.utils.image_utils import (
+    build_modal_image_request_src,
+    resolve_modal_image_target,
+    use_full_resolution_modal_image,
+)
 
 
 def _coerce_float(value):
@@ -142,7 +156,7 @@ def _preview_modal_color_readout(
 def _round_frequency_input_value(value):
     value = float(value)
     if value >= 1000.0:
-        return round(value, 2)
+        return round(value, 0)
     if value >= 100.0:
         return round(value, 1)
     return round(value, 2)
@@ -224,6 +238,269 @@ def register_modal_view_callbacks(
     _build_modal_item_actions,
 ):
     @app.callback(
+        Output("modal-active-range-title", "children"),
+        Output("modal-active-range-readout", "children"),
+        Output("modal-visible-ranges-above", "children"),
+        Output("modal-visible-ranges-below", "children"),
+        Output("modal-active-range-section", "className"),
+        Input("modal-item-store", "data"),
+        Input("spectrogram-ranges-store", "data"),
+        Input("config-store", "data"),
+        Input("modal-colormap-toggle", "value"),
+        Input("modal-y-axis-toggle", "value"),
+        Input("modal-display-meta-store", "data"),
+        Input("modal-figure-context-store", "data"),
+        Input("modal-colorbar-min-input", "value"),
+        Input("modal-colorbar-max-input", "value"),
+        State("modal-viewport-store", "data"),
+    )
+    def render_modal_visible_ranges(
+        modal_item,
+        ranges_state,
+        cfg,
+        colormap,
+        y_axis_scale,
+        display_meta,
+        active_figure,
+        color_min,
+        color_max,
+        modal_viewport,
+    ):
+        base_section_class = (
+            "spectrogram-range-section spectrogram-range-section--visible "
+            "spectrogram-modal-plot-section"
+        )
+        if not isinstance(modal_item, dict) or not modal_item.get("item_id"):
+            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single"
+        cfg = cfg or {}
+        display_meta = display_meta if isinstance(display_meta, dict) else {}
+        normalized_state = normalize_spectrogram_range_state(ranges_state, cfg)
+        visible_ranges = resolve_visible_spectrogram_ranges(modal_item, cfg, ranges_state)
+        active_range_id = normalized_state.get("active_range_id")
+        active_index = next(
+            (
+                index
+                for index, candidate in enumerate(visible_ranges)
+                if candidate.get("selection_id") == active_range_id
+            ),
+            0,
+        )
+        active_range = visible_ranges[active_index] if visible_ranges else None
+        if active_range is None:
+            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single"
+
+        width, _height = resolve_modal_image_target(modal_viewport)
+        panel_width = min(width or 1200, 1400)
+        active_layout = (
+            active_figure.get("layout", {}) if isinstance(active_figure, dict) else {}
+        )
+        active_xaxis = (
+            active_layout.get("xaxis", {}) if isinstance(active_layout, dict) else {}
+        )
+        x_range = active_xaxis.get("range") if isinstance(active_xaxis, dict) else None
+        if not isinstance(x_range, (list, tuple)) or len(x_range) != 2:
+            x_range = [0.0, 1.0]
+        x_min, x_max = float(x_range[0]), float(x_range[1])
+        if x_max <= x_min:
+            x_min, x_max = 0.0, 1.0
+        x_title = active_xaxis.get("title", "Time") if isinstance(active_xaxis, dict) else "Time"
+
+        def build_plot_panel(range_spec, index):
+            range_cfg = (
+                cfg
+                if range_spec["id"] == "configured-range"
+                else config_for_spectrogram_range(cfg, range_spec)
+            )
+            image_src = build_modal_image_request_src(
+                modal_item,
+                cfg=range_cfg,
+                colormap=colormap or "default",
+                y_axis_scale=y_axis_scale or "linear",
+                y_axis_min_hz=range_spec["freq_min_hz"],
+                y_axis_max_hz=range_spec["freq_max_hz"],
+                color_min=color_min,
+                color_max=color_max,
+                max_width=panel_width,
+                max_height=520,
+            )
+            freq_min_hz = float(range_spec["freq_min_hz"])
+            freq_max_hz = float(range_spec["freq_max_hz"])
+            figure = go.Figure()
+            figure.add_trace(
+                go.Scatter(
+                    x=[x_min, x_max],
+                    y=[freq_min_hz, freq_max_hz],
+                    mode="markers",
+                    marker={"opacity": 0.0, "size": 1},
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
+            figure.add_layout_image(
+                {
+                    "source": image_src,
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0,
+                    "y": 1,
+                    "sizex": 1,
+                    "sizey": 1,
+                    "sizing": "stretch",
+                    "opacity": 1.0,
+                    "layer": "below",
+                }
+            )
+            figure.update_layout(
+                height=390,
+                margin={"l": 70, "r": 36, "t": 18, "b": 50},
+                template="plotly_white",
+                dragmode="pan",
+                xaxis={
+                    "title": x_title,
+                    "range": [x_min, x_max],
+                    "showgrid": False,
+                },
+                yaxis={
+                    "title": "Frequency (Hz)",
+                    "type": "log" if (y_axis_scale or "linear") == "log" else "linear",
+                    "range": (
+                        [log10(max(freq_min_hz, 1e-9)), log10(freq_max_hz)]
+                        if (y_axis_scale or "linear") == "log"
+                        else [freq_min_hz, freq_max_hz]
+                    ),
+                    "showgrid": False,
+                },
+            )
+            return html.Section(
+                [
+                    html.Div(
+                        [
+                            html.Span(
+                                range_spec["label"],
+                                className="spectrogram-range-title",
+                            ),
+                            html.Span(
+                                format_frequency_range(
+                                    range_spec["freq_min_hz"],
+                                    range_spec["freq_max_hz"],
+                                ),
+                                className="spectrogram-range-frequency",
+                            ),
+                        ],
+                        className="spectrogram-range-header",
+                    ),
+                    dcc.Graph(
+                        figure=figure,
+                        config={
+                            "displayModeBar": False,
+                            "displaylogo": False,
+                            "responsive": True,
+                        },
+                        className="spectrogram-modal-range-graph",
+                        style={"height": "390px"},
+                    ),
+                ],
+                className=(
+                    "spectrogram-range-section spectrogram-range-section--visible "
+                    f"spectrogram-range-accent-{index % 5} spectrogram-modal-plot-section"
+                ),
+            )
+
+        above = [
+            build_plot_panel(range_spec, index)
+            for index, range_spec in enumerate(visible_ranges[:active_index])
+        ]
+        below = [
+            build_plot_panel(range_spec, index)
+            for index, range_spec in enumerate(
+                visible_ranges[active_index + 1 :],
+                start=active_index + 1,
+            )
+        ]
+        return (
+            active_range["label"],
+            format_frequency_range(
+                active_range["freq_min_hz"],
+                active_range["freq_max_hz"],
+            ),
+            above,
+            below,
+            f"{base_section_class} spectrogram-range-accent-{active_index % 5}",
+        )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalPerformance", function_name="figureContext"),
+        Output("modal-figure-context-store", "data"),
+        Output("modal-figure-meta-store", "data"),
+        Input("modal-image-graph", "figure"),
+        Input("current-filename", "data"),
+        State("modal-figure-context-store", "data"),
+        State("modal-figure-meta-store", "data"),
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalDisplay", function_name="startViewRefresh"),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
+        Input("modal-colormap-toggle", "value"),
+        Input("modal-y-axis-toggle", "value"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalDisplay", function_name="updateCommitted"),
+        Output("modal-image-graph", "figure", allow_duplicate=True),
+        Input("modal-colormap-toggle", "value"),
+        Input("modal-y-axis-toggle", "value"),
+        Input("modal-yaxis-min-input", "value"),
+        Input("modal-yaxis-max-input", "value"),
+        Input("modal-colorbar-min-input", "value"),
+        Input("modal-colorbar-max-input", "value"),
+        Input("label-yaxis-min-input", "value"),
+        Input("label-yaxis-max-input", "value"),
+        Input("verify-yaxis-min-input", "value"),
+        Input("verify-yaxis-max-input", "value"),
+        Input("explore-yaxis-min-input", "value"),
+        Input("explore-yaxis-max-input", "value"),
+        Input("label-colorbar-min-input", "value"),
+        Input("label-colorbar-max-input", "value"),
+        Input("verify-colorbar-min-input", "value"),
+        Input("verify-colorbar-max-input", "value"),
+        Input("explore-colorbar-min-input", "value"),
+        Input("explore-colorbar-max-input", "value"),
+        State("mode-tabs", "data"),
+        State("modal-image-graph", "figure"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalDisplay", function_name="previewRanges"),
+        Output("modal-image-graph", "figure", allow_duplicate=True),
+        Input("modal-yaxis-slider", "drag_value"),
+        Input("modal-colorbar-slider", "drag_value"),
+        State("modal-y-axis-toggle", "value"),
+        State("modal-image-graph", "figure"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalDisplay", function_name="commitRasterPreview"),
+        Output("modal-image-graph", "figure", allow_duplicate=True),
+        Input("modal-colorbar-slider", "value"),
+        State("modal-colormap-toggle", "value"),
+        State("modal-y-axis-toggle", "value"),
+        State("modal-image-graph", "figure"),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        ClientsideFunction(namespace="modalDisplay", function_name="extractDisplayMeta"),
+        Output("modal-display-meta-store", "data"),
+        Input("modal-image-graph", "figure"),
+        prevent_initial_call=True,
+    )
+
+    @app.callback(
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Output("modal-busy-store", "data", allow_duplicate=True),
         Output("modal-colorbar-min-input", "placeholder", allow_duplicate=True),
@@ -241,10 +518,19 @@ def register_modal_view_callbacks(
         Input("verify-yaxis-max-input", "value"),
         Input("explore-yaxis-min-input", "value"),
         Input("explore-yaxis-max-input", "value"),
+        Input("label-colorbar-min-input", "value"),
+        Input("label-colorbar-max-input", "value"),
+        Input("verify-colorbar-min-input", "value"),
+        Input("verify-colorbar-max-input", "value"),
+        Input("explore-colorbar-min-input", "value"),
+        Input("explore-colorbar-max-input", "value"),
         State("mode-tabs", "data"),
         State("modal-item-store", "data"),
         State("modal-bbox-store", "data"),
         State("config-store", "data"),
+        State("modal-display-meta-store", "data"),
+        State("modal-viewport-store", "data"),
+        State("spectrogram-ranges-store", "data"),
         prevent_initial_call=True,
     )
     def update_modal_view(
@@ -260,15 +546,37 @@ def register_modal_view_callbacks(
         verify_y_axis_max_hz,
         explore_y_axis_min_hz,
         explore_y_axis_max_hz,
+        label_color_min,
+        label_color_max,
+        verify_color_min,
+        verify_color_max,
+        explore_color_min,
+        explore_color_max,
         mode,
         modal_item,
         bbox_store,
         cfg,
+        current_meta,
+        modal_viewport,
+        ranges_state,
     ):
         if not isinstance(modal_item, dict):
             raise PreventUpdate
         item_id = (modal_item.get("item_id") or "").strip()
         if not item_id:
+            raise PreventUpdate
+
+        active_range = resolve_active_spectrogram_range(modal_item, cfg, ranges_state)
+        if active_range:
+            cfg = config_for_spectrogram_range(cfg, active_range)
+        current_meta = current_meta if isinstance(current_meta, dict) else {}
+        current_transport = current_meta.get("transport_mode")
+        current_scale = current_meta.get("display_y_axis_scale") or "linear"
+        if (
+            ctx.triggered_id not in {"modal-colormap-toggle", "modal-y-axis-toggle"}
+            and current_scale == y_axis_scale
+            and current_transport in {"full_resolution_lossless_png", "float32", "float64"}
+        ):
             raise PreventUpdate
 
         start = time.perf_counter()
@@ -281,12 +589,64 @@ def register_modal_view_callbacks(
             explore_min=explore_y_axis_min_hz,
             explore_max=explore_y_axis_max_hz,
         )
+        page_y_axis_min_hz = current_meta.get("page_display_y_min_hz")
+        page_y_axis_max_hz = current_meta.get("page_display_y_max_hz")
+        if _coerce_float(page_y_axis_min_hz) is None:
+            page_y_axis_min_hz = inherited_y_axis_min_hz
+        if _coerce_float(page_y_axis_max_hz) is None:
+            page_y_axis_max_hz = inherited_y_axis_max_hz
         effective_y_axis_min_hz = (
-            modal_y_axis_min_hz if _coerce_float(modal_y_axis_min_hz) is not None else inherited_y_axis_min_hz
+            modal_y_axis_min_hz
+            if _coerce_float(modal_y_axis_min_hz) is not None
+            else page_y_axis_min_hz
         )
         effective_y_axis_max_hz = (
-            modal_y_axis_max_hz if _coerce_float(modal_y_axis_max_hz) is not None else inherited_y_axis_max_hz
+            modal_y_axis_max_hz
+            if _coerce_float(modal_y_axis_max_hz) is not None
+            else page_y_axis_max_hz
         )
+        inherited_color_min = resolve_mode_value(
+            mode,
+            label=label_color_min,
+            verify=verify_color_min,
+            explore=explore_color_min,
+        )
+        inherited_color_max = resolve_mode_value(
+            mode,
+            label=label_color_max,
+            verify=verify_color_max,
+            explore=explore_color_max,
+        )
+        page_color_min = current_meta.get("page_display_color_min")
+        page_color_max = current_meta.get("page_display_color_max")
+        if _coerce_float(page_color_min) is None:
+            page_color_min = inherited_color_min
+        if _coerce_float(page_color_max) is None:
+            page_color_max = inherited_color_max
+        use_page_y_range = (
+            _coerce_float(modal_y_axis_min_hz) is None
+            and _coerce_float(modal_y_axis_max_hz) is None
+        )
+        use_page_color_range = (
+            _coerce_float(color_min) is None and _coerce_float(color_max) is None
+        )
+        effective_color_min = page_color_min if use_page_color_range else color_min
+        effective_color_max = page_color_max if use_page_color_range else color_max
+        modal_image_width, modal_image_height = resolve_modal_image_target(modal_viewport)
+        modal_image_source = None
+        if use_full_resolution_modal_image(cfg, y_axis_scale):
+            modal_image_source = build_modal_image_request_src(
+                modal_item,
+                cfg=cfg,
+                colormap=colormap,
+                y_axis_scale=y_axis_scale,
+                y_axis_min_hz=effective_y_axis_min_hz,
+                y_axis_max_hz=effective_y_axis_max_hz,
+                color_min=effective_color_min,
+                color_max=effective_color_max,
+                max_width=modal_image_width,
+                max_height=modal_image_height,
+            )
         fig, spectrogram = create_item_spectrogram_figure(
             modal_item,
             cfg,
@@ -294,13 +654,30 @@ def register_modal_view_callbacks(
             y_axis_scale,
             y_axis_min_hz=effective_y_axis_min_hz,
             y_axis_max_hz=effective_y_axis_max_hz,
-            color_min=color_min,
-            color_max=color_max,
+            color_min=effective_color_min,
+            color_max=effective_color_max,
+            image_source=modal_image_source,
+            image_target_width=modal_image_width,
+            image_target_height=modal_image_height,
         )
         if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
             boxes = bbox_store.get("boxes") or []
         else:
             boxes = _build_modal_boxes_from_item(modal_item)
+        updated_meta = dict(fig.layout.meta or {})
+        updated_meta.update(
+            {
+                "uses_page_y_range": use_page_y_range,
+                "uses_page_color_range": use_page_color_range,
+                "modal_item_id": item_id,
+                "display_colormap": colormap,
+                "page_display_y_min_hz": page_y_axis_min_hz,
+                "page_display_y_max_hz": page_y_axis_max_hz,
+                "page_display_color_min": page_color_min,
+                "page_display_color_max": page_color_max,
+            }
+        )
+        fig.update_layout(meta=updated_meta)
         updated = _apply_modal_boxes_to_figure(fig, boxes)
         placeholder_min, placeholder_max, colorbar_hint = build_modal_colorbar_ui(updated)
         perf_debug(
@@ -333,7 +710,8 @@ def register_modal_view_callbacks(
         Output("modal-colorbar-manual-min-input", "value"),
         Output("modal-colorbar-manual-max-input", "value"),
         Output("modal-display-range-defaults-store", "data"),
-        Input("modal-image-graph", "figure"),
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Input("modal-display-meta-store", "data"),
         State("modal-yaxis-min-input", "value"),
         State("modal-yaxis-max-input", "value"),
         State("modal-colorbar-min-input", "value"),
@@ -345,10 +723,17 @@ def register_modal_view_callbacks(
         State("verify-yaxis-max-input", "value"),
         State("explore-yaxis-min-input", "value"),
         State("explore-yaxis-max-input", "value"),
+        State("label-colorbar-min-input", "value"),
+        State("label-colorbar-max-input", "value"),
+        State("verify-colorbar-min-input", "value"),
+        State("verify-colorbar-max-input", "value"),
+        State("explore-colorbar-min-input", "value"),
+        State("explore-colorbar-max-input", "value"),
+        State("modal-display-range-defaults-store", "data"),
         prevent_initial_call=True,
     )
     def sync_modal_display_ranges(
-        figure,
+        figure_meta,
         modal_y_axis_min_hz,
         modal_y_axis_max_hz,
         modal_color_min,
@@ -360,8 +745,23 @@ def register_modal_view_callbacks(
         verify_y_axis_max_hz,
         explore_y_axis_min_hz,
         explore_y_axis_max_hz,
+        label_color_min,
+        label_color_max,
+        verify_color_min,
+        verify_color_max,
+        explore_color_min,
+        explore_color_max,
+        current_defaults,
     ):
-        if not figure:
+        if not isinstance(figure_meta, dict) or not figure_meta:
+            raise PreventUpdate
+        figure = {"layout": {"meta": figure_meta}}
+        controls_match_item = (
+            isinstance(current_defaults, dict)
+            and current_defaults.get("item_id")
+            and current_defaults.get("item_id") == figure_meta.get("modal_item_id")
+        )
+        if figure_meta.get("local_display_update_sequence") and controls_match_item:
             raise PreventUpdate
         inherited_y_axis_min_hz, inherited_y_axis_max_hz = resolve_mode_y_axis_limits(
             mode,
@@ -372,6 +772,18 @@ def register_modal_view_callbacks(
             explore_min=explore_y_axis_min_hz,
             explore_max=explore_y_axis_max_hz,
         )
+        inherited_color_min = resolve_mode_value(
+            mode,
+            label=label_color_min,
+            verify=verify_color_min,
+            explore=explore_color_min,
+        )
+        inherited_color_max = resolve_mode_value(
+            mode,
+            label=label_color_max,
+            verify=verify_color_max,
+            explore=explore_color_max,
+        )
         ui = build_modal_display_range_ui(
             figure,
             modal_y_min=modal_y_axis_min_hz,
@@ -380,6 +792,8 @@ def register_modal_view_callbacks(
             inherited_y_max=inherited_y_axis_max_hz,
             modal_color_min=modal_color_min,
             modal_color_max=modal_color_max,
+            inherited_color_min=inherited_color_min,
+            inherited_color_max=inherited_color_max,
         )
         return (
             ui["y_slider_min"],
@@ -402,7 +816,9 @@ def register_modal_view_callbacks(
                 "yaxis_readout": ui["y_readout"],
                 "colorbar": ui["color_default"],
                 "colorbar_readout": ui["color_readout"],
+                "item_id": figure_meta.get("modal_item_id"),
             },
+            False,
         )
 
     @app.callback(

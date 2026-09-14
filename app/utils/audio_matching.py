@@ -56,7 +56,7 @@ def parse_spectrogram_time_range(filename: str) -> Optional[Tuple[datetime, date
     except ValueError:
         return None
 
-def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tolerance_seconds: int = 300) -> List[str]:
+def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tolerance_seconds: int = 300, *, audio_files: Optional[List[str]] = None) -> List[str]:
     """
     Find audio files that match the time range of a spectrogram file.
     
@@ -68,15 +68,13 @@ def find_matching_audio_files(spectrogram_filename: str, audio_folder: str, tole
     Returns:
         List of matching audio file paths
     """
-    if not audio_folder or not os.path.exists(audio_folder):
-        return []
-    
-    # Get all audio files (both .flac and .wav)
-    audio_files = []
-    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.flac')))
-    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.wav')))
-    audio_files.extend(glob.glob(os.path.join(audio_folder, '*.mp3')))
-    
+    if audio_files is None:
+        if not audio_folder or not os.path.exists(audio_folder):
+            return []
+        audio_files = []
+        for extension in ("flac", "wav", "mp3"):
+            audio_files.extend(glob.glob(os.path.join(audio_folder, f"*.{extension}")))
+
     # First, try exact filename match (same base name, different extension).
     # This covers paired MAT/WAV files that share the same item identifier.
     spec_base = os.path.splitext(spectrogram_filename)[0]

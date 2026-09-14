@@ -4,15 +4,47 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 
+DEFAULT_SPECTROGRAM_PRESETS = [{'freq_max_hz': 125.0,
+  'freq_min_hz': 5.0,
+  'id': 'low',
+  'label': 'Low | 5-125 Hz',
+  'overlap': 0.9,
+  'win_dur_s': 1.0},
+ {'freq_max_hz': 2000.0,
+  'freq_min_hz': 100.0,
+  'id': 'mid',
+  'label': 'Mid | 100-2,000 Hz',
+  'overlap': 0.9,
+  'win_dur_s': 0.25},
+ {'freq_max_hz': 16000.0,
+  'freq_min_hz': 500.0,
+  'id': 'social',
+  'label': 'Social | 500-16,000 Hz',
+  'overlap': 0.9,
+  'win_dur_s': 0.05},
+ {'freq_max_hz': 32000.0,
+  'freq_min_hz': 2000.0,
+  'id': 'high',
+  'label': 'High | 2,000-32,000 Hz',
+  'overlap': 0.9,
+  'win_dur_s': 0.02},
+ {'freq_max_hz': 96000.0,
+  'freq_min_hz': 8000.0,
+  'id': 'ultrasonic',
+  'label': 'Ultrasonic | 8,000-96,000 Hz',
+  'overlap': 0.75,
+  'win_dur_s': 0.002}]
+
 _RENDER_KEYS = ("win_dur_s", "overlap", "freq_min_hz", "freq_max_hz")
+_RENDER_LIMITS = {
+    "win_dur_s": (0.001, 30.0),
+    "overlap": (0.0, 0.99),
+    "freq_min_hz": (0.0, 200000.0),
+    "freq_max_hz": (0.01, 200000.0),
+}
 
 
-def _coerce_float(
-    value: Any,
-    *,
-    minimum: float,
-    maximum: float,
-) -> Optional[float]:
+def _coerce_float(value: Any, *, minimum: float, maximum: float) -> Optional[float]:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -31,12 +63,12 @@ def _format_frequency(value: float) -> str:
 
 
 def get_spectrogram_presets(cfg: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return validated presets in their configured display order."""
+    """Return valid presets in configured display order."""
     render_cfg = (cfg or {}).get("spectrogram_render", {})
     if not isinstance(render_cfg, dict):
         return []
 
-    raw_presets = render_cfg.get("presets")
+    raw_presets = render_cfg.get("presets") or DEFAULT_SPECTROGRAM_PRESETS
     if isinstance(raw_presets, dict):
         candidates = [
             dict(value, id=key)
@@ -55,40 +87,72 @@ def get_spectrogram_presets(cfg: Optional[Dict[str, Any]]) -> List[Dict[str, Any
         if not preset_id or preset_id in seen:
             continue
 
-        win_dur_s = _coerce_float(raw.get("win_dur_s"), minimum=0.05, maximum=30.0)
-        overlap = _coerce_float(raw.get("overlap", 0.9), minimum=0.0, maximum=0.99)
-        freq_min_hz = _coerce_float(raw.get("freq_min_hz"), minimum=0.0, maximum=200000.0)
-        freq_max_hz = _coerce_float(raw.get("freq_max_hz"), minimum=0.01, maximum=200000.0)
-        if (
-            win_dur_s is None
-            or overlap is None
-            or freq_min_hz is None
-            or freq_max_hz is None
-            or freq_max_hz <= freq_min_hz
-        ):
+        resolved = {}
+        for key, (minimum, maximum) in _RENDER_LIMITS.items():
+            default = 0.9 if key == "overlap" else None
+            value = _coerce_float(
+                raw.get(key, default),
+                minimum=minimum,
+                maximum=maximum,
+            )
+            if value is None:
+                resolved = {}
+                break
+            resolved[key] = value
+        if not resolved or resolved["freq_max_hz"] <= resolved["freq_min_hz"]:
             continue
 
         label = str(raw.get("label") or "").strip()
         if not label:
             label = (
                 f"{preset_id.replace('_', ' ').title()} "
-                f"({_format_frequency(freq_min_hz)}-{_format_frequency(freq_max_hz)})"
+                f"({_format_frequency(resolved['freq_min_hz'])}-"
+                f"{_format_frequency(resolved['freq_max_hz'])})"
             )
-
         presets.append(
             {
                 "id": preset_id,
                 "label": label,
                 "scope": "item" if str(raw.get("scope") or "").strip().lower() == "item" else "global",
                 "metadata_key": str(raw.get("metadata_key") or "recommended_spectrogram").strip(),
-                "win_dur_s": win_dur_s,
-                "overlap": overlap,
-                "freq_min_hz": freq_min_hz,
-                "freq_max_hz": freq_max_hz,
+                **resolved,
             }
         )
         seen.add(preset_id)
     return presets
+
+
+def get_item_spectrogram_recommendation(
+    item: Optional[Dict[str, Any]],
+    preset: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, float]]:
+    """Return validated item metadata for an item-scoped preset."""
+    if not isinstance(item, dict) or not isinstance(preset, dict):
+        return None
+    if preset.get("scope") != "item":
+        return None
+
+    metadata_key = str(preset.get("metadata_key") or "recommended_spectrogram")
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    recommendation = metadata.get(metadata_key)
+    if not isinstance(recommendation, dict):
+        recommendation = item.get(metadata_key)
+    if not isinstance(recommendation, dict):
+        return None
+
+    resolved = {}
+    for key, (minimum, maximum) in _RENDER_LIMITS.items():
+        value = _coerce_float(
+            recommendation.get(key),
+            minimum=minimum,
+            maximum=maximum,
+        )
+        if value is None:
+            return None
+        resolved[key] = value
+    if resolved["freq_max_hz"] <= resolved["freq_min_hz"]:
+        return None
+    return resolved
 
 
 def find_matching_spectrogram_preset(
@@ -101,31 +165,28 @@ def find_matching_spectrogram_preset(
     if not isinstance(render_cfg, dict):
         return None
 
+    presets = get_spectrogram_presets(cfg)
     active_preset = str(render_cfg.get("active_preset") or "").strip()
+    if active_preset == "custom":
+        return "custom"
     if active_preset:
-        active = next(
-            (
-                preset
-                for preset in get_spectrogram_presets(cfg)
-                if preset["id"] == active_preset
-            ),
-            None,
-        )
+        active = next((preset for preset in presets if preset["id"] == active_preset), None)
         if active and active.get("scope") == "item":
             return active_preset
 
-    for preset in get_spectrogram_presets(cfg):
-        matches = True
-        for key in _RENDER_KEYS:
-            try:
-                active_value = float(render_cfg.get(key))
-            except (TypeError, ValueError):
-                matches = False
-                break
-            if abs(active_value - float(preset[key])) > tolerance:
-                matches = False
-                break
-        if matches:
+    for preset in presets:
+        if preset.get("scope") == "item":
+            continue
+        if all(
+            _coerce_float(
+                render_cfg.get(key),
+                minimum=_RENDER_LIMITS[key][0],
+                maximum=_RENDER_LIMITS[key][1],
+            )
+            is not None
+            and abs(float(render_cfg[key]) - float(preset[key])) <= tolerance
+            for key in _RENDER_KEYS
+        ):
             return str(preset["id"])
     return None
 
@@ -145,9 +206,7 @@ def apply_spectrogram_preset(
 
     updated_cfg = deepcopy(cfg or {})
     render_cfg = updated_cfg.get("spectrogram_render")
-    if not isinstance(render_cfg, dict):
-        render_cfg = {}
-    render_cfg = dict(render_cfg)
+    render_cfg = dict(render_cfg) if isinstance(render_cfg, dict) else {}
     for key in _RENDER_KEYS:
         render_cfg[key] = float(preset[key])
     render_cfg["active_preset"] = requested

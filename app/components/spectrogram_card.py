@@ -323,7 +323,52 @@ def _recommended_spectrogram_label(item):
     return f"{freq_min:g}-{freq_max:g} Hz"
 
 
-def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label") -> dbc.Card:
+def _spectrogram_view(item_id, view, index):
+    image_src = view.get("image_src")
+    image_props = {
+        "id": {
+            "type": "spectrogram-image",
+            "item_id": item_id,
+            "range_id": str(view.get("id") or index),
+        },
+        "src": _TRANSPARENT_IMAGE_SRC,
+        "alt": f"{view.get('label') or 'Spectrogram'} for {item_id}",
+        "className": "spectrogram-image spectrogram-range-image",
+        "data-src": image_src or "",
+        "data-lazy-spectrogram": "true",
+        "style": {"width": "100%", "cursor": "pointer"},
+    }
+    image = (
+        html.Img(**image_props)
+        if image_src
+        else html.Div("Image unavailable", className="spectrogram-range-unavailable")
+    )
+    return html.Section(
+        [
+            html.Div(
+                [
+                    html.Span(view.get("label") or "Spectrogram", className="spectrogram-range-title"),
+                    html.Span(
+                        view.get("frequency_label") or "",
+                        className="spectrogram-range-frequency",
+                    ),
+                ],
+                className="spectrogram-range-header",
+            ),
+            html.Div(
+                image,
+                className="spectrogram-image-container spectrogram-range-image-container",
+                **{"data-item-id": item_id},
+            ),
+        ],
+        className=(
+            "spectrogram-range-section spectrogram-range-section--visible "
+            f"spectrogram-range-accent-{index % 5}"
+        ),
+    )
+
+
+def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label", image_views=None) -> dbc.Card:
     item_id = item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
     audio_path = item.get("audio_path")
 
@@ -346,21 +391,22 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     has_pending_edits = _has_pending_label_edits(annotations_data)
     assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
 
-    # Make image clickable for modal zoom
-    image = html.Div([
-        html.Img(
-            src=_TRANSPARENT_IMAGE_SRC,
-            alt=f"Spectrogram for {item_id}",
-            id={"type": "spectrogram-image", "item_id": item_id},
-            className="spectrogram-image",
-            **{"data-src": image_src or "", "data-lazy-spectrogram": "true"},
-            style={"width": "100%", "borderRadius": "10px", "cursor": "pointer"},
-        ) if image_src else html.Div(
-            "Image unavailable",
-            className="text-muted text-center p-3",
-            style={"background": "#f8f9fa", "borderRadius": "10px"},
-        )
-    ], className="spectrogram-image-container", **{"data-item-id": item_id})
+    if not image_views:
+        image_views = [
+            {
+                "id": "spectrogram",
+                "label": "Spectrogram",
+                "frequency_label": "",
+                "image_src": image_src,
+            }
+        ]
+    image = html.Div(
+        [
+            _spectrogram_view(item_id, view, index)
+            for index, view in enumerate(image_views)
+        ],
+        className="spectrogram-range-stack",
+    )
 
     # Add audio player
     audio_player = html.Div([
@@ -401,7 +447,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
                 outline=not has_pending_edits,
             ),
             dbc.Button(
-                "Edit",
+                "Edit labels",
                 id={"type": "edit-btn", "item_id": item_id},
                 size="sm",
                 color="secondary",
@@ -417,7 +463,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
                 disabled=not has_pending_edits,
                 outline=not has_pending_edits,
             ),
-            dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="secondary"),
+            dbc.Button("Edit labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="secondary"),
         ]
     else:
         actions = []

@@ -46,8 +46,8 @@ def register_all_callback_sections(app, *, config, deps):
         is_valid_email=d["is_valid_email"],
     )
     register_app_config_callbacks(app, set_cache_sizes=d["set_cache_sizes"])
-    register_spectrogram_preset_callbacks(app)
     register_theme_callbacks(app)
+    register_spectrogram_preset_callbacks(app)
     register_display_range_callbacks(
         app,
         _filter_predictions=d["filter_predictions"],

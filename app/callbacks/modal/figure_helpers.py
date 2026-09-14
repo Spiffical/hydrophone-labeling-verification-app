@@ -1,5 +1,9 @@
 """Modal figure overlay helpers (box shapes, labels, delete handles)."""
 
+from copy import deepcopy
+
+from dash import Patch
+
 from app.services.modal_boxes import (
     axis_meta_from_figure,
     box_style,
@@ -11,6 +15,25 @@ from app.services.modal_boxes import (
 
 BBOX_DELETE_TRACE_NAME = "__bbox_delete_handle__"
 BBOX_EDIT_TRACE_NAME = "__bbox_edit_handle__"
+
+
+def patch_modal_boxes(figure_context, boxes, *, apply_boxes=None, **kwargs):
+    """Update overlays without uploading or returning the spectrogram matrix."""
+    context = deepcopy(figure_context) if isinstance(figure_context, dict) else {}
+    previous_traces = context.get("data") or []
+    updated = (apply_boxes or apply_modal_boxes_to_figure)(context, boxes, **kwargs)
+    patch = Patch()
+    for key in ("shapes", "annotations", "editrevision"):
+        patch["layout"][key] = updated["layout"][key]
+    overlay_names = {BBOX_DELETE_TRACE_NAME, BBOX_EDIT_TRACE_NAME}
+    # Delete backwards to keep the indices of remaining traces stable.
+    for index in range(len(previous_traces) - 1, -1, -1):
+        if previous_traces[index].get("name") in overlay_names:
+            del patch["data"][index]
+    for trace in updated.get("data", []):
+        if trace.get("name") in overlay_names:
+            patch["data"].append(trace)
+    return patch
 
 
 def _format_hover_number(value, suffix):

@@ -11,6 +11,7 @@ from app.services.verify_modal_cache import (
     get_verify_modal_item_index,
     get_verify_modal_summary,
     update_verify_modal_item,
+    verify_item_store_patch,
 )
 from app.services.annotations import extract_box_annotation_list_map_from_boxes
 from app.utils.persistence import save_verify_predictions
@@ -273,11 +274,7 @@ def register_verify_confirm_callbacks(
             updated_item["verifications"] = verifications
 
         update_verify_modal_item(verify_data_cache_key, updated_item)
-        patch = Patch()
-        patch["items"][active_item_index] = updated_item
-        next_summary = get_verify_modal_summary(verify_data_cache_key)
-        if isinstance(next_summary, dict):
-            patch["summary"] = next_summary
+        patch = verify_item_store_patch(verify_data_cache_key, updated_item)
         direct_ui_updates = build_verify_card_ui_updates(
             item_id,
             updated_item,
@@ -521,7 +518,7 @@ def register_verify_confirm_callbacks(
             updated_item["verifications"] = verifications
 
         active_item_index = update_verify_modal_item(verify_data_cache_key, updated_item)
-        verify_store_update = no_update
+        verify_store_update = verify_item_store_patch(verify_data_cache_key, updated_item)
 
         snapshot_boxes = modal_boxes if modal_boxes else _build_modal_boxes_from_item(updated_item)
         next_pending_ids = [value for value in (pending_sync_item_ids or []) if isinstance(value, str) and value]

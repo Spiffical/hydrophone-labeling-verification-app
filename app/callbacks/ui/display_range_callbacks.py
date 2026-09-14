@@ -8,6 +8,8 @@ from app.services.verify_modal_cache import get_filtered_verify_items_page, get_
 from app.utils.image_processing import (
     get_spectrogram_render_settings,
     resolve_item_spectrogram,
+    summarize_item_available_frequency_range,
+    summarize_item_existing_spectrogram_ranges,
     summarize_spectrogram_display_ranges,
 )
 
@@ -69,7 +71,7 @@ def _format_hz_mark(value):
 def _round_frequency_input_value(value):
     value = float(value)
     if value >= 1000.0:
-        return round(value, 2)
+        return round(value, 0)
     if value >= 100.0:
         return round(value, 1)
     return round(value, 2)
@@ -198,14 +200,47 @@ def _fallback_display_summary(cfg):
 
 def _page_display_summary(page_items, cfg):
     summary = None
+    available_frequency = None
     for item in page_items or []:
         if not isinstance(item, dict):
             continue
-        spectrogram = resolve_item_spectrogram(item, cfg)
-        current = summarize_spectrogram_display_ranges(spectrogram)
+        stored_summary = summarize_item_existing_spectrogram_ranges(item)
+        current = stored_summary
+        if not current:
+            spectrogram = resolve_item_spectrogram(item, cfg)
+            current = summarize_spectrogram_display_ranges(spectrogram)
         if current:
             summary = _merge_display_summary(summary, current)
-    return summary or _fallback_display_summary(cfg)
+        available = (
+            {
+                "freq_data_min_hz": stored_summary["freq_data_min_hz"],
+                "freq_data_max_hz": stored_summary["freq_data_max_hz"],
+                "freq_positive_min_hz": stored_summary["freq_positive_min_hz"],
+            }
+            if stored_summary
+            else summarize_item_available_frequency_range(item, cfg)
+        )
+        if available:
+            if available_frequency is None:
+                available_frequency = dict(available)
+            else:
+                available_frequency["freq_data_min_hz"] = min(
+                    available_frequency["freq_data_min_hz"],
+                    available["freq_data_min_hz"],
+                )
+                available_frequency["freq_data_max_hz"] = max(
+                    available_frequency["freq_data_max_hz"],
+                    available["freq_data_max_hz"],
+                )
+                available_frequency["freq_positive_min_hz"] = min(
+                    available_frequency["freq_positive_min_hz"],
+                    available["freq_positive_min_hz"],
+                )
+
+    result = summary or _fallback_display_summary(cfg)
+    if available_frequency:
+        result.update(available_frequency)
+    return result
 
 
 def _frequency_slider_state(prefix, summary, current_min, current_max, triggered_id):
@@ -220,18 +255,20 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
     current_max = _coerce_float(current_max)
 
     if triggered_id == f"{prefix}-yaxis-reset-btn":
+        manual_lower = _round_frequency_input_value(10 ** default_slider_value[0])
+        manual_upper = _round_frequency_input_value(10 ** default_slider_value[1])
         return (
             slider_min,
             slider_max,
             marks,
             default_slider_value,
             "Full available range",
-            f"Available on this page: {_format_hz(bound_min_hz)} to {_format_hz(bound_max_hz)}.",
+            f"Available: {_format_hz(bound_min_hz)} to {_format_hz(bound_max_hz)}.",
             None,
             None,
             default_slider_value,
-            _round_frequency_input_value(bound_min_hz),
-            _round_frequency_input_value(bound_max_hz),
+            manual_lower,
+            manual_upper,
         )
 
     if current_min is None and current_max is None:
@@ -256,18 +293,21 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
         else:
             readout = f"{_format_hz(display_lower)} to {_format_hz(display_upper)}"
 
+    manual_lower = _round_frequency_input_value(10 ** slider_pair[0])
+    manual_upper = _round_frequency_input_value(10 ** slider_pair[1])
+
     return (
         slider_min,
         slider_max,
         marks,
         slider_pair,
         readout,
-        f"Available on this page: {_format_hz(bound_min_hz)} to {_format_hz(bound_max_hz)}.",
+        f"Available: {_format_hz(bound_min_hz)} to {_format_hz(bound_max_hz)}.",
         actual_lower,
         actual_upper,
         default_slider_value,
-        _round_frequency_input_value(display_lower if current_min is not None or current_max is not None else bound_min_hz),
-        _round_frequency_input_value(display_upper if current_min is not None or current_max is not None else bound_max_hz),
+        manual_lower,
+        manual_upper,
     )
 
 
@@ -297,10 +337,7 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
             marks,
             default_slider_value,
             "Auto contrast",
-            (
-                f"Page sample span: {_format_db(bound_min)} to {_format_db(bound_max)}. "
-                f"Reset keeps per-spectrogram auto contrast active."
-            ),
+            f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}.",
             None,
             None,
             default_slider_value,
@@ -336,10 +373,7 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
         marks,
         slider_pair,
         readout,
-        (
-            f"Page sample auto: {_format_db(auto_min)} to {_format_db(auto_max)}. "
-            f"Reset keeps per-spectrogram auto contrast active."
-        ),
+        f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}.",
         actual_lower,
         actual_upper,
         default_slider_value,
@@ -564,6 +598,7 @@ def register_display_range_callbacks(
 
     @app.callback(
         *_outputs("label"),
+        Output("label-display-settings-details", "open"),
         Input("label-data-store", "data"),
         Input("label-current-page", "data"),
         Input("label-yaxis-reset-btn", "n_clicks"),
@@ -589,23 +624,27 @@ def register_display_range_callbacks(
     ):
         _ = y_reset_clicks, color_reset_clicks
         if not int(details_clicks or 0) % 2:
-            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
+            return (no_update,) * (_DISPLAY_RANGE_OUTPUT_COUNT + 1)
         cfg = cfg or {}
         items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)
         page_items = _slice_page(items, current_page, items_per_page)
-        return _build_display_range_outputs(
-            "label",
-            page_items,
-            cfg,
-            current_y_min,
-            current_y_max,
-            current_color_min,
-            current_color_max,
+        return (
+            *_build_display_range_outputs(
+                "label",
+                page_items,
+                cfg,
+                current_y_min,
+                current_y_max,
+                current_color_min,
+                current_color_max,
+            ),
+            True,
         )
 
     @app.callback(
         *_outputs("verify"),
+        Output("verify-display-settings-details", "open"),
         Input("verify-data-cache-key-store", "data"),
         Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
@@ -639,7 +678,7 @@ def register_display_range_callbacks(
     ):
         _ = y_reset_clicks, color_reset_clicks, verify_cache_revision
         if not int(details_clicks or 0) % 2:
-            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
+            return (no_update,) * (_DISPLAY_RANGE_OUTPUT_COUNT + 1)
         cfg = cfg or {}
         thresholds = thresholds or {"__global__": 0.5}
         available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
@@ -659,18 +698,22 @@ def register_display_range_callbacks(
             items_per_page,
             status_filter,
         )["items"]
-        return _build_display_range_outputs(
-            "verify",
-            page_items,
-            cfg,
-            current_y_min,
-            current_y_max,
-            current_color_min,
-            current_color_max,
+        return (
+            *_build_display_range_outputs(
+                "verify",
+                page_items,
+                cfg,
+                current_y_min,
+                current_y_max,
+                current_color_min,
+                current_color_max,
+            ),
+            True,
         )
 
     @app.callback(
         *_outputs("explore"),
+        Output("explore-display-settings-details", "open"),
         Input("explore-data-store", "data"),
         Input("explore-current-page", "data"),
         Input("explore-yaxis-reset-btn", "n_clicks"),
@@ -696,19 +739,22 @@ def register_display_range_callbacks(
     ):
         _ = y_reset_clicks, color_reset_clicks
         if not int(details_clicks or 0) % 2:
-            return (no_update,) * _DISPLAY_RANGE_OUTPUT_COUNT
+            return (no_update,) * (_DISPLAY_RANGE_OUTPUT_COUNT + 1)
         cfg = cfg or {}
         items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)
         page_items = _slice_page(items, current_page, items_per_page)
-        return _build_display_range_outputs(
-            "explore",
-            page_items,
-            cfg,
-            current_y_min,
-            current_y_max,
-            current_color_min,
-            current_color_max,
+        return (
+            *_build_display_range_outputs(
+                "explore",
+                page_items,
+                cfg,
+                current_y_min,
+                current_y_max,
+                current_color_min,
+                current_color_max,
+            ),
+            True,
         )
 
     def _register_slider_commit(prefix):

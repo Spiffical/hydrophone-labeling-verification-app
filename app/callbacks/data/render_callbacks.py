@@ -3,9 +3,14 @@
 import os
 import time
 
-from dash import Input, Output, State, html, no_update
+from dash import Input, Output, State, html, no_update, set_props
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.services.grid_updates import grid_render_state, incremental_grid
+from app.services.spectrogram_grid import (
+    normalize_spectrogram_grid,
+    spectrogram_grid_class,
+)
 from app.services.verify_modal_cache import (
     ensure_verify_modal_items,
     get_filtered_verify_items_page,
@@ -13,10 +18,37 @@ from app.services.verify_modal_cache import (
     get_verify_modal_summary,
     has_verify_modal_items,
 )
-from app.services.display_settings import resolve_colormap_choice
-from app.utils.image_processing import SPECTROGRAM_SOURCE_AUDIO_GENERATED, get_spectrogram_render_settings
+from app.utils.image_processing import (
+    SPECTROGRAM_SOURCE_AUDIO_GENERATED,
+    get_spectrogram_render_settings,
+    is_modal_prefetch_enabled,
+)
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _empty_all_dates_preview_ready_payload(summary, cache_key):
+    """Signal that an empty preview rendered so its full index may start loading."""
+    summary = summary if isinstance(summary, dict) else {}
+    return {
+        "load_timestamp": cache_key,
+        "active_date": summary.get("active_date"),
+        "active_hydrophone": summary.get("active_hydrophone"),
+        "page": 0,
+        "rendered_at": time.time(),
+        "item_count": 0,
+        "item_ids": [],
+        "all_dates_request_id": summary.get("all_dates_request_id"),
+    }
+
+
+def _verify_page_info(current_page, items_per_page, filtered_total, *, index_available=True):
+    if not index_available:
+        return "Indexing..."
+    if filtered_total <= 0:
+        return "Page 0 of 0"
+    total_pages = max(1, (filtered_total + items_per_page - 1) // items_per_page)
+    return f"Page {current_page + 1} of {total_pages}"
 
 
 def _prefetch_enabled(cfg):
@@ -24,7 +56,18 @@ def _prefetch_enabled(cfg):
     configured = cache_cfg.get("prefetch_enabled", cache_cfg.get("prefetch"))
     if configured is not None:
         return str(configured).strip().lower() not in {"0", "false", "no", "off"}
-    return True
+
+    # Existing MAT-backed images are requested lazily by the browser. Prefetching
+    # them can leave stale modal/future-page renders ahead of a newly filtered
+    # first page because matplotlib rendering is serialized.
+    return (
+        get_spectrogram_render_settings(cfg).get("source")
+        == SPECTROGRAM_SOURCE_AUDIO_GENERATED
+    )
+
+
+def _modal_prefetch_enabled(cfg):
+    return is_modal_prefetch_enabled(cfg)
 
 
 def _compute_prefetch_pages_ahead(cfg, items_per_page):
@@ -106,7 +149,8 @@ def register_render_callbacks(
             return _loading_path(loading_text)
         return "Not set"
 
-    def _spectrogram_grid_placeholder(text="Preparing spectrogram cards..."):
+    def _spectrogram_grid_placeholder(cfg=None, text="Preparing spectrogram cards..."):
+        layout = normalize_spectrogram_grid(cfg)
         return html.Div(
             [
                 html.Div(
@@ -118,9 +162,10 @@ def register_render_callbacks(
                     ],
                     className="spec-card-skeleton",
                 )
-                for _ in range(6)
+                for _ in range(layout["items_per_page"])
             ],
-            className="spec-grid-placeholder",
+            className=f"spec-grid-placeholder {spectrogram_grid_class(layout['columns'])}",
+            style={"--spectrogram-grid-columns": str(layout["columns"])},
         )
 
     def _ui_ready_payload(data, page_items, current_page, extra=None):
@@ -128,8 +173,11 @@ def register_render_callbacks(
             item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
             for item in (page_items or [])
         ]
+        summary = data.get("summary") if isinstance(data, dict) and isinstance(data.get("summary"), dict) else {}
         payload = {
             "load_timestamp": data.get("load_timestamp") if isinstance(data, dict) else None,
+            "active_date": summary.get("active_date"),
+            "active_hydrophone": summary.get("active_hydrophone"),
             "page": int(current_page),
             "rendered_at": time.time(),
             "item_count": len(item_ids),
@@ -175,7 +223,13 @@ def register_render_callbacks(
     def sync_verify_data_cache(data, current_revision):
         if not isinstance(data, dict) or not data.get("load_timestamp"):
             return None, current_revision or 0
-        cache_key = ensure_verify_modal_items(data)
+        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        indexed_cache_key = summary.get("verify_modal_cache_key")
+        cache_key = (
+            indexed_cache_key
+            if indexed_cache_key and has_verify_modal_items(indexed_cache_key)
+            else ensure_verify_modal_items(data)
+        )
         try:
             revision = int(current_revision or 0) + 1
         except (TypeError, ValueError):
@@ -200,7 +254,9 @@ def register_render_callbacks(
         Input("label-colorbar-max-input", "value"),
         Input("label-current-page", "data"),
         Input("config-store", "data"),
+        Input("spectrogram-ranges-store", "data"),
         State("mode-tabs", "data"),
+        State("label-ui-ready-store", "data"),
         prevent_initial_call=True,
     )
     def render_label(
@@ -213,7 +269,9 @@ def register_render_callbacks(
         color_max,
         current_page,
         cfg,
+        spectrogram_ranges,
         mode,
+        previous_ui_ready,
     ):
         # Render even if not in label mode (to maintain state when switching back)
         pass
@@ -224,7 +282,7 @@ def register_render_callbacks(
         summary = data.get("summary", {})
         items = data.get("items", [])
 
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
+        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         
@@ -246,19 +304,28 @@ def register_render_callbacks(
         
         page_info = f"Page {current_page + 1} of {total_pages}"
 
-        grid = _build_grid(
-            page_items,
-            "label",
-            colormap,
-            y_axis_scale,
-            y_axis_min_hz,
-            y_axis_max_hz,
-            color_min,
-            color_max,
-            items_per_page,
-            cfg,
+        render_state = grid_render_state(page_items, {
+            "load_timestamp": data.get("load_timestamp"), "page": current_page,
+            "colormap": colormap, "y_axis_scale": y_axis_scale,
+            "y_min": y_axis_min_hz, "y_max": y_axis_max_hz,
+            "color_min": color_min, "color_max": color_max, "config": cfg,
+            "spectrogram_ranges": spectrogram_ranges,
+        })
+
+        def build_page_grid(items):
+            return _build_grid(
+                items, "label", colormap, y_axis_scale, y_axis_min_hz,
+                y_axis_max_hz, color_min, color_max, items_per_page, cfg, spectrogram_ranges,
+            )
+
+        grid = incremental_grid(
+            (previous_ui_ready or {}).get("grid_render_state"), render_state,
+            lambda: build_page_grid(page_items),
+            lambda index: build_page_grid([page_items[index]]).children[0],
+            update_card=lambda column: set_props(column.id, {"children": column.children}),
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -272,9 +339,12 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -314,6 +384,8 @@ def register_render_callbacks(
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and modal_submitted:
@@ -337,7 +409,7 @@ def register_render_callbacks(
         )
         labels_file_display = summary.get("labels_file") or no_update
 
-        ui_ready = _ui_ready_payload(data, page_items, current_page)
+        ui_ready = _ui_ready_payload(data, page_items, current_page, {"grid_render_state": render_state})
         if _SPECGEN_DEBUG:
             print(
                 f"[render-ready] mode=label page={current_page} total_pages={total_pages} "
@@ -380,6 +452,7 @@ def register_render_callbacks(
         Input("verify-colorbar-min-input", "value"),
         Input("verify-colorbar-max-input", "value"),
         Input("config-store", "data"),
+        Input("spectrogram-ranges-store", "data"),
         State("mode-tabs", "data"),
     )
     def render_verify(
@@ -396,6 +469,7 @@ def register_render_callbacks(
         color_min,
         color_max,
         cfg,
+        spectrogram_ranges,
         mode,
     ):
         # Render even if not in verify mode (to maintain state when switching back)
@@ -405,8 +479,13 @@ def register_render_callbacks(
         _ = verify_cache_revision
         summary = get_verify_modal_summary(verify_cache_key) or {}
         is_loading_dataset = not verify_cache_key or not has_verify_modal_items(verify_cache_key)
+        is_empty_all_dates_preview = bool(
+            summary.get("all_dates_loading")
+            and summary.get("all_dates_preview")
+            and int(summary.get("total_items") or 0) <= 0
+        )
         cfg_data = cfg.get("data", {}) if isinstance(cfg.get("data"), dict) else {}
-        if is_loading_dataset:
+        if is_loading_dataset or is_empty_all_dates_preview:
             data_root = summary.get("data_root") or cfg_data.get("data_dir") or "Loading data root..."
             nested_verify_cfg = cfg_data.get("verify", {}) if isinstance(cfg_data.get("verify"), dict) else {}
             spec_folder_display = _path_value(
@@ -426,16 +505,30 @@ def register_render_callbacks(
                 "Loading predictions file...",
                 True,
             )
+            loading_ui_ready = (
+                _empty_all_dates_preview_ready_payload(summary, verify_cache_key)
+                if is_empty_all_dates_preview
+                else no_update
+            )
             return (
-                html.Div("Loading predictions and preparing spectrogram cards...", className="summary-info text-muted"),
-                _spectrogram_grid_placeholder(),
+                html.Div(
+                    [
+                        html.Span("Loading...", className="command-match-count"),
+                        html.Div(
+                            "Preparing predictions and spectrogram cards",
+                            className="command-filter-context",
+                        ),
+                    ],
+                    className="summary-info",
+                ),
+                _spectrogram_grid_placeholder(cfg),
                 "Preparing page...",
                 1,
                 spec_folder_display,
                 audio_folder_display,
                 pred_file_display,
                 data_root,
-                no_update,
+                loading_ui_ready,
                 [],
             )
         thresholds = thresholds or {"__global__": 0.5}
@@ -458,7 +551,7 @@ def register_render_callbacks(
         else:
             filter_text = f"{len(selected_filters)} selected"
 
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
+        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         filtered_page = get_filtered_verify_items_page(
@@ -471,19 +564,93 @@ def register_render_callbacks(
         )
         filtered_total = filtered_page["total_items"]
         total_pages = filtered_page["total_pages"]
+        if (current_page or 0) != filtered_page["page_index"]:
+            set_props("verify-current-page", {"data": filtered_page["page_index"]})
         current_page = filtered_page["page_index"]
         page_items = filtered_page["items"]
         visible_item_ids = filtered_page["visible_item_ids"]
-        summary_block = html.Div([
-            html.Span(f"Visible: {filtered_total}", className="fw-semibold"),
-            html.Span(f"Total: {summary.get('total_items', filtered_total)}", className="ms-3 text-muted"),
-            html.Span(f"Verified: {summary.get('verified', 0)}", className="ms-3 text-muted"),
-            html.Span(f"Threshold: {current_threshold*100:.0f}%", className="ms-3 text-muted"),
-            html.Span(f"Class: {filter_text}", className="ms-3 text-muted"),
-            html.Span(f"Status: {_verify_status_filter_text(status_filter)}", className="ms-3 text-muted"),
-        ], className="summary-info")
+        remaining_count = filtered_page["remaining_items"]
+        remaining_noun = "clip" if remaining_count == 1 else "clips"
+        matching_noun = "clip" if filtered_total == 1 else "clips"
+        is_partial_selection = bool(summary.get("all_dates_loading"))
+        index_available = not bool(
+            summary.get("active_date") == "All"
+            and is_partial_selection
+            and not summary.get("all_dates_index_available")
+        )
+        if index_available:
+            match_summary = html.Span(
+                f"{remaining_count:,} {remaining_noun} left to verify",
+                className="command-match-count",
+            )
+            context_children = [
+                html.Span(f"{filtered_total:,} {matching_noun} matching current filters", className="command-filter-detail"),
+                html.Span(
+                    f"{int(summary.get('total_items', filtered_total)):,} recordings",
+                    className="command-filter-detail",
+                ),
+                html.Span(
+                    f"{int(summary.get('verified', 0)):,} verified",
+                    className="command-filter-detail",
+                ),
+            ]
+        else:
+            match_summary = html.Span(
+                "Counting...",
+                className="command-match-count",
+            )
+            context_children = [
+                html.Span(
+                    "Counting recordings",
+                    className="command-filter-detail",
+                ),
+            ]
+        context_children.extend(
+            [
+                html.Span(
+                    f"Threshold {current_threshold*100:.0f}%",
+                    className="command-filter-detail",
+                ),
+                html.Span(
+                    [
+                        html.Span("Class", className="command-filter-label"),
+                        html.Span(filter_text, className="command-filter-value"),
+                    ],
+                    className="command-filter-detail",
+                ),
+                html.Span(
+                    [
+                        html.Span("Status", className="command-filter-label"),
+                        html.Span(
+                            _verify_status_filter_text(status_filter),
+                            className="command-filter-value",
+                        ),
+                    ],
+                    className="command-filter-detail",
+                ),
+            ]
+        )
+        if is_partial_selection:
+            context_children.append(
+                html.Span(
+                    "Updating...",
+                    className="command-filter-detail command-filter-updating",
+                )
+            )
+        summary_block = html.Div(
+            [
+                match_summary,
+                html.Div(context_children, className="command-filter-context"),
+            ],
+            className="summary-info",
+        )
 
-        page_info = f"Page {current_page + 1} of {total_pages}"
+        page_info = _verify_page_info(
+            current_page,
+            int(items_per_page or 25),
+            filtered_total,
+            index_available=index_available,
+        )
 
         grid = _build_grid(
             page_items,
@@ -496,9 +663,11 @@ def register_render_callbacks(
             color_max,
             items_per_page,
             cfg,
+            spectrogram_ranges,
             empty_message="No items match the current filters.",
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -512,9 +681,12 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -559,6 +731,8 @@ def register_render_callbacks(
             modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 future_page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
             if _SPECGEN_DEBUG and modal_submitted:
                 print(
@@ -608,10 +782,13 @@ def register_render_callbacks(
         )
 
         ui_ready = _ui_ready_payload(
-            {},
+            {"load_timestamp": verify_cache_key, "summary": summary},
             page_items,
             current_page,
-            {"verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter)},
+            {
+                "verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter),
+                "all_dates_request_id": summary.get("all_dates_request_id"),
+            },
         )
         if _SPECGEN_DEBUG:
             print(
@@ -647,6 +824,7 @@ def register_render_callbacks(
         Input("explore-colorbar-min-input", "value"),
         Input("explore-colorbar-max-input", "value"),
         Input("config-store", "data"),
+        Input("spectrogram-ranges-store", "data"),
     )
     def render_explore(
         data,
@@ -658,13 +836,14 @@ def register_render_callbacks(
         color_min,
         color_max,
         cfg,
+        spectrogram_ranges,
     ):
         cfg = cfg or {}
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])
 
-        colormap = resolve_colormap_choice(use_hydrophone_colormap, cfg.get("display", {}))
+        colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
         items_per_page = cfg.get("display", {}).get("items_per_page", 25)
         summary_block = html.Div([
@@ -691,8 +870,10 @@ def register_render_callbacks(
             color_max,
             items_per_page,
             cfg,
+            spectrogram_ranges,
         )
         prefetch_enabled = _prefetch_enabled(cfg)
+        modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
         current_page_submitted = 0
         current_page_modal_submitted = 0
         if prefetch_enabled:
@@ -706,9 +887,12 @@ def register_render_callbacks(
                 color_min=color_min,
                 color_max=color_max,
             )
+        if modal_prefetch_enabled:
             current_page_modal_submitted = _schedule_modal_prefetch_for_current_page_spectrograms(
                 page_items,
                 cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
             )
         if _SPECGEN_DEBUG and current_page_submitted:
             print(
@@ -748,6 +932,8 @@ def register_render_callbacks(
                 current_page=current_page,
                 items_per_page=items_per_page,
                 cfg=cfg,
+                y_axis_min_hz=y_axis_min_hz,
+                y_axis_max_hz=y_axis_max_hz,
                 pages_ahead=prefetch_pages,
             )
             if _SPECGEN_DEBUG and modal_submitted:

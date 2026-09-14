@@ -1,0 +1,232 @@
+[
+  {
+    "path": "app/assets/command_panels.js",
+    "before": "d2e6c604326d2ce7a37ed23ba53203f209d41fc02762fe4770d10ab0ef1d485c",
+    "after": "a852d0919e611768fbcc2c9b47bde8dfa0939cb583826cb49b7009a4b014b2f2"
+  },
+  {
+    "path": "app/assets/spectrogram_image_loading.js",
+    "before": "91a9845037a10db9049876cbdc81663afdd28892481aa4362af6aea54e3f575e",
+    "after": "7b9ff6f719c11b45ba4246e97fe6e15cbb2172358aa2cd3ca2d9cc8e934506e9"
+  },
+  {
+    "path": "app/assets/spectrogram_panel_position.js",
+    "before": null,
+    "after": "2b47b4dcd8a6622cfcda16100d8b02a78ef4dfb68f842065569f66e695c5ff31"
+  },
+  {
+    "path": "app/assets/styles.css",
+    "before": "6ac6e269a7b54f95d5c031c621a3b0099409b65fa2d9bc67ce6817736c0dd6be",
+    "after": "ba6db49fc58458b66903d0ed356395ef85a660a3bea6bacdacec6ab04f183f7b"
+  },
+  {
+    "path": "app/assets/zz_spectrogram_modal.css",
+    "before": null,
+    "after": "3a410b5669a32966aefe5a70d3450766b53fb5a3e7c54a138139b392cd81b9e5"
+  },
+  {
+    "path": "app/assets/zz_spectrogram_panel.css",
+    "before": null,
+    "after": "ac279ab9660d356bbc305d7e70bc43136742c446167e27f5fc47dd7ad7eabf55"
+  },
+  {
+    "path": "app/callbacks/common/register_helpers.py",
+    "before": "78b778b0643052838c6b948f8d2cc94790ab513c50aebe52af1d96954f9280b2",
+    "after": "a25dc122b0c7c33594b543b65f233d0801166df88cab3eb27fbab0efc20b6c75"
+  },
+  {
+    "path": "app/callbacks/data/loading_overlay_callbacks.py",
+    "before": "492b9373a2d2d8e3fc07247781e588166654434e18456d29c04d7c08f0373c58",
+    "after": "86190f51899034998c060ff75d50c0b4274f89ebf6d511aab1ecee8dfefc718f"
+  },
+  {
+    "path": "app/callbacks/data/render_callbacks.py",
+    "before": "a8301d64ea17f207d3c0d82b12eea4a094122b2a1a64a284970be6a121a7776e",
+    "after": "2da1e50428dd65f6288378ca34fce23acd9d3cc3e7fad167d5b537673d6f767d"
+  },
+  {
+    "path": "app/callbacks/modal/figure_helpers.py",
+    "before": "ee71d80b561d13ab10f621945a2d54ef4a20fb70354f6ac03f418a91ff1a4b47",
+    "after": "71e704e0477e12964b9b8b4e98e0934cc55aad28c4622882517381ba473b3c99"
+  },
+  {
+    "path": "app/callbacks/modal/lifecycle_navigation_callbacks.py",
+    "before": "c70a6ed42ecb4d54a9e13b528f99fc585848a6d4a3980fed6d3d18f918836d6f",
+    "after": "bca691bed445416b741ab684dec34a4c7fbbaaaf64c22c2ec979cb96bb9516c9"
+  },
+  {
+    "path": "app/callbacks/modal/view_callbacks.py",
+    "before": "f165be4c3a71ed514a416b5ff1e6193e6252a608520978f7a857e311fba45f41",
+    "after": "0b220c81a691e2affa01c29440738f4e2b70ca66bc846ad97e7cfba738ee0e22"
+  },
+  {
+    "path": "app/callbacks/register.py",
+    "before": "a52de3b4b2fca89ca63cf373418b91e3420bf0a875d20a3ab3a16fac4f7f70db",
+    "after": "62527973e25f6567f798260d1bb852dfbb47a3c8a4a6c8c8f0a3ea60267a6fa5"
+  },
+  {
+    "path": "app/callbacks/ui/app_config_callbacks.py",
+    "before": "b0bfbf42261cea9832f789679e489761133dc581fb15ad9f0434305e9ce96f1d",
+    "after": "9083fe942bac514db236aba92a44a1a025a46d30d343eccf05292781e6a2e9c7"
+  },
+  {
+    "path": "app/callbacks/ui/display_range_callbacks.py",
+    "before": "d3ae57c97a1cf8b34401d45afb27895eebdc9abf44dbf2ec77469b6871180c75",
+    "after": "05107236061ea2d33c512e92b050cd2c0ab0bc5fb5a9c78fd7faebd537eb6042"
+  },
+  {
+    "path": "app/callbacks/ui/spectrogram_preset_callbacks.py",
+    "before": "db07249f978fc7441c39763792b08449067c1c4cce09cf89849a871a233c3d1f",
+    "after": "1e3c6779ce0b7e0f01515d6e0af60c199724e283e7bb3b8a240b60efa05b9af4"
+  },
+  {
+    "path": "app/cli.py",
+    "before": "996e1e5cf7a974f1924f42a8a77803875ef244d103679364bda6f70423f9507e",
+    "after": "4275cd64cca4527c6d8390311b0931e142cc80ee2d17432ec7d9c94771408814"
+  },
+  {
+    "path": "app/components/modal.py",
+    "before": "b0d0bcc00752a74ec8b12d252072c88160f3c9916645a02b34ca6bfb57f3ddf8",
+    "after": "df0fe8512682be0b40a02fbf97fed0b370a24faeea5f80c04ac4c9ae9d374385"
+  },
+  {
+    "path": "app/components/spectrogram_card.py",
+    "before": "9457632038bef4906e318896f9abc10de1b4529ffd020a6906d0f511a42ccc08",
+    "after": "ad2eaa57fb9b08aa2bfd048fb72e2e8a38a74ac36f6bf1e6b7ac74a0720571c1"
+  },
+  {
+    "path": "app/config.py",
+    "before": "9fafb9fb004a6b086274147a0601e4a6569be38dcc51b941972c5c6316d1c16b",
+    "after": "4166c62b04e6e2064be64ed3cc88e595d355efd0fb7a9e8c5a3a758e723e71b0"
+  },
+  {
+    "path": "app/layouts/display_controls.py",
+    "before": "8f5499e41abb39ba625a84acc43a278acd2ba1e3a05b6afa402a7008a7eff11f",
+    "after": "8fdc88993f2cc83a4a2dc11d68b390e96e1d6bac27406bf8f7afe2940491846d"
+  },
+  {
+    "path": "app/layouts/main_layout.py",
+    "before": "850e850dda24b64e8d3537cb408b9da99fcae91670ccbe94eed6eef4d7487f81",
+    "after": "fc14a340360b778be69a5031f3a89f12463c361c0de285ad6688c143363b66c5"
+  },
+  {
+    "path": "app/layouts/verify_mode.py",
+    "before": "7f1f4bdc875c19708fb28b4c80ea744f3c6e7ab4122c6f319e2fe2b1da64f2eb",
+    "after": "e076cd35862018c5b1606aa3c681acff45640afee489118828ce1189e6e81d62"
+  },
+  {
+    "path": "app/services/display_settings.py",
+    "before": null,
+    "after": "54ca2feddfc7e39f1e7afea9f538be8ccf211f9b2a9d9a7ac2c4af1b244ec0e6"
+  },
+  {
+    "path": "app/services/spectrogram_grid.py",
+    "before": null,
+    "after": "3960eb444b53ce94b2ad52a76f11d2d5546467d976a73b9e27b5373d65294be9"
+  },
+  {
+    "path": "app/services/spectrogram_presets.py",
+    "before": "9a543fc5c1544d242b644cff1ef582873628e441e411ab146d4a01cfa49e970d",
+    "after": "7ea7dbc25fa9d55d3d8bf7600070475d149c890b0c9b889b136a9f8c6c2d3e15"
+  },
+  {
+    "path": "app/services/spectrogram_ranges.py",
+    "before": null,
+    "after": "294181ee591a004f5a76ca6f1ea50323c28e0640f78ff32f1299be14b05fb1c3"
+  },
+  {
+    "path": "app/services/verification.py",
+    "before": "3461175adf678fde4c82de44d698ca227325071e4f0e8145de0e8fd115a46b93",
+    "after": "36f10436e805f8421a86d0eac2b73b661684e07d48c9e40c8c67e51ce8d2c4fa"
+  },
+  {
+    "path": "app/services/verify_all_dates_loader.py",
+    "before": "88f03f7afeed9b58767d4cbb6ba7445e90a29f7195ff559c595f6d3bc1a77d50",
+    "after": "0b9136e0e5e28f271b6a9fed68545d2f41bda371976f50364b5e90e448cb78b8"
+  },
+  {
+    "path": "app/services/verify_filter_tree.py",
+    "before": "2f12a96e38cd9670c61011b72b8458ed949159f294cd01b705e82a45973834fc",
+    "after": "969df0922d2464d6069b74a9144dc2a27290cfd441e6810a017fb2d713939563"
+  },
+  {
+    "path": "app/services/verify_modal_cache.py",
+    "before": "c5860c77126f79e182879bb20d2d2e968deef50463db32a12efd48732a3e16e9",
+    "after": "a7694864a48bf568f79d41ef76c5d99531924a4f5565f2193adfae67a762caa2"
+  },
+  {
+    "path": "app/services/verify_pagination.py",
+    "before": "ca982693098b6d96ae430e37717d5d62ad5aee4c654c60b191ac2b33ded521ce",
+    "after": "da34b4c21ea8f13f76732d3fb88c9a3b0937f4aa8d0497c33669a2195f91ec27"
+  },
+  {
+    "path": "app/utils/image_processing.py",
+    "before": "d1cf714211dda0ad2dd593fa368d57b14334978fa3525e52aeb0ac334d384d09",
+    "after": "4eefdd01ff2e68dcebd4b4d2e6a31136f72cbcdfd4a5c0a0892cc337924bbdac"
+  },
+  {
+    "path": "app/utils/unified_format_converter.py",
+    "before": "b763671bb04cd88427e7c2fe952502b951a72b90eb59197c2c393479dffd7606",
+    "after": "9fb0ca478c339630444d3d6aaa23f127282e1b3ceeb5b0a8a7fbe62fdbf1b82a"
+  },
+  {
+    "path": "tests/test_data_loading.py",
+    "before": "8124a69508ef1eb53ada999a4de4c3241a9171b7b848880374b54988db1bd301",
+    "after": "701c28bf4e85dae9167029708c9871f60562d0d330bcf88ece8398e576de16b5"
+  },
+  {
+    "path": "tests/test_image_processing.py",
+    "before": "c30313ea7d5ca0660d6ae8c339e805c02ddcbcb45d8eb1b0c667bc735bf6453d",
+    "after": "94b795b1daffedf7557fcd19b09b4d95d683cbbd5cecd763f9c1d2bef646f64a"
+  },
+  {
+    "path": "tests/test_modal_bbox_helpers.py",
+    "before": "6747fa8e933b1e87d7baaed50ff1f86131ef28d3996f24e8da935039cc9de3f4",
+    "after": "b8e2f352172340d502fd148d3921ddfffdfb868016a85feb67f6b33a1b61cebc"
+  },
+  {
+    "path": "tests/test_persistence.py",
+    "before": "ea12cb21c886433dbda35fcf9aa34df9d88c417245a5e472eafbe10fe884d18a",
+    "after": "484e040b9d1850710e5e8f7e4131e4699069431f1a9e9415d3f40ad804b97d02"
+  },
+  {
+    "path": "tests/test_review_queue_updates.py",
+    "before": null,
+    "after": "eb07e76a4da650741255629c479bb40a911b1f28f41482a84f81634f79d36616"
+  },
+  {
+    "path": "tests/test_spectrogram_display_controls.py",
+    "before": "336ae43494d26638d377e5983baac8cea742df3188578316c49dd38326f25f88",
+    "after": "ee659368c0860d0b3b100a3188ac3c4d968bc141b19011659b0847899951ce85"
+  },
+  {
+    "path": "tests/test_spectrogram_grid.py",
+    "before": null,
+    "after": "f2a6c3be3d24f7717ee33f72587586af2411333c7dc5c4dcdfcb86f424d62564"
+  },
+  {
+    "path": "tests/test_spectrogram_presets.py",
+    "before": "b6c3c77c55cf9c2b62d17ef6ce6cf7b8d0c8cb9d1581a8158f3726ff0138b6cd",
+    "after": "67d92f476327baea5b15a84f70fcca80719ef3646a4afe9ab4c1ab62b0e30f56"
+  },
+  {
+    "path": "tests/test_spectrogram_ranges.py",
+    "before": null,
+    "after": "9f06cfa03bfc3fc98455970f27d35f094bcc26f37e9c4ace2f745a827d6fd97f"
+  },
+  {
+    "path": "tests/test_verify_all_dates_loader.py",
+    "before": "61d389095782687397684721c629999f5019c4e51289dc581ab6133bd323581d",
+    "after": "201e7317023262b19937b1b555f8f57a1dfdf799e85b0c76dacc35622a7524df"
+  },
+  {
+    "path": "tests/test_verify_filter_tree.py",
+    "before": "87ec8759e9f2db3c048cbb99e9bf494cefbeb93874bd063b11eabac655c7c5a8",
+    "after": "bab94f532923214ab3776a23bbfe4be3ee05c4b3062956188762f391002bcd18"
+  },
+  {
+    "path": "tests/test_verify_rejected_labels.py",
+    "before": "8818e19bfa16e1d0bddbc9cf4bc97d9c061db82cd68259f46fea9509e7a6ff65",
+    "after": "2be94266d8ff425659f425bc8b052f0f2fd32ec4a5926f9d61ace7a218370978"
+  }
+]

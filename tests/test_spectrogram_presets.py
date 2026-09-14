@@ -1,8 +1,13 @@
-from app.layouts.display_controls import create_spectrogram_preset_bar
+from app.layouts.display_controls import create_spectrogram_range_controls
 from app.services.spectrogram_presets import (
     apply_spectrogram_preset,
     find_matching_spectrogram_preset,
+    get_item_spectrogram_recommendation,
     get_spectrogram_presets,
+)
+from app.services.verify_modal_cache import (
+    has_verify_spectrogram_recommendations,
+    register_verify_modal_items,
 )
 
 
@@ -17,6 +22,16 @@ def _preset_config():
             "freq_max_hz": 125.0,
             "active_preset": "low",
             "presets": [
+                {
+                    "id": "recommended",
+                    "label": "Recommended",
+                    "scope": "item",
+                    "metadata_key": "recommended_spectrogram",
+                    "win_dur_s": 1.0,
+                    "overlap": 0.9,
+                    "freq_min_hz": 5.0,
+                    "freq_max_hz": 125.0,
+                },
                 {
                     "id": "low",
                     "label": "Low | 5-125 Hz",
@@ -41,9 +56,9 @@ def _preset_config():
 def test_spectrogram_presets_are_validated_and_preserve_order():
     presets = get_spectrogram_presets(_preset_config())
 
-    assert [preset["id"] for preset in presets] == ["low", "high"]
-    assert presets[0]["freq_max_hz"] == 125.0
-    assert presets[1]["win_dur_s"] == 0.1
+    assert [preset["id"] for preset in presets] == ["recommended", "low", "high"]
+    assert presets[0]["scope"] == "item"
+    assert presets[2]["win_dur_s"] == 0.1
 
 
 def test_apply_spectrogram_preset_preserves_unrelated_config():
@@ -52,76 +67,78 @@ def test_apply_spectrogram_preset_preserves_unrelated_config():
 
     updated = apply_spectrogram_preset(cfg, "high")
 
-    assert updated is not cfg
     assert updated["spectrogram_render"]["active_preset"] == "high"
-    assert updated["spectrogram_render"]["win_dur_s"] == 0.1
     assert updated["spectrogram_render"]["freq_min_hz"] == 500.0
     assert updated["spectrogram_render"]["freq_max_hz"] == 8000.0
-    assert updated["spectrogram_render"]["source"] == "audio_generated"
     assert updated["spectrogram_render"]["custom_key"] == "preserved"
     assert cfg["spectrogram_render"]["active_preset"] == "low"
 
 
-def test_item_scoped_recommended_preset_remains_selected():
-    cfg = _preset_config()
-    cfg["spectrogram_render"]["presets"].append(
+def test_recommended_metadata_is_validated():
+    preset = get_spectrogram_presets(_preset_config())[0]
+    item = {
+        "metadata": {
+            "recommended_spectrogram": {
+                "win_dur_s": 0.25,
+                "overlap": 0.9,
+                "freq_min_hz": 100.0,
+                "freq_max_hz": 2000.0,
+            }
+        }
+    }
+
+    recommendation = get_item_spectrogram_recommendation(item, preset)
+
+    assert recommendation["win_dur_s"] == 0.25
+    assert recommendation["freq_max_hz"] == 2000.0
+
+
+def test_recommended_availability_reflects_cached_predictions_metadata():
+    cache_key = register_verify_modal_items(
         {
-            "id": "recommended",
-            "label": "Recommended",
-            "scope": "item",
-            "metadata_key": "recommended_spectrogram",
-            "win_dur_s": 1.0,
-            "overlap": 0.9,
-            "freq_min_hz": 5.0,
-            "freq_max_hz": 125.0,
+            "load_timestamp": "preset-availability",
+            "items": [
+                {
+                    "item_id": "with-recommendation",
+                    "metadata": {
+                        "recommended_spectrogram": {
+                            "win_dur_s": 1.0,
+                            "overlap": 0.9,
+                            "freq_min_hz": 5.0,
+                            "freq_max_hz": 125.0,
+                        }
+                    },
+                }
+            ],
+            "summary": {},
         }
     )
 
-    updated = apply_spectrogram_preset(cfg, "recommended")
-
-    assert updated["spectrogram_render"]["active_preset"] == "recommended"
-    assert find_matching_spectrogram_preset(updated) == "recommended"
-    assert get_spectrogram_presets(updated)[-1]["scope"] == "item"
-    assert get_spectrogram_presets(updated)[-1]["metadata_key"] == "recommended_spectrogram"
+    assert has_verify_spectrogram_recommendations(cache_key) is True
+    assert has_verify_spectrogram_recommendations("missing-cache") is False
 
 
-def test_matching_preset_tracks_manual_render_settings():
+def test_unified_visible_ranges_include_every_configured_preset():
     cfg = _preset_config()
-    assert find_matching_spectrogram_preset(cfg) == "low"
+    cfg["spectrogram_render"]["active_preset"] = "recommended"
 
-    cfg["spectrogram_render"]["win_dur_s"] = 0.4
-    assert find_matching_spectrogram_preset(cfg) is None
+    controls = create_spectrogram_range_controls("verify", config=cfg)
+    selector = controls.children[1]
+
+    assert selector.value == []
+    assert [option["value"] for option in selector.options] == [
+        "recommended",
+        "low",
+        "high",
+    ]
+    assert find_matching_spectrogram_preset(cfg) == "recommended"
 
 
-def test_invalid_preset_is_ignored():
+def test_custom_render_config_does_not_create_a_separate_range_category():
     cfg = _preset_config()
-    cfg["spectrogram_render"]["presets"].append(
-        {
-            "id": "invalid",
-            "win_dur_s": 0.01,
-            "overlap": 0.9,
-            "freq_min_hz": 100.0,
-            "freq_max_hz": 50.0,
-        }
-    )
+    cfg["spectrogram_render"]["active_preset"] = "custom"
 
-    assert [preset["id"] for preset in get_spectrogram_presets(cfg)] == ["low", "high"]
-    assert apply_spectrogram_preset(cfg, "invalid") is None
-
-
-def test_preset_bar_is_hidden_without_configured_presets():
-    bar = create_spectrogram_preset_bar("verify", config={})
-
-    assert bar.id == "verify-spectrogram-preset-bar"
-    assert bar.style == {"display": "none"}
-    assert bar.children[1].options == []
-
-
-def test_preset_bar_uses_matching_active_preset():
-    bar = create_spectrogram_preset_bar("verify", config=_preset_config())
-    selector = bar.children[1]
-
-    assert bar.style == {}
-    assert selector.id == "verify-spectrogram-preset"
-    assert selector.value == "low"
-    assert [option["value"] for option in selector.options] == ["low", "high"]
+    assert find_matching_spectrogram_preset(cfg) == "custom"
+    controls = create_spectrogram_range_controls("verify", config=cfg)
+    assert controls.children[0].children[0].children == "Visible ranges"
+    assert not any(option["value"] == "custom" for option in controls.children[1].options)

@@ -1,0 +1,314 @@
+--- a/app/components/spectrogram_card.py
++++ b/app/components/spectrogram_card.py
+@@ -332,7 +332,7 @@
+                 outline=not has_pending_edits,
+             ),
+             dbc.Button(
+-                "Edit",
++                "Edit labels",
+                 id={"type": "edit-btn", "item_id": item_id},
+                 size="sm",
+                 color="secondary",
+@@ -348,7 +348,7 @@
+                 disabled=not has_pending_edits,
+                 outline=not has_pending_edits,
+             ),
+-            dbc.Button("Edit Labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="secondary"),
++            dbc.Button("Edit labels", id={"type": "edit-btn", "item_id": item_id}, size="sm", color="secondary"),
+         ]
+     else:
+         actions = []
+--- a/app/services/verify_modal_cache.py
++++ b/app/services/verify_modal_cache.py
+@@ -3,6 +3,8 @@
+ from collections import OrderedDict
+ from copy import deepcopy
+ from threading import Lock
++
++from dash import Patch
+ 
+ from app.services.annotations import ordered_unique_labels
+ from app.services.spectrogram_presets import get_item_spectrogram_recommendation
+@@ -201,7 +203,7 @@
+         tokens.add("rejected_only")
+     elif has_accepted and has_rejected:
+         tokens.add("mixed")
+-    elif not record.get("is_verified"):
++    if not record.get("is_verified") or record.get("has_pending_verify_changes"):
+         tokens.add("unverified")
+     return tokens
+ 
+@@ -325,6 +327,10 @@
+ 
+ def ensure_verify_modal_items(data):
+     """Register verify items only when this dataset is not already cached."""
++    summary = data.get("summary", {}) if isinstance(data, dict) else {}
++    indexed_key = summary.get("verify_modal_cache_key") if isinstance(summary, dict) else None
++    if indexed_key and has_verify_modal_items(indexed_key):
++        return indexed_key
+     cache_key = _build_verify_cache_key(data)
+     if not cache_key:
+         return None
+@@ -420,6 +426,7 @@
+             "page_index": 0,
+             "total_pages": 1,
+             "total_items": 0,
++            "remaining_items": 0,
+         }
+ 
+     with _VERIFY_MODAL_CACHE_LOCK:
+@@ -431,6 +438,7 @@
+                 "page_index": 0,
+                 "total_pages": 1,
+                 "total_items": 0,
++                "remaining_items": 0,
+             }
+         items_by_id = cache_entry.get("items_by_id")
+         item_indices = cache_entry.get("item_indices")
+@@ -442,6 +450,7 @@
+                 "page_index": 0,
+                 "total_pages": 1,
+                 "total_items": 0,
++                "remaining_items": 0,
+             }
+         if not isinstance(filter_records, dict):
+             filter_records = {}
+@@ -452,6 +461,7 @@
+             if item_id in items_by_id
+         ]
+         visible_ids = []
++        remaining_items = 0
+         predicted_labels_by_id = {}
+         for item_id in ordered_ids:
+             record = filter_records.get(item_id)
+@@ -467,6 +477,8 @@
+                 continue
+             if not _status_matches_filter(record, predicted_labels, status_filter):
+                 continue
++            if "unverified" in _verification_status_tokens(record, predicted_labels):
++                remaining_items += 1
+             visible_ids.append(item_id)
+             predicted_labels_by_id[item_id] = predicted_labels
+ 
+@@ -492,6 +504,7 @@
+         "page_index": page_index,
+         "total_pages": total_pages,
+         "total_items": total_items,
++        "remaining_items": remaining_items,
+     }
+ 
+ 
+@@ -583,6 +596,8 @@
+             return None
+         summary_copy = deepcopy(summary) if isinstance(summary, dict) else {}
+         items = list(items_by_id.values())
++    # Preserve the full dataset identity when callbacks replace the browser summary.
++    summary_copy["verify_modal_cache_key"] = cache_key
+     summary_copy["annotated"] = sum(
+         1
+         for item in items
+@@ -594,3 +609,17 @@
+         if isinstance(item, dict) and bool((item.get("annotations") or {}).get("verified"))
+     )
+     return summary_copy
++
++
++def verify_item_store_patch(cache_key, item):
++    """Sync a review without treating a compact preview as the whole dataset."""
++    patch = Patch()
++    summary = get_verify_modal_summary(cache_key)
++    index = get_verify_modal_item_index(cache_key, item.get("item_id"))
++    # All Dates ships a bounded preview; server indices need not exist in it.
++    # Its consumers resolve items through verify_modal_cache_key instead.
++    if index is not None and not (summary or {}).get("all_dates_index_available"):
++        patch["items"][index] = item
++    if isinstance(summary, dict):
++        patch["summary"] = summary
++    return patch
+--- a/app/callbacks/verify/badge_callbacks.py
++++ b/app/callbacks/verify/badge_callbacks.py
+@@ -4,7 +4,7 @@
+ from copy import deepcopy
+ from datetime import datetime
+ 
+-from dash import ALL, Input, Output, Patch, State, ctx, no_update
++from dash import ALL, Input, Output, State, ctx, no_update
+ from dash.exceptions import PreventUpdate
+ 
+ from app.callbacks.verify.badge_helpers import (
+@@ -26,6 +26,7 @@
+     get_verify_modal_item_index,
+     get_verify_modal_summary,
+     update_verify_modal_item,
++    verify_item_store_patch,
+ )
+ 
+ 
+@@ -273,11 +274,7 @@
+                     "boxes": _build_modal_boxes_from_item(active_item),
+                 }
+         update_verify_modal_item(verify_data_cache_key, active_item)
+-        updated_data = Patch()
+-        updated_data["items"][active_item_index] = active_item
+-        summary_obj = get_verify_modal_summary(verify_data_cache_key)
+-        if isinstance(summary_obj, dict):
+-            updated_data["summary"] = summary_obj
++        updated_data = verify_item_store_patch(verify_data_cache_key, active_item)
+ 
+         pending = not reverted_to_baseline
+         unsaved_update = (
+--- a/app/callbacks/verify/confirm_callbacks.py
++++ b/app/callbacks/verify/confirm_callbacks.py
+@@ -11,6 +11,7 @@
+     get_verify_modal_item_index,
+     get_verify_modal_summary,
+     update_verify_modal_item,
++    verify_item_store_patch,
+ )
+ from app.services.annotations import extract_box_annotation_list_map_from_boxes
+ from app.utils.persistence import save_verify_predictions
+@@ -273,11 +274,7 @@
+             updated_item["verifications"] = verifications
+ 
+         update_verify_modal_item(verify_data_cache_key, updated_item)
+-        patch = Patch()
+-        patch["items"][active_item_index] = updated_item
+-        next_summary = get_verify_modal_summary(verify_data_cache_key)
+-        if isinstance(next_summary, dict):
+-            patch["summary"] = next_summary
++        patch = verify_item_store_patch(verify_data_cache_key, updated_item)
+         direct_ui_updates = build_verify_card_ui_updates(
+             item_id,
+             updated_item,
+@@ -521,7 +518,7 @@
+             updated_item["verifications"] = verifications
+ 
+         active_item_index = update_verify_modal_item(verify_data_cache_key, updated_item)
+-        verify_store_update = no_update
++        verify_store_update = verify_item_store_patch(verify_data_cache_key, updated_item)
+ 
+         snapshot_boxes = modal_boxes if modal_boxes else _build_modal_boxes_from_item(updated_item)
+         next_pending_ids = [value for value in (pending_sync_item_ids or []) if isinstance(value, str) and value]
+--- a/app/callbacks/label/editor_modal_callbacks.py
++++ b/app/callbacks/label/editor_modal_callbacks.py
+@@ -2,7 +2,7 @@
+ 
+ import time
+ 
+-from dash import ALL, Input, Output, Patch, State, ctx, dcc, html, no_update
++from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
+ from dash.exceptions import PreventUpdate
+ 
+ from app.callbacks.common.debug import perf_debug
+@@ -14,6 +14,7 @@
+     get_verify_modal_item_index,
+     get_verify_modal_summary,
+     update_verify_modal_item,
++    verify_item_store_patch,
+ )
+ from app.services.verify_pagination import save_single_verify_item_change
+ 
+@@ -463,13 +464,10 @@
+             if not isinstance(updated_item, dict):
+                 raise PreventUpdate
+             update_verify_modal_item(verify_data_cache_key, updated_item)
+-            verify_patch = Patch()
+-            verify_patch["items"][active_item_index] = updated_item
++            verify_patch = verify_item_store_patch(verify_data_cache_key, updated_item)
+             next_summary = get_verify_modal_summary(verify_data_cache_key)
+-            if isinstance(next_summary, dict):
+-                verify_patch["summary"] = next_summary
+             updated = {"items": [updated_item], "summary": next_summary or summary}
+-            verify_store_update = no_update if active_item_id == current_modal_item_id else verify_patch
++            verify_store_update = verify_patch
+             direct_ui_updates = build_verify_card_ui_updates(
+                 active_item_id,
+                 updated_item,
+--- a/app/callbacks/data/render_callbacks.py
++++ b/app/callbacks/data/render_callbacks.py
+@@ -27,9 +27,9 @@
+     if not index_available:
+         return "Indexing..."
+     if filtered_total <= 0:
+-        return "0 / 0"
++        return "Page 0 of 0"
+     total_pages = max(1, (filtered_total + items_per_page - 1) // items_per_page)
+-    return f"{current_page + 1} / {total_pages}"
++    return f"Page {current_page + 1} of {total_pages}"
+ 
+ 
+ def _prefetch_enabled(cfg):
+@@ -533,9 +533,14 @@
+         )
+         filtered_total = filtered_page["total_items"]
+         total_pages = filtered_page["total_pages"]
++        if (current_page or 0) != filtered_page["page_index"]:
++            set_props("verify-current-page", {"data": filtered_page["page_index"]})
+         current_page = filtered_page["page_index"]
+         page_items = filtered_page["items"]
+         visible_item_ids = filtered_page["visible_item_ids"]
++        remaining_count = filtered_page["remaining_items"]
++        remaining_noun = "clip" if remaining_count == 1 else "clips"
++        matching_noun = "clip" if filtered_total == 1 else "clips"
+         is_partial_selection = bool(summary.get("all_dates_loading"))
+         index_available = not bool(
+             summary.get("active_date") == "All"
+@@ -544,10 +549,11 @@
+         )
+         if index_available:
+             match_summary = html.Span(
+-                f"{filtered_total:,} matches",
++                f"{remaining_count:,} {remaining_noun} left to verify",
+                 className="command-match-count",
+             )
+             context_children = [
++                html.Span(f"{filtered_total:,} {matching_noun} matching current filters", className="command-filter-detail"),
+                 html.Span(
+                     f"{int(summary.get('total_items', filtered_total)):,} recordings",
+                     className="command-filter-detail",
+--- a/app/callbacks/modal/action_footer_helpers.py
++++ b/app/callbacks/modal/action_footer_helpers.py
+@@ -23,7 +23,7 @@
+                 className="me-2",
+             ),
+             dbc.Button(
+-                "Edit",
++                "Edit labels",
+                 id={"type": "modal-action-edit", "scope": "modal"},
+                 color="secondary",
+                 size="sm",
+@@ -42,7 +42,7 @@
+                 className="me-2",
+             ),
+             dbc.Button(
+-                "Edit Labels",
++                "Edit labels",
+                 id={"type": "modal-action-edit", "scope": "modal"},
+                 color="secondary",
+                 size="sm",
+--- a/app/callbacks/modal/lifecycle_unsaved_callbacks.py
++++ b/app/callbacks/modal/lifecycle_unsaved_callbacks.py
+@@ -12,6 +12,7 @@
+     get_verify_modal_item,
+     get_verify_modal_summary,
+     update_verify_modal_item,
++    verify_item_store_patch,
+ )
+ from app.services.verify_pagination import save_single_verify_item_change
+ 
+@@ -138,6 +139,7 @@
+                     )
+                     if isinstance(updated_item, dict):
+                         update_verify_modal_item(verify_data_cache_key, updated_item)
++                        next_verify_data = verify_item_store_patch(verify_data_cache_key, updated_item)
+                         updated_modal_item = updated_item
+                         modal_actions_update = _build_modal_item_actions(
+                             updated_item,
+@@ -205,6 +207,7 @@
+                 restored_label_data = _replace_item_in_data(label_data, snap_item_id, snap_item)
+             elif snap_mode == "verify":
+                 update_verify_modal_item(verify_data_cache_key, snap_item)
++                restored_verify_data = verify_item_store_patch(verify_data_cache_key, snap_item)
+                 direct_ui_updates = build_verify_card_ui_updates(
+                     snap_item_id,
+                     snap_item,

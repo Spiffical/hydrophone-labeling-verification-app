@@ -151,6 +151,7 @@ def register_label_save_callbacks(
         State({"type": "card-note-text", "item_id": ALL}, "value"),
         State({"type": "card-note-text", "item_id": ALL}, "id"),
         State("modal-note-text", "value", allow_optional=True),
+        State("modal-item-store", "data"),
         prevent_initial_call=True,
     )
     def save_label_changes(
@@ -165,6 +166,7 @@ def register_label_save_callbacks(
         card_note_values,
         card_note_ids,
         modal_note_text,
+        modal_item,
     ):
         triggered = ctx.triggered_id
         if not isinstance(triggered, dict):
@@ -188,6 +190,17 @@ def register_label_save_callbacks(
 
         data = deepcopy(label_data or {})
         items = data.get("items") or []
+        # BBox edits are staged in the modal item, not in the page dataset.
+        # Save that current draft before testing its pending-save flag.
+        if (
+            triggered.get("type") == "modal-label-save"
+            and isinstance(modal_item, dict)
+            and modal_item.get("item_id") == item_id
+        ):
+            for index, item in enumerate(items):
+                if isinstance(item, dict) and item.get("item_id") == item_id:
+                    items[index] = deepcopy(modal_item)
+                    break
         active_item = next(
             (item for item in items if isinstance(item, dict) and item.get("item_id") == item_id),
             None,

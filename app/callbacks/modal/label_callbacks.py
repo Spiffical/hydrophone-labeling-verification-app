@@ -6,6 +6,8 @@ from time import time_ns
 from dash import ALL, ClientsideFunction, Input, Output, State, ctx, no_update
 from dash.exceptions import PreventUpdate
 
+from app.callbacks.modal.figure_helpers import patch_modal_boxes
+
 from app.services.verify_modal_cache import get_verify_modal_item, get_verify_modal_summary
 
 
@@ -65,7 +67,7 @@ def register_modal_label_callbacks(
         State("explore-data-store", "data"),
         State("modal-item-store", "data"),
         State("modal-bbox-store", "data"),
-        State("modal-image-graph", "figure"),
+        State("modal-figure-context-store", "data"),
         State("verify-thresholds-store", "data"),
         State("verify-data-cache-key-store", "data"),
         State("user-profile-store", "data"),
@@ -166,10 +168,11 @@ def register_modal_label_callbacks(
                 entry["annotations"] = annotations_obj
                 break
 
-        updated_fig = _apply_modal_boxes_to_figure(
-            deepcopy(figure) if isinstance(figure, dict) else {},
+        updated_fig = patch_modal_boxes(
+            figure,
             filtered_boxes,
             revision_bump=time_ns(),
+            apply_boxes=_apply_modal_boxes_to_figure,
         )
         next_active_label = None
         unsaved_update = {"dirty": True, "item_id": current_item_id}
