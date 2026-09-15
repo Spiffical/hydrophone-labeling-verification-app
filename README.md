@@ -93,6 +93,10 @@ Set your name and email from the top-right profile button before editing.
 
 Open a spectrogram card to review the detail modal. Use label rows to accept, reject, add, delete, or edit labels depending on the active mode. Save/confirm changes before leaving a reviewed item.
 
+In **Edit labels**, click the star beside labels you use frequently. They appear in **Starred labels** at the top of every label editor: click a shortcut to select or remove it, then **Save Labels**. Starring a label only creates a shortcut; it does not label the clip. Favorites persist in this browser, separately for each reviewer email, and are not synced across devices.
+
+In the spectrogram modal, use **← / →** for the previous/next clip and **E** to open **Edit labels**. Shortcuts pause while typing, adjusting sliders, or using another dialog; navigation still prompts about unsaved changes.
+
 ## Bounding Boxes
 
 Bounding boxes store `time_start_sec`, `time_end_sec`, `freq_min_hz`, and `freq_max_hz` with the selected label.
@@ -124,4 +128,7 @@ Predictions and saved labels use the unified JSON format. See:
 
 ```bash
 pytest
+node --test tests/*.test.cjs
 ```
+
+For a silent native Web Audio regression check, serve the repository root locally (`python -m http.server 18060 --bind 127.0.0.1`) and open `http://127.0.0.1:18060/tests/audio_signal_regression.html`. The result should report `"passed": true`; it tests missing plot axes, rapid frequency changes, and disabling the filter without sending audio to speakers.

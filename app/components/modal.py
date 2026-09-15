@@ -34,7 +34,7 @@ def create_spectrogram_modal(config=None):
                                     size="sm",
                                     n_clicks=0,
                                     className="modal-nav-btn",
-                                    title="Previous spectrogram",
+                                    title="Previous spectrogram (←)",
                                 ),
                                 html.Span("1 / 1", id="modal-nav-position", className="modal-nav-position"),
                                 dbc.Button(
@@ -44,7 +44,7 @@ def create_spectrogram_modal(config=None):
                                     size="sm",
                                     n_clicks=0,
                                     className="modal-nav-btn",
-                                    title="Next spectrogram",
+                                    title="Next spectrogram (→)",
                                 ),
                             ],
                             className="modal-nav-controls",
@@ -394,6 +394,7 @@ def create_spectrogram_modal(config=None):
             ], className="p-4"),
 
             dbc.ModalFooter([
+                html.Small("← / → Previous / next · E Edit labels", className="text-muted me-auto"),
                 dbc.Button(
                     "Close",
                     id='close-modal',

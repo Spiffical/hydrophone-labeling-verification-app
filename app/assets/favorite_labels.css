@@ -1,0 +1,23 @@
+.favorite-labels-panel {
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+.favorite-labels-panel > strong { display: block; margin-bottom: 6px; }
+.favorite-labels-help { display: block; color: var(--text-secondary); }
+.favorite-label-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; max-height: 180px; overflow-y: auto; }
+.favorite-label-pick {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 12px; border-radius: 8px; text-align: left;
+    max-width: 100%; overflow-wrap: anywhere;
+}
+.favorite-label-pick small { display: block; font-size: 0.7rem; opacity: .8; }
+.favorite-label-pick.is-selected { background: var(--accent-subtle); color: var(--accent); border-color: var(--accent); }
+.favorite-label-star { background: transparent; border: 0; border-radius: 6px; color: var(--text-secondary); font-size: 1.25rem; min-width: 32px; min-height: 32px; margin-left: 6px; flex-shrink: 0; }
+.favorite-label-star.is-starred { color: var(--warning); }
+.favorite-label-star:hover, .favorite-label-pick:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.favorite-label-star:focus-visible, .favorite-label-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

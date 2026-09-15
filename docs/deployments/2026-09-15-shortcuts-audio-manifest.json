@@ -1,0 +1,54 @@
+{
+  "README.md": {
+    "before": "aa176558a16ba816e8ddc2d5b511df18162125e331e3dd8d551ffed7779c60c2",
+    "after": "dd56121ceeee62b0358af2b371a64d7e0f7450b61504c7af6192818468d67064"
+  },
+  "app/assets/audio_controls.js": {
+    "before": "47e284aefa48b11c8c8f99c16f3c840c0047b72f294eaa8715bc7b34d8c6574f",
+    "after": "e3cf7490a5a715acfda71dffc4eadda5b4f9657af25d48403553aff00ca2594c"
+  },
+  "app/callbacks/modal/action_footer_helpers.py": {
+    "before": "a7a2a571b50f1bef6e573d0a171784ed22cf162cb3a1411b3eb5fb34587e709e",
+    "after": "a2368c81b6594e5d452c2a9c5252925780421c5cba70eda4e0ec5c2cc640bdee"
+  },
+  "app/components/hierarchical_selector.py": {
+    "before": "59412e1c56508d75d1d3d963d3ff1b72df2f932f20ae8f4e2d187741d820298f",
+    "after": "aa6bfbc98dac9838f94c3ab1ae4d6dc2b51f883078581ad15ea867c12ae9395b"
+  },
+  "app/components/modal.py": {
+    "before": "df0fe8512682be0b40a02fbf97fed0b370a24faeea5f80c04ac4c9ae9d374385",
+    "after": "7a24e5beb61e4113e2b916bfb029b885069e26bd8a5b1fd7c8cf787d9868f69d"
+  },
+  "app/layouts/main_layout.py": {
+    "before": "fc14a340360b778be69a5031f3a89f12463c361c0de285ad6688c143363b66c5",
+    "after": "97ed26fde29443550c318d5cb17c45ee27be82c27868770d7f0e48eff644751a"
+  },
+  "app/assets/favorite_labels.css": {
+    "before": null,
+    "after": "b0697db01e399b326fdb22ac71551b91a9f7b9f1eab28343965d571e6508697e"
+  },
+  "app/assets/modal_shortcuts.js": {
+    "before": null,
+    "after": "8629e4f4a7c950df05e836bdedf892d974dd94dfcff1af6bdce7e0196c5a6442"
+  },
+  "app/services/favorite_labels.py": {
+    "before": null,
+    "after": "48926f4f30a44acbada3ae125031a18a7f98e339616f1f983f6f2585c3f10f0d"
+  },
+  "tests/audio_signal_regression.html": {
+    "before": null,
+    "after": "865a8765bb02a7dec6af838cfa65282a63cb5c086b9433d1d5498d83a14f5c17"
+  },
+  "tests/audio_stability.test.cjs": {
+    "before": null,
+    "after": "2cda6a6aece810186fc1da5dd91b9e322173446bf4b200661028b3ff3a9e8722"
+  },
+  "tests/modal_shortcuts.test.cjs": {
+    "before": null,
+    "after": "7ebdd65bb2c857b4047ed2e310b137e79b0e3455b46899a2ccbb47cf12dd5c71"
+  },
+  "tests/test_favorite_labels.py": {
+    "before": null,
+    "after": "f387944be7af48ae8cb76a19efea35a3ff3d716e2678cebe5a45b31f648d36ca"
+  }
+}

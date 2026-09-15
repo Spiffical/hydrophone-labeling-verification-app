@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Offline audio regression QA</title></head>
+<body>
+<h1>Offline audio regression QA</h1>
+<p>Serve the repository root locally and open this page. OfflineAudioContext renders silently.</p>
+<div id="modal-image-graph"><div class="js-plotly-plot"></div></div>
+<pre id="result">Rendering…</pre>
+<script src="../app/assets/audio_controls.js"></script>
+<script>
+(async function () {
+    try {
+        const rate = 48000;
+        const ctx = new OfflineAudioContext(1, rate, rate);
+        const buffer = ctx.createBuffer(1, rate, rate);
+        const samples = buffer.getChannelData(0);
+        // A quiet in-band tone plus stronger out-of-band audio exposes bypass bursts.
+        for (let i = 0; i < samples.length; i++) {
+            samples[i] = .005 * Math.sin(2 * Math.PI * 500 * i / rate) +
+                .05 * Math.sin(2 * Math.PI * 8000 * i / rate);
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        const high = ctx.createBiquadFilter(), low = ctx.createBiquadFilter(), gain = ctx.createGain();
+        high.type = 'highpass'; high.Q.value = .707;
+        low.type = 'lowpass'; low.Q.value = .707;
+        gain.gain.value = 1;
+        src.connect(high); high.connect(low); low.connect(gain); gain.connect(ctx.destination);
+        const audio = {
+            audioContext: ctx, visibleHighpassFilter: high, visibleLowpassFilter: low,
+            gainNode: gain, requestedGain: 1, userRequestedPlayback: true, paused: true, playbackRate: 1,
+        };
+        const graph = document.querySelector('.js-plotly-plot');
+        function windowHz(min, max) { graph._fullLayout = { yaxis: { range: [min, max], title: 'Hz' } }; }
+        windowHz(200, 1000);
+        updateVisibleFrequencyFilters(audio, true);
+        audio.paused = false;
+        setAudioGainValue(audio, 1);
+        function at(time, change) {
+            return ctx.suspend(time).then(() => { change(); return ctx.resume(); });
+        }
+        const changes = [
+            at(.25, () => { graph._fullLayout = {}; updateVisibleFrequencyFilters(audio, true); }),
+            at(.6, () => { windowHz(300, 2000); updateVisibleFrequencyFilters(audio, true); }),
+            at(.65, () => { windowHz(5000, 10000); updateVisibleFrequencyFilters(audio, true); }),
+            at(.7, () => { windowHz(1, 200); updateVisibleFrequencyFilters(audio, true); }),
+            at(.75, () => { windowHz(50, 5000); updateVisibleFrequencyFilters(audio, true); }),
+            at(.8, () => updateVisibleFrequencyFilters(audio, false)),
+        ];
+        src.start();
+        const rendered = await ctx.startRendering();
+        await Promise.all(changes);
+        const y = rendered.getChannelData(0);
+        function rms(a, b) {
+            let sum = 0;
+            for (let i = a * rate; i < b * rate; i++) sum += y[i] * y[i];
+            return Math.sqrt(sum / ((b - a) * rate));
+        }
+        let peak = 0;
+        for (const sample of y) peak = Math.max(peak, Math.abs(sample));
+        const before = rms(.1, .2), redraw = rms(.35, .5);
+        const finite = Array.from(y).every(Number.isFinite);
+        document.getElementById('result').textContent = JSON.stringify({
+            passed: finite && before > 0 && redraw / before < 1.05 && peak < .1,
+            beforeRms: before, duringRedrawRms: redraw, redrawLevelRatio: redraw / before, peak, finite,
+        }, null, 2);
+    } catch (error) {
+        document.getElementById('result').textContent = error.stack;
+    }
+}());
+</script>
+</body>
+</html>

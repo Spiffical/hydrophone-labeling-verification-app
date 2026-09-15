@@ -25,6 +25,7 @@ def build_status_and_actions(*, mode, is_verified, has_pending_edits, predicted_
             dbc.Button(
                 "Edit labels",
                 id={"type": "modal-action-edit", "scope": "modal"},
+                title="Edit labels (E)",
                 color="secondary",
                 size="sm",
             ),
@@ -44,6 +45,7 @@ def build_status_and_actions(*, mode, is_verified, has_pending_edits, predicted_
             dbc.Button(
                 "Edit labels",
                 id={"type": "modal-action-edit", "scope": "modal"},
+                title="Edit labels (E)",
                 color="secondary",
                 size="sm",
             ),

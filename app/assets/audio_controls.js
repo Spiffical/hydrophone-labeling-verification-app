@@ -292,7 +292,7 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
 
             const applyEqBandGain = function (band, dbGain) {
                 if (!audio.lowEqFilters || !audio.lowEqFilters[band.key]) return;
-                audio.lowEqFilters[band.key].gain.value = dbGain;
+                smoothAudioParam(audio.lowEqFilters[band.key].gain, dbGain, audio.audioContext);
             };
 
             const setEqControlsDisabled = function (disabled) {
@@ -387,9 +387,9 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     const normalized = Math.round(amplification * 10) / 10;
                     audio.requestedGain = normalized;
                     if (audio.gainNode) {
-                        audio.gainNode.gain.value = (
+                        setAudioGainValue(audio, (
                             audio.userRequestedPlayback === true && !audio.paused
-                        ) ? normalized : 0;
+                        ) ? normalized : 0);
                     } else {
                         // Fallback when Web Audio API is not available.
                         audio.volume = clamp(normalized, 0, 1);
@@ -522,6 +522,7 @@ function updateAudioPlayerSourceKey(playerEntry, audio) {
 function resetAudioPlaybackPosition(audio, timeSlider, currentTimeEl, playBtn, playIcon) {
     if (!audio) return;
     audio.userRequestedPlayback = false;
+    audio.lastVisibleFilterState = null;
     silenceAudioOutput(audio);
     try {
         audio.pause();
@@ -617,6 +618,10 @@ function disablePitchPreservation(audio) {
 
 function updateVisibleFrequencyFilters(audio, enabled) {
     if (!audio || !enabled) {
+        if (audio) {
+            audio.lastVisibleFilterState = null;
+            setVisibleFilterWaiting(audio, false);
+        }
         bypassVisibleFrequencyFilters(audio);
         return null;
     }
@@ -626,7 +631,12 @@ function updateVisibleFrequencyFilters(audio, enabled) {
 
     const visibleWindow = getSpectrogramVisibleFrequencyWindowHz();
     if (!visibleWindow) {
-        bypassVisibleFrequencyFilters(audio);
+        // Plotly can temporarily lose its axes while redrawing. Never widen the
+        // audible band as a fallback: retain the last band, or wait silently.
+        setVisibleFilterWaiting(audio, !audio.lastVisibleFilterState);
+        if (audio.lastVisibleFilterState) {
+            return Object.assign({}, audio.lastVisibleFilterState, { waiting: true });
+        }
         return { unavailable: true, reason: 'spectrogram' };
     }
 
@@ -638,10 +648,11 @@ function updateVisibleFrequencyFilters(audio, enabled) {
     const lowCutoffHz = clamp(playbackMinHz > 0 ? playbackMinHz : 0.001, 0.001, nyquistHz * 0.95);
     const highCutoffHz = clamp(playbackMaxHz, Math.min(lowCutoffHz + 1, maxCutoffHz), maxCutoffHz);
 
-    setBiquadFrequency(audio.visibleHighpassFilter, lowCutoffHz);
-    setBiquadFrequency(audio.visibleLowpassFilter, highCutoffHz);
+    const immediate = audio.paused || audio.visibleFilterWaiting;
+    setBiquadFrequency(audio.visibleHighpassFilter, lowCutoffHz, immediate);
+    setBiquadFrequency(audio.visibleLowpassFilter, highCutoffHz, immediate);
 
-    return {
+    const state = {
         visibleMinHz: visibleWindow.minHz,
         visibleMaxHz: visibleWindow.maxHz,
         playbackMinHz: playbackMinHz,
@@ -651,6 +662,16 @@ function updateVisibleFrequencyFilters(audio, enabled) {
         playbackRate: playbackRate,
         clamped: highCutoffHz + 0.5 < playbackMaxHz || lowCutoffHz > playbackMinHz + 0.5,
     };
+    audio.lastVisibleFilterState = state;
+    setVisibleFilterWaiting(audio, false);
+    return state;
+}
+
+function setVisibleFilterWaiting(audio, waiting) {
+    if (audio.visibleFilterWaiting === waiting) return;
+    audio.visibleFilterWaiting = waiting;
+    setAudioGainValue(audio, audio.userRequestedPlayback === true && !audio.paused
+        ? (audio.requestedGain || 1) : 0);
 }
 
 function bypassVisibleFrequencyFilters(audio) {
@@ -667,17 +688,30 @@ function getAudioContextNyquistHz(audio) {
     return Math.max(2, sampleRate / 2);
 }
 
-function setBiquadFrequency(filter, frequencyHz) {
+function setBiquadFrequency(filter, frequencyHz, immediate) {
     if (!filter || !filter.frequency) return;
     const safeFrequency = Math.max(0.001, Number(frequencyHz) || 0.001);
-    if (
-        typeof filter.frequency.setValueAtTime === 'function' &&
-        filter.context &&
-        isFinite(filter.context.currentTime)
-    ) {
-        filter.frequency.setValueAtTime(safeFrequency, filter.context.currentTime);
+    smoothAudioParam(filter.frequency, safeFrequency, filter.context, immediate);
+}
+
+// Repeated slider polls and plot redraws should not re-schedule unchanged values.
+const audioParamTargets = new WeakMap();
+function smoothAudioParam(param, value, context, immediate) {
+    if (!param || !Number.isFinite(value)) return;
+    if (audioParamTargets.get(param) === value) return;
+    audioParamTargets.set(param, value);
+    if (context && Number.isFinite(context.currentTime) && typeof param.setTargetAtTime === 'function') {
+        const now = context.currentTime;
+        if (typeof param.cancelAndHoldAtTime === 'function') {
+            param.cancelAndHoldAtTime(now);
+        } else {
+            param.cancelScheduledValues(now);
+            param.setValueAtTime(param.value, now);
+        }
+        if (immediate) param.setValueAtTime(value, now);
+        else param.setTargetAtTime(value, now, 0.025);
     } else {
-        filter.frequency.value = safeFrequency;
+        param.value = value;
     }
 }
 
@@ -697,20 +731,7 @@ function getSpectrogramVisibleFrequencyWindowHz() {
         return sanitizeFrequencyWindowHz(rangeFromAxis.min * yToHz, rangeFromAxis.max * yToHz);
     }
 
-    const trace = graphDiv.data && graphDiv.data.length ? graphDiv.data[0] : null;
-    const yValues = trace && trace.y ? trace.y : null;
-    if (!yValues || typeof yValues.length !== 'number' || yValues.length < 2) return null;
-
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (let index = 0; index < yValues.length; index += 1) {
-        const y = Number(yValues[index]);
-        if (!isFinite(y)) continue;
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-    }
-
-    return sanitizeFrequencyWindowHz(minY * yToHz, maxY * yToHz);
+    return null;
 }
 
 function getFrequencyAxisScaleToHz(yaxis) {
@@ -755,7 +776,8 @@ function formatVisibleFrequencyFilterDisplay(filterState) {
     }
     const sourceWindow = formatFrequencyRange(filterState.visibleMinHz, filterState.visibleMaxHz);
     const playbackWindow = formatFrequencyRange(filterState.playbackMinHz, filterState.playbackMaxHz);
-    const suffix = filterState.clamped ? ' (clamped)' : '';
+    const suffix = (filterState.clamped ? ' (clamped)' : '') +
+        (filterState.waiting ? ' (holding while plot updates)' : '');
     return 'Visible-only: ' + sourceWindow + ' -> ' + playbackWindow + ' @ '
         + filterState.playbackRate.toFixed(2) + 'x' + suffix;
 }
@@ -988,20 +1010,8 @@ function resumeAudioPlayback(audio, logContext) {
 
 function setAudioGainValue(audio, value) {
     if (!audio || !audio.gainNode || !audio.gainNode.gain) return;
-    const gainValue = Math.max(0, Number(value) || 0);
-    try {
-        if (
-            typeof audio.gainNode.gain.setValueAtTime === 'function' &&
-            audio.audioContext &&
-            isFinite(audio.audioContext.currentTime)
-        ) {
-            audio.gainNode.gain.setValueAtTime(gainValue, audio.audioContext.currentTime);
-        } else {
-            audio.gainNode.gain.value = gainValue;
-        }
-    } catch (e) {
-        audio.gainNode.gain.value = gainValue;
-    }
+    const gainValue = audio.visibleFilterWaiting ? 0 : Math.max(0, Number(value) || 0);
+    smoothAudioParam(audio.gainNode.gain, gainValue, audio.audioContext, gainValue === 0);
 }
 
 function silenceAudioOutput(audio) {

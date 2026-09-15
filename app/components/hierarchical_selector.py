@@ -3,6 +3,8 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, ALL, MATCH
 import dash_bootstrap_components as dbc
 
+from app.services.favorite_labels import favorite_labels, toggle_favorite
+
 from taxonomy.hierarchical_labels import (
     HIERARCHICAL_LABELS,
     get_label_display_name,
@@ -18,6 +20,12 @@ def create_hierarchical_selector(filename, selected_labels=None, read_only=False
     initial_expanded_paths = sorted(_selected_ancestor_paths(selected_paths))
 
     return html.Div([
+        html.Section(
+            id={"type": "favorite-labels-panel", "filename": filename},
+            children=create_favorite_labels_panel(filename, [], selected_labels, read_only),
+            className="favorite-labels-panel",
+        ),
+        dcc.Store(id={"type": "label-selector-readonly", "filename": filename}, data=read_only),
         dbc.InputGroup([
             dbc.Input(
                 id={"type": "label-search", "filename": filename},
@@ -137,7 +145,7 @@ def _has_selected_descendant(path_tuple, selected_paths):
     )
 
 
-def build_tree_children(filename, selected_paths, expanded_paths=None, search_value=None, read_only=False):
+def build_tree_children(filename, selected_paths, expanded_paths=None, search_value=None, read_only=False, favorites=None):
     expanded_path_set = set(expanded_paths or [])
 
     hierarchy = HIERARCHICAL_LABELS
@@ -156,6 +164,7 @@ def build_tree_children(filename, selected_paths, expanded_paths=None, search_va
         selected_paths,
         expanded_paths=expanded_path_set,
         read_only=read_only,
+        favorites=favorites,
     )
 
 
@@ -167,6 +176,7 @@ def create_tree_structure(
     current_path=None,
     level=0,
     read_only=False,
+    favorites=None,
 ):
     if current_path is None:
         current_path = []
@@ -216,6 +226,19 @@ def create_tree_structure(
             },
         ))
 
+        starred = path_string in (favorites or [])
+        node_content.append(html.Button(
+            "★" if starred else "☆",
+            id={"type": "favorite-label-toggle", "filename": filename, "path": path_string},
+            n_clicks=0,
+            type="button",
+            disabled=read_only,
+            className="favorite-label-star" + (" is-starred" if starred else ""),
+            title=("Unstar " if starred else "Star ") + path_string,
+            **{"aria-label": ("Unstar " if starred else "Star ") + path_string,
+               "aria-pressed": "true" if starred else "false"},
+        ))
+
         if has_selected_descendant and not is_selected:
             node_content.append(html.Span(
                 "selected below",
@@ -257,6 +280,7 @@ def create_tree_structure(
                         current_path=new_path,
                         level=level + 1,
                         read_only=read_only,
+                        favorites=favorites,
                     )
                     if should_expand
                     else []
@@ -277,7 +301,8 @@ def create_tree_structure(
 )
 def toggle_tree_node(_n_clicks, expand_ids, expanded_paths):
     ctx = dash.callback_context
-    if not ctx.triggered:
+    # Rebuilding the tree mounts new expand controls with zero clicks.
+    if not ctx.triggered or not ctx.triggered[0].get("value"):
         raise dash.exceptions.PreventUpdate
 
     triggered = ctx.triggered_id
@@ -447,12 +472,14 @@ def reset_search_timer(_search_value):
     Input({"type": "tree-expanded-store", "filename": MATCH}, "data"),
     Input({"type": "selected-labels-store", "filename": MATCH}, "data"),
     Input({"type": "search-debounce-timer", "filename": MATCH}, "n_intervals"),
+    Input("favorite-labels-store", "data"),
+    Input("user-profile-store", "data"),
     State({"type": "label-search", "filename": MATCH}, "value"),
     State({"type": "selected-labels-store", "filename": MATCH}, "data"),
     State({"type": "label-search", "filename": MATCH}, "id"),
-    prevent_initial_call=True,
+    State({"type": "label-selector-readonly", "filename": MATCH}, "data"),
 )
-def filter_tree(expanded_paths, selected_labels, timer_intervals, search_value, _selected_state, search_id):
+def filter_tree(expanded_paths, selected_labels, timer_intervals, favorites_store, profile, search_value, _selected_state, search_id, read_only):
     _ = timer_intervals, _selected_state
     filename = search_id["filename"]
     selected_paths = _normalize_selected_paths(selected_labels)
@@ -461,6 +488,8 @@ def filter_tree(expanded_paths, selected_labels, timer_intervals, search_value, 
         selected_paths,
         expanded_paths=expanded_paths,
         search_value=search_value,
+        favorites=favorite_labels(favorites_store, profile),
+        read_only=bool(read_only),
     )
 
 
@@ -503,3 +532,76 @@ def filter_hierarchy_by_search(hierarchy, search_term, selected_paths, current_p
                 paths_to_expand.add(path_to_string(parent_path))
 
     return filtered, paths_to_expand
+
+
+def create_favorite_labels_panel(filename, favorites, selected_labels, read_only=False):
+    selected = set(selected_labels or [])
+    buttons = [html.Button(
+        [html.Span("✓ " if label in selected else "+ ", **{"aria-hidden": "true"}),
+         html.Span(label.split(" > ")[-1]),
+         html.Small(" / ".join(label.split(" > ")[:-1]))],
+        id={"type": "favorite-label-pick", "filename": filename, "path": label},
+        type="button", n_clicks=0, disabled=read_only,
+        className="favorite-label-pick" + (" is-selected" if label in selected else ""),
+        title=label,
+        **{"aria-label": ("Remove " if label in selected else "Add ") + label,
+           "aria-pressed": "true" if label in selected else "false"},
+    ) for label in favorites]
+    return [
+        html.Strong("Starred labels"),
+        html.Div(buttons, className="favorite-label-picks") if buttons else None,
+        html.Small(
+            "Click to select or remove, then Save Labels."
+            if favorites else "Star labels in the list below to pick them quickly here.",
+            className="favorite-labels-help",
+        ),
+    ]
+
+
+@callback(
+    Output("favorite-labels-store", "data"),
+    Input({"type": "favorite-label-toggle", "filename": ALL, "path": ALL}, "n_clicks"),
+    State("favorite-labels-store", "data"),
+    State("user-profile-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_starred_label(_clicks, store, profile):
+    ctx = dash.callback_context
+    if not ctx.triggered or not ctx.triggered[0].get("value") or not isinstance(ctx.triggered_id, dict):
+        raise dash.exceptions.PreventUpdate
+    return toggle_favorite(store, profile, ctx.triggered_id.get("path"))
+
+
+@callback(
+    Output({"type": "favorite-labels-panel", "filename": MATCH}, "children"),
+    Input("favorite-labels-store", "data"),
+    Input("user-profile-store", "data"),
+    Input({"type": "selected-labels-store", "filename": MATCH}, "data"),
+    State({"type": "favorite-labels-panel", "filename": MATCH}, "id"),
+    State({"type": "label-selector-readonly", "filename": MATCH}, "data"),
+)
+def render_starred_labels(store, profile, selected, panel_id, read_only):
+    return create_favorite_labels_panel(panel_id["filename"], favorite_labels(store, profile), selected, bool(read_only))
+
+
+@callback(
+    Output({"type": "selected-labels-store", "filename": MATCH}, "data", allow_duplicate=True),
+    Output({"type": "selected-labels-display", "filename": MATCH}, "children", allow_duplicate=True),
+    Output({"type": "verify-actions-store", "filename": MATCH}, "data", allow_duplicate=True),
+    Input({"type": "favorite-label-pick", "filename": MATCH, "path": ALL}, "n_clicks"),
+    State({"type": "selected-labels-store", "filename": MATCH}, "data"),
+    State({"type": "verify-actions-store", "filename": MATCH}, "data"),
+    State("verify-thresholds-store", "data"),
+    State("mode-tabs", "data"),
+    State({"type": "label-selector-readonly", "filename": MATCH}, "data"),
+    prevent_initial_call=True,
+)
+def pick_starred_label(_clicks, selected, actions, thresholds, mode, read_only):
+    ctx = dash.callback_context
+    if read_only or not ctx.triggered or not ctx.triggered[0].get("value") or not isinstance(ctx.triggered_id, dict):
+        raise dash.exceptions.PreventUpdate
+    target = ctx.triggered_id
+    label = target["path"]
+    return update_selected_labels(
+        [label not in (selected or [])], [target], selected, actions, thresholds, mode,
+    )
