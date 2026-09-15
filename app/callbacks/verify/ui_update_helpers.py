@@ -6,15 +6,12 @@ from app.components.spectrogram_card import create_verify_label_block_children
 
 
 def _replace_matching_id(ids, item_id, value):
-    if not ids:
-        return no_update
-    updates = [no_update] * len(ids)
-    matched = False
+    # ALL outputs require a list even when no card matches (or none are mounted).
+    updates = [no_update] * len(ids or [])
     for index, id_obj in enumerate(ids or []):
         if isinstance(id_obj, dict) and id_obj.get("item_id") == item_id:
             updates[index] = value
-            matched = True
-    return updates if matched else no_update
+    return updates
 
 
 def build_verify_card_ui_updates(

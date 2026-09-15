@@ -143,3 +143,73 @@ def test_remaining_count_obeys_class_threshold_status_and_empty_results(tmp_path
     assert page(key, classes=[])["remaining_items"] == 0
     assert page(key, threshold=1)["remaining_items"] == 0
     assert page(None)["remaining_items"] == 0
+
+
+@pytest.mark.parametrize('mode', ['verify', 'label'])
+@pytest.mark.parametrize('visible_cards', [[], ['clip-0', 'clip-1'], ['clip-4']])
+@pytest.mark.parametrize('modal_open', [False, True])
+def test_add_label_http_save_handles_absent_and_unrelated_cards(
+    review_app, tmp_path, mode, visible_cards, modal_open
+):
+    """Exercise Dash response validation as well as real disposable persistence."""
+    key, browser = dataset(tmp_path, compact=True)
+    new_label = 'Other > Data gap'
+    labels_file = tmp_path / 'labels.json'
+    callback_key, entry = next(
+        (key, value) for key, value in review_app.callback_map.items()
+        if value.get('callback') and value['callback'].__wrapped__.__name__ == 'save_label_editor'
+    )
+    block_ids = [{'type': 'verify-label-block', 'item_id': item} for item in visible_cards]
+    button_ids = [{'type': 'confirm-btn', 'item_id': item} for item in visible_cards]
+    label_data = {'items': [get_verify_modal_item(key, 'clip-4')]}
+    values = {
+        'active-item-store': 'clip-4', 'label-data-store': label_data,
+        'user-profile-store': PROFILE, 'mode-tabs': mode,
+        'verify-thresholds-store': THRESHOLDS, 'verify-data-cache-key-store': key,
+        'config-store': {}, 'label-output-input': str(labels_file),
+        'current-filename': 'clip-4' if modal_open else None,
+    }
+    pattern_values = {
+        'selected-labels-store': [[LABEL, new_label]],
+        'note-editor-text': ['Saved new label'],
+        'verify-label-block': block_ids, 'confirm-btn': button_ids,
+    }
+    states = []
+    for state in entry['state']:
+        if state['id'].startswith('{'):
+            pattern = json.loads(state['id'])
+            if state['property'] == 'id' and 'filename' in pattern:
+                value = [{'type': pattern['type'], 'filename': 'clip-4'}]
+            else:
+                value = pattern_values[pattern['type']]
+        else:
+            value = values.get(state['id'])
+        states.append(dict(state, value=value))
+    outputs = []
+    for output in entry['output']:
+        if isinstance(output.component_id, dict):
+            ids = block_ids if output.component_id['type'] == 'verify-label-block' else button_ids
+            outputs.append([{'id': id_, 'property': output.component_property} for id_ in ids])
+        else:
+            outputs.append({'id': output.component_id, 'property': output.component_property})
+    response = review_app.server.test_client().post('/_dash-update-component', json={
+        'output': callback_key, 'outputs': outputs,
+        'inputs': [dict(entry['inputs'][0], value=1)], 'state': states,
+        'changedPropIds': ['label-editor-save.n_clicks'],
+    })
+    assert response.status_code == 200, response.get_data(as_text=True)
+    updates = response.json['response']
+    assert updates['label-editor-modal']['is_open'] is False
+    if mode == 'verify':
+        assert page(key, 'unverified')['remaining_items'] == 4
+        assert len(page(key)['visible_item_ids']) == 5
+        saved = json.loads((tmp_path / 'predictions.json').read_text())['items'][4]
+        assert any(d['label'] == new_label and d['decision'] == 'added'
+                   for d in saved['verifications'][-1]['label_decisions'])
+        assert updates['verify-data-store']['data']['__dash_patch_update']
+    else:
+        assert labels_file.exists()
+        assert new_label in labels_file.read_text()
+        assert new_label in updates['label-data-store']['data']['items'][0]['annotations']['labels']
+    if modal_open:
+        assert new_label in updates['modal-item-store']['data']['annotations']['labels']

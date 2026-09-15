@@ -370,6 +370,12 @@ def register_label_editor_modal_callbacks(
     ):
         if not save_clicks or not active_item_id:
             raise PreventUpdate
+        unchanged_card_updates = (
+            [no_update] * len(label_block_ids or []),
+            [no_update] * len(save_button_ids or []),
+            [no_update] * len(save_button_ids or []),
+            [no_update] * len(save_button_ids or []),
+        )
         if mode == "explore":
             return (
                 no_update,
@@ -381,10 +387,7 @@ def register_label_editor_modal_callbacks(
                 no_update,
                 no_update,
                 no_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
+                *unchanged_card_updates,
             )
         _require_complete_profile(profile, "save_label_editor")
 
@@ -560,10 +563,7 @@ def register_label_editor_modal_callbacks(
                 snapshot_update,
                 updated_item if active_item_id == current_modal_item_id else no_update,
                 modal_actions_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
+                *unchanged_card_updates,
             )
         if mode == "verify":
             return (
@@ -588,8 +588,5 @@ def register_label_editor_modal_callbacks(
             snapshot_update,
             updated_item if active_item_id == current_modal_item_id else no_update,
             modal_actions_update,
-            no_update,
-            no_update,
-            no_update,
-            no_update,
+            *unchanged_card_updates,
         )
