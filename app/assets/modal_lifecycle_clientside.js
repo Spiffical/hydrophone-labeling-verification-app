@@ -166,35 +166,53 @@
     };
   }
 
+  function resetCanonicalAxes(graph) {
+    const ranges = canonicalAxisRanges(graph);
+    if (!ranges || !window.Plotly || typeof window.Plotly.relayout !== 'function') return false;
+    if (graph._hydrophoneAxisResetPending) return true;
+    const itemId = graph.layout.meta.modal_item_id;
+    graph._hydrophoneAxisResetPending = true;
+    restoreFullRaster(graph);
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        // Navigation can commit a different recording while the reset is queued.
+        if (!graph.layout || !graph.layout.meta || graph.layout.meta.modal_item_id !== itemId) {
+          graph._hydrophoneAxisResetPending = false;
+          return;
+        }
+        Promise.resolve(window.Plotly.relayout(graph, {
+          'xaxis.autorange': false,
+          'xaxis.range': ranges.x,
+          'yaxis.autorange': false,
+          'yaxis.range': ranges.y,
+        })).finally(function () {
+          window.requestAnimationFrame(function () {
+            graph._hydrophoneAxisResetPending = false;
+          });
+        });
+      });
+    });
+    return true;
+  }
+
   function installAxisResetGuard() {
     const graph = document.querySelector('#modal-image-graph .js-plotly-plot');
     if (!graph || typeof graph.on !== 'function' || graph._hydrophoneAxisResetGuard) return;
     graph._hydrophoneAxisResetGuard = true;
-    graph.on('plotly_relayout', function (updates) {
-      if (
-        !updates
-        || (updates['xaxis.autorange'] !== true && updates['yaxis.autorange'] !== true)
-      ) {
-        return;
+    // Home can restore Plotly's saved initial ranges without emitting autorange.
+    // Handle the button itself so a prior clip/window cannot define the reset.
+    graph.addEventListener('click', function (event) {
+      const button = event.target && typeof event.target.closest === 'function'
+        ? event.target.closest('.modebar-btn[data-attr="zoom"][data-val="reset"]') : null;
+      if (button && graph.contains(button) && resetCanonicalAxes(graph)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
       }
-      const ranges = canonicalAxisRanges(graph);
-      if (!ranges || !window.Plotly || typeof window.Plotly.relayout !== 'function') return;
-      graph._hydrophoneAxisResetPending = true;
-      restoreFullRaster(graph);
-      window.requestAnimationFrame(function () {
-        window.requestAnimationFrame(function () {
-          Promise.resolve(window.Plotly.relayout(graph, {
-            'xaxis.autorange': false,
-            'xaxis.range': ranges.x,
-            'yaxis.autorange': false,
-            'yaxis.range': ranges.y,
-          })).finally(function () {
-            window.requestAnimationFrame(function () {
-              graph._hydrophoneAxisResetPending = false;
-            });
-          });
-        });
-      });
+    }, true);
+    graph.on('plotly_relayout', function (updates) {
+      if (updates && (updates['xaxis.autorange'] === true || updates['yaxis.autorange'] === true)) {
+        resetCanonicalAxes(graph);
+      }
     });
   }
 

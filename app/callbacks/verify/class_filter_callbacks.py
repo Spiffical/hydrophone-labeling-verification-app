@@ -1,6 +1,6 @@
 """Verify mode class filter and threshold callbacks."""
 
-from dash import ALL, Input, Output, State, ctx, html
+from dash import ALL, Input, Output, State, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 
 from app.services.verify_modal_cache import get_verify_filter_leaf_classes
@@ -79,9 +79,9 @@ def register_verify_filter_callbacks(
 
         normalized_expanded = ordered_unique_labels(expanded_value or [])
         if not option_values:
-            # Preserve the "no filter yet" state before data is loaded so the
-            # first real dataset defaults to all classes selected.
-            return [], None, []
+            # Empty/loading data must not erase a restored selection, including
+            # an intentionally empty list. None still means all classes.
+            return [], no_update, []
 
         valid_paths = set()
         for path in option_values:

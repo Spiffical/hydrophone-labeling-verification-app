@@ -91,6 +91,8 @@ If no data path is supplied, click **Browse**, choose the root folder, review de
 
 Set your name and email from the top-right profile button before editing.
 
+The dashboard automatically remembers date and device selections for each mode, plus review status, selected classes, and confidence thresholds, separately for each reviewer email. Reloading, reopening the dashboard, or switching back to a profile restores those settings. Preferences are saved in the current browser; they do not sync between browsers or computers, and clearing site data removes them. If a saved date or device is no longer available, the dashboard uses an available default.
+
 Open a spectrogram card to review the detail modal. Use label rows to accept, reject, add, delete, or edit labels depending on the active mode. Save/confirm changes before leaving a reviewed item.
 
 In **Edit labels**, click the star beside labels you use frequently. They appear in **Starred labels** at the top of every label editor: click a shortcut to select or remove it, then **Save Labels**. Starring a label only creates a shortcut; it does not label the clip. Favorites persist in this browser, separately for each reviewer email, and are not synced across devices.

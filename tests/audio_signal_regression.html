@@ -21,11 +21,11 @@
         }
         const src = ctx.createBufferSource();
         src.buffer = buffer;
-        const high = ctx.createBiquadFilter(), low = ctx.createBiquadFilter(), gain = ctx.createGain();
-        high.type = 'highpass'; high.Q.value = .707;
-        low.type = 'lowpass'; low.Q.value = .707;
+        const high = createBypassableFilter(ctx, 'highpass');
+        const low = createBypassableFilter(ctx, 'lowpass'), gain = ctx.createGain();
         gain.gain.value = 1;
-        src.connect(high); high.connect(low); low.connect(gain); gain.connect(ctx.destination);
+        src.connect(high.bypassInput); high.bypassOutput.connect(low.bypassInput);
+        low.bypassOutput.connect(gain); gain.connect(ctx.destination);
         const audio = {
             audioContext: ctx, visibleHighpassFilter: high, visibleLowpassFilter: low,
             gainNode: gain, requestedGain: 1, userRequestedPlayback: true, paused: true, playbackRate: 1,
@@ -60,9 +60,50 @@
         for (const sample of y) peak = Math.max(peak, Math.abs(sample));
         const before = rms(.1, .2), redraw = rms(.35, .5);
         const finite = Array.from(y).every(Number.isFinite);
-        document.getElementById('result').textContent = JSON.stringify({
+        const shortResult = {
             passed: finite && before > 0 && redraw / before < 1.05 && peak < .1,
             beforeRms: before, duringRedrawRms: redraw, redrawLevelRatio: redraw / before, peak, finite,
+        };
+        document.getElementById('result').textContent = JSON.stringify(shortResult, null, 2);
+
+        // Safari's near-zero highpass drift only becomes obvious in longer clips.
+        // With visible-only OFF, zooms must leave the waveform unchanged.
+        const longCtx = new OfflineAudioContext(1, rate * 60, rate);
+        const longBuffer = longCtx.createBuffer(1, rate * 60, rate);
+        const input = longBuffer.getChannelData(0);
+        for (let i = 0; i < input.length; i++) {
+            input[i] = .0001 + .0004 * Math.sin(2 * Math.PI * .15 * i / rate)
+                + .0002 * Math.sin(2 * Math.PI * 500 * i / rate);
+        }
+        const longSource = longCtx.createBufferSource(); longSource.buffer = longBuffer;
+        const hp = createBypassableFilter(longCtx, 'highpass');
+        const lp = createBypassableFilter(longCtx, 'lowpass');
+        const longGain = longCtx.createGain(); longGain.gain.value = 0;
+        longSource.connect(hp.bypassInput); hp.bypassOutput.connect(lp.bypassInput);
+        lp.bypassOutput.connect(longGain); longGain.connect(longCtx.destination);
+        const longAudio = { audioContext: longCtx, visibleHighpassFilter: hp,
+            visibleLowpassFilter: lp, gainNode: longGain, requestedGain: 24.1,
+            playbackRate: .75, userRequestedPlayback: true, paused: true };
+        updateVisibleFrequencyFilters(longAudio, false);
+        longAudio.paused = false; setAudioGainValue(longAudio, 24.1);
+        const zooms = [];
+        for (let n = 1; n < 100; n++) {
+            zooms.push(longCtx.suspend(n * .5).then(() => {
+                windowHz(...(n % 2 ? [10000, 20000] : [0, 32000]));
+                updateVisibleFrequencyFilters(longAudio, false);
+                return longCtx.resume();
+            }));
+        }
+        longSource.start();
+        const output = (await longCtx.startRendering()).getChannelData(0);
+        await Promise.all(zooms);
+        let maxError = 0;
+        for (let i = rate; i < output.length; i++) {
+            maxError = Math.max(maxError, Math.abs(output[i] - input[i] * 24.1));
+        }
+        document.getElementById('result').textContent = JSON.stringify({
+            passed: shortResult.passed && Number.isFinite(maxError) && maxError < 1e-7,
+            redraw: shortResult, fullRange60SecondsMaxError: maxError,
         }, null, 2);
     } catch (error) {
         document.getElementById('result').textContent = error.stack;

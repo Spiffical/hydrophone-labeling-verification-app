@@ -19,8 +19,8 @@ function setup() {
     const audio = { audioContext: context, playbackRate: 1, requestedGain: 10,
         paused: false, userRequestedPlayback: true,
         gainNode: { gain: param() },
-        visibleHighpassFilter: { context, frequency: param() },
-        visibleLowpassFilter: { context, frequency: param() } };
+        visibleHighpassFilter: { context, frequency: param(), bypassDry: { gain: param() }, bypassWet: { gain: param() } },
+        visibleLowpassFilter: { context, frequency: param(), bypassDry: { gain: param() }, bypassWet: { gain: param() } } };
     return { sandbox, audio, setGraph: (value) => { graph = value; } };
 }
 
@@ -69,7 +69,63 @@ test('log axes and pitch shift map to finite cutoffs, disabling restores full ra
     assert.equal(state.cutoffMinHz, 200);
     assert.equal(state.cutoffMaxHz, 2000);
     s.updateVisibleFrequencyFilters(audio, false);
-    assert.equal(audio.visibleHighpassFilter.frequency.value, .001);
+    assert.equal(audio.visibleHighpassFilter.frequency.value, 200);
+    assert.equal(audio.visibleHighpassFilter.bypassDry.gain.value, 1);
+    assert.equal(audio.visibleHighpassFilter.bypassWet.gain.value, 0);
+    assert.equal(audio.visibleLowpassFilter.bypassDry.gain.value, 1);
     assert.equal(audio.lastVisibleFilterState, null);
     assert.equal(audio.visibleFilterWaiting, false);
+});
+
+
+test('full-range and zero-Hz windows bypass filters without moving cutoffs toward zero', () => {
+    const { sandbox: s, audio, setGraph } = setup();
+    s.updateVisibleFrequencyFilters(audio, true);
+    const hp = audio.visibleHighpassFilter, lp = audio.visibleLowpassFilter;
+    assert.equal(hp.bypassWet.gain.value, 1);
+    const previousCalls = hp.frequency.calls.length;
+    setGraph({ _fullLayout: { yaxis: { range: [0, 24000], title: 'Hz' } } });
+    const state = s.updateVisibleFrequencyFilters(audio, true);
+    assert.equal(state.cutoffMinHz, 0);
+    assert.equal(state.cutoffMaxHz, 24000);
+    assert.equal(hp.frequency.calls.length, previousCalls);
+    assert.equal(hp.bypassWet.gain.value, 0);
+    assert.equal(lp.bypassWet.gain.value, 0);
+    const bypassCalls = hp.bypassDry.gain.calls.length;
+    for (let i = 0; i < 100; i++) s.updateVisibleFrequencyFilters(audio, false);
+    assert.equal(hp.frequency.calls.length, previousCalls);
+    assert.equal(hp.bypassDry.gain.calls.length, bypassCalls);
+});
+
+test('bypassable filters route dry and filtered paths to the same output and clean up all nodes', () => {
+    const { sandbox: s } = setup();
+    const nodes = [];
+    const context = {
+        createGain: () => node(), createBiquadFilter: () => node(),
+    };
+    function node() {
+        const n = { context, frequency: {}, Q: {}, gain: {}, outputs: [],
+            connect(other) { this.outputs.push(other); }, disconnect() { this.outputs = []; } };
+        nodes.push(n); return n;
+    }
+    const filter = s.createBypassableFilter(context, 'highpass');
+    assert.equal(filter.frequency.value, 1000);
+    assert.equal(filter.bypassDry.gain.value, 1);
+    assert.equal(filter.bypassWet.gain.value, 0);
+    assert.deepEqual(filter.bypassInput.outputs, [filter.bypassDry, filter]);
+    assert.deepEqual(filter.outputs, [filter.bypassWet]);
+    assert.deepEqual(filter.bypassDry.outputs, [filter.bypassOutput]);
+    assert.deepEqual(filter.bypassWet.outputs, [filter.bypassOutput]);
+    s.disconnectBypassableFilter(filter);
+    assert.ok(nodes.every(n => n.outputs.length === 0));
+});
+
+
+test('very small positive frequency windows cannot reintroduce near-zero highpass coefficients', () => {
+    const { sandbox: s, audio, setGraph } = setup();
+    setGraph({ _fullLayout: { yaxis: { range: [.1, 24000], title: 'Hz' } } });
+    audio.playbackRate = .75;
+    const state = s.updateVisibleFrequencyFilters(audio, true);
+    assert.equal(audio.visibleHighpassFilter.frequency.value, 1);
+    assert.equal(state.clamped, true);
 });

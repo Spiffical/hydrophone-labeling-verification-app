@@ -185,16 +185,10 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                         audio.lowEqFilters[band.key] = filter;
                     });
 
-                    // Create the listenable-window filters. They are bypassed until the mode is enabled.
-                    audio.visibleHighpassFilter = audio.audioContext.createBiquadFilter();
-                    audio.visibleHighpassFilter.type = 'highpass';
-                    audio.visibleHighpassFilter.Q.value = 0.707;
-                    audio.visibleHighpassFilter.frequency.value = 0.001;
-
-                    audio.visibleLowpassFilter = audio.audioContext.createBiquadFilter();
-                    audio.visibleLowpassFilter.type = 'lowpass';
-                    audio.visibleLowpassFilter.Q.value = 0.707;
-                    audio.visibleLowpassFilter.frequency.value = (audio.audioContext.sampleRate || 48000) / 2;
+                    // Each stage has a real dry path. Near-zero highpass cutoffs
+                    // used as a bypass can accumulate signal error in Safari.
+                    audio.visibleHighpassFilter = createBypassableFilter(audio.audioContext, 'highpass');
+                    audio.visibleLowpassFilter = createBypassableFilter(audio.audioContext, 'lowpass');
 
                     // Create gain node for post-filter amplification.
                     audio.gainNode = audio.audioContext.createGain();
@@ -202,9 +196,9 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                     audio.gainNode.gain.value = 0.0;
 
                     // Connect: source -> EQ chain -> visible-window filters -> gain -> destination
-                    chainTail.connect(audio.visibleHighpassFilter);
-                    audio.visibleHighpassFilter.connect(audio.visibleLowpassFilter);
-                    audio.visibleLowpassFilter.connect(audio.gainNode);
+                    chainTail.connect(audio.visibleHighpassFilter.bypassInput);
+                    audio.visibleHighpassFilter.bypassOutput.connect(audio.visibleLowpassFilter.bypassInput);
+                    audio.visibleLowpassFilter.bypassOutput.connect(audio.gainNode);
                     audio.gainNode.connect(audio.audioContext.destination);
 
                     registerPlayerCleanup(cleanupFns, function () {
@@ -234,13 +228,13 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
                                 audio.visibleHighpassFilter &&
                                 typeof audio.visibleHighpassFilter.disconnect === 'function'
                             ) {
-                                audio.visibleHighpassFilter.disconnect();
+                                disconnectBypassableFilter(audio.visibleHighpassFilter);
                             }
                             if (
                                 audio.visibleLowpassFilter &&
                                 typeof audio.visibleLowpassFilter.disconnect === 'function'
                             ) {
-                                audio.visibleLowpassFilter.disconnect();
+                                disconnectBypassableFilter(audio.visibleLowpassFilter);
                             }
                         } catch (disconnectError) {
                             console.debug('Error disconnecting visible-window filters:', disconnectError);
@@ -616,6 +610,38 @@ function disablePitchPreservation(audio) {
     }
 }
 
+// Crossfade complementary dry/wet paths instead of approximating a bypass
+// with unstable endpoint coefficients. Keep the unused filter at a safe cutoff.
+function createBypassableFilter(context, type) {
+    const filter = context.createBiquadFilter();
+    filter.type = type;
+    filter.Q.value = 0.707;
+    filter.frequency.value = 1000;
+    filter.bypassInput = context.createGain();
+    filter.bypassOutput = context.createGain();
+    filter.bypassDry = context.createGain();
+    filter.bypassWet = context.createGain();
+    filter.bypassDry.gain.value = 1;
+    filter.bypassWet.gain.value = 0;
+    filter.bypassInput.connect(filter.bypassDry);
+    filter.bypassInput.connect(filter);
+    filter.connect(filter.bypassWet);
+    filter.bypassDry.connect(filter.bypassOutput);
+    filter.bypassWet.connect(filter.bypassOutput);
+    return filter;
+}
+
+function disconnectBypassableFilter(filter) {
+    [filter, filter.bypassInput, filter.bypassOutput, filter.bypassDry, filter.bypassWet]
+        .forEach(function (node) { if (node) node.disconnect(); });
+}
+
+function setBiquadBypassed(filter, bypassed, immediate) {
+    if (!filter || !filter.bypassDry || !filter.bypassWet) return;
+    smoothAudioParam(filter.bypassDry.gain, bypassed ? 1 : 0, filter.context, immediate);
+    smoothAudioParam(filter.bypassWet.gain, bypassed ? 0 : 1, filter.context, immediate);
+}
+
 function updateVisibleFrequencyFilters(audio, enabled) {
     if (!audio || !enabled) {
         if (audio) {
@@ -645,22 +671,28 @@ function updateVisibleFrequencyFilters(audio, enabled) {
     const playbackMinHz = Math.max(0, visibleWindow.minHz * playbackRate);
     const playbackMaxHz = Math.max(playbackMinHz, visibleWindow.maxHz * playbackRate);
     const maxCutoffHz = Math.max(2, nyquistHz * 0.98);
-    const lowCutoffHz = clamp(playbackMinHz > 0 ? playbackMinHz : 0.001, 0.001, nyquistHz * 0.95);
+    // Sub-Hz coefficients are ill-conditioned in Safari; report this floor as clamping.
+    const lowCutoffHz = clamp(playbackMinHz, 1, nyquistHz * 0.95);
     const highCutoffHz = clamp(playbackMaxHz, Math.min(lowCutoffHz + 1, maxCutoffHz), maxCutoffHz);
 
     const immediate = audio.paused || audio.visibleFilterWaiting;
-    setBiquadFrequency(audio.visibleHighpassFilter, lowCutoffHz, immediate);
-    setBiquadFrequency(audio.visibleLowpassFilter, highCutoffHz, immediate);
+    const bypassHighpass = playbackMinHz <= 0;
+    const bypassLowpass = playbackMaxHz >= nyquistHz;
+    if (!bypassHighpass) setBiquadFrequency(audio.visibleHighpassFilter, lowCutoffHz, immediate);
+    if (!bypassLowpass) setBiquadFrequency(audio.visibleLowpassFilter, highCutoffHz, immediate);
+    setBiquadBypassed(audio.visibleHighpassFilter, bypassHighpass, immediate);
+    setBiquadBypassed(audio.visibleLowpassFilter, bypassLowpass, immediate);
 
     const state = {
         visibleMinHz: visibleWindow.minHz,
         visibleMaxHz: visibleWindow.maxHz,
         playbackMinHz: playbackMinHz,
         playbackMaxHz: playbackMaxHz,
-        cutoffMinHz: lowCutoffHz,
-        cutoffMaxHz: highCutoffHz,
+        cutoffMinHz: bypassHighpass ? 0 : lowCutoffHz,
+        cutoffMaxHz: bypassLowpass ? nyquistHz : highCutoffHz,
         playbackRate: playbackRate,
-        clamped: highCutoffHz + 0.5 < playbackMaxHz || lowCutoffHz > playbackMinHz + 0.5,
+        clamped: (bypassLowpass ? nyquistHz : highCutoffHz) + 0.5 < playbackMaxHz
+            || (!bypassHighpass && lowCutoffHz > playbackMinHz + 0.5),
     };
     audio.lastVisibleFilterState = state;
     setVisibleFilterWaiting(audio, false);
@@ -676,9 +708,8 @@ function setVisibleFilterWaiting(audio, waiting) {
 
 function bypassVisibleFrequencyFilters(audio) {
     if (!audio || !audio.visibleHighpassFilter || !audio.visibleLowpassFilter) return;
-    const nyquistHz = getAudioContextNyquistHz(audio);
-    setBiquadFrequency(audio.visibleHighpassFilter, 0.001);
-    setBiquadFrequency(audio.visibleLowpassFilter, Math.max(2, nyquistHz * 0.98));
+    setBiquadBypassed(audio.visibleHighpassFilter, true, audio.paused);
+    setBiquadBypassed(audio.visibleLowpassFilter, true, audio.paused);
 }
 
 function getAudioContextNyquistHz(audio) {
@@ -690,7 +721,7 @@ function getAudioContextNyquistHz(audio) {
 
 function setBiquadFrequency(filter, frequencyHz, immediate) {
     if (!filter || !filter.frequency) return;
-    const safeFrequency = Math.max(0.001, Number(frequencyHz) || 0.001);
+    const safeFrequency = Math.max(1, Number(frequencyHz) || 1);
     smoothAudioParam(filter.frequency, safeFrequency, filter.context, immediate);
 }
 

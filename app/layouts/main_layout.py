@@ -70,6 +70,8 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="label-editor-clicks", data={}, storage_type="memory"),
         dcc.Store(id="user-profile-store", data={"name": "", "email": ""}, storage_type="local"),
         dcc.Store(id="favorite-labels-store", data={}, storage_type="local"),
+        dcc.Store(id="review-preferences-store", data={}, storage_type="local"),
+        dcc.Store(id="review-preferences-owner-store", data=None, storage_type="memory"),
         dcc.Store(id="profile-reset-applied-store", data=False, storage_type="session"),
         dcc.Store(id="theme-store", data=initial_theme, storage_type="local"),
         dcc.Store(
@@ -88,7 +90,7 @@ def create_main_layout(config: dict) -> html.Div:
                 "verify": {"date": None, "device": None},
                 "explore": {"date": None, "device": None},
             },
-            storage_type="session",
+            storage_type="memory",
         ),
         dcc.Store(id="folder-browser-path-store", data=initial_data_dir, storage_type="memory"),
         dcc.Store(id="folder-browser-selected-store", data=None, storage_type="memory"),
@@ -323,6 +325,10 @@ def create_main_layout(config: dict) -> html.Div:
                             "Name and a valid email are required for labeling and verification.",
                             id="profile-required-message",
                             className="profile-required-message mt-2",
+                        ),
+                        html.Small(
+                            "Your date, device, and review filters are remembered in this browser for this email.",
+                            className="text-muted d-block mt-2",
                         ),
                     ])
                 ]),

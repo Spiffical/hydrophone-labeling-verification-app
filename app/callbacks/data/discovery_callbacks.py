@@ -7,6 +7,19 @@ from dash.exceptions import PreventUpdate
 from app.utils.data_discovery import detect_data_structure
 
 
+def directory_dates(data_dir):
+    """Enumerate the dataset scope rather than the currently loaded date's subset."""
+    try:
+        return sorted(
+            (name for name in os.listdir(data_dir)
+             if len(name) == 10 and name[4] == "-" and name[7] == "-"
+             and os.path.isdir(os.path.join(data_dir, name))),
+            reverse=True,
+        )
+    except OSError:
+        return []
+
+
 def active_selection_label(data):
     if not isinstance(data, dict) or not data:
         return "No data loaded"
@@ -38,6 +51,7 @@ def register_tab_state_callbacks(
         Output("global-date-selector", "options", allow_duplicate=True),
         Output("global-date-selector", "value", allow_duplicate=True),
         Input("mode-tabs", "data"),
+        Input("review-preferences-owner-store", "data"),
         State("config-store", "data"),
         State("label-data-store", "data"),
         State("verify-data-store", "data"),
@@ -46,7 +60,9 @@ def register_tab_state_callbacks(
         State("global-date-selector", "value"),
         prevent_initial_call="initial_duplicate",
     )
-    def discover_dates(mode, cfg, label_data, verify_data, explore_data, tab_filter_state, global_date_value):
+    def discover_dates(mode, preferences_owner, cfg, label_data, verify_data, explore_data, tab_filter_state, global_date_value):
+        if preferences_owner is None:
+            raise PreventUpdate
         tab_data = {"label": label_data, "verify": verify_data, "explore": explore_data}.get(mode)
         configured_data_dir = config_default_data_dir(cfg or {}, mode)
         tab_data_dir = tab_data.get("source_data_dir") if tab_data else None
@@ -74,13 +90,16 @@ def register_tab_state_callbacks(
                 if isinstance(tab_data, dict)
                 else None
             ) or summary.get("available_dates")
+            root_dates = directory_dates(data_dir)
+            if root_dates:
+                available_dates = root_dates
             if available_dates:
                 dates = sorted({d for d in available_dates if d}, reverse=True)
                 options = [{"label": "All Dates", "value": "__all__"}] + [
                     {"label": d, "value": d} for d in dates
                 ]
                 option_values = {"__all__", *dates}
-                default_val = "__all__"
+                default_val = dates[0] if root_dates else "__all__"
 
                 config_date = None
                 if mode == "verify" and isinstance(cfg, dict):
@@ -88,8 +107,6 @@ def register_tab_state_callbacks(
                     config_date = verify_cfg.get("date")
                 if saved_date in option_values:
                     default_val = saved_date
-                elif current_date in option_values:
-                    default_val = current_date
                 elif config_date in dates:
                     default_val = config_date
 
@@ -124,8 +141,6 @@ def register_tab_state_callbacks(
                 config_date = verify_cfg.get("date")
             if saved_date in option_values:
                 default_val = saved_date
-            elif current_date in option_values:
-                default_val = current_date
             elif config_date in dates:
                 default_val = config_date
 
@@ -152,8 +167,6 @@ def register_tab_state_callbacks(
                 default_val = "__all__"
                 if saved_date in option_values:
                     default_val = saved_date
-                elif current_date in option_values:
-                    default_val = current_date
                 elif config_date in dates:
                     default_val = config_date
                 tab_iso_debug(
@@ -232,6 +245,8 @@ def register_tab_state_callbacks(
                 if isinstance(tab_data, dict)
                 else None
             ) or summary.get("available_devices")
+            if directory_dates(data_dir):
+                available_devices = None
             if available_devices:
                 devices = sorted({d for d in available_devices if d})
                 options = [{"label": "All Devices", "value": "__all__"}] + [
@@ -246,8 +261,6 @@ def register_tab_state_callbacks(
                     config_dev = verify_cfg.get("hydrophone")
                 if saved_device in option_values:
                     default_val = saved_device
-                elif current_device in option_values:
-                    default_val = current_device
                 elif config_dev in devices:
                     default_val = config_dev
 
@@ -299,8 +312,6 @@ def register_tab_state_callbacks(
                 config_dev = verify_cfg.get("hydrophone")
             if saved_device in option_values:
                 default_val = saved_device
-            elif current_device in option_values:
-                default_val = current_device
             elif config_dev in devices:
                 default_val = config_dev
 
