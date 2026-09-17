@@ -23,7 +23,7 @@ from app.services.verify_all_dates_loader import (
     start_queued_all_dates_load,
     start_all_dates_load,
 )
-from app.services.verify_modal_cache import get_verify_modal_data
+from app.services.verify_modal_cache import get_verify_modal_data, get_verify_modal_summary
 
 
 def test_all_dates_cache_key_is_stable_and_device_specific():
@@ -370,3 +370,62 @@ def test_all_dates_poll_is_disabled_until_a_background_load_starts():
         getattr(component, "id", None) == "verify-all-dates-request-store"
         for component in layout.children
     )
+
+
+def test_indexed_all_dates_view_keeps_cached_request_id_current_for_queued_reloads():
+    indexed = {
+        "items": [{"item_id": f"reload-{index}"} for index in range(3)],
+        "summary": {"total_items": 3, "active_hydrophone": "ICLISTENHF6324"},
+    }
+
+    first = _indexed_all_dates_view(
+        indexed,
+        cache_key="reload-key",
+        active_data_dir="/tmp/data",
+        request_id="request-1",
+        updating=False,
+    )
+    modal_key = first["summary"]["verify_modal_cache_key"]
+    assert get_verify_modal_summary(modal_key)["all_dates_request_id"] == "request-1"
+
+    # A forced reload serves the same index again, with a new request id, while
+    # the refresh sits in the queue. The grid render builds its UI-ready signal
+    # from the cached summary, so that summary must follow the new request.
+    second = _indexed_all_dates_view(
+        indexed,
+        cache_key="reload-key",
+        active_data_dir="/tmp/data",
+        request_id="request-2",
+        updating=True,
+    )
+    assert second["summary"]["verify_modal_cache_key"] == modal_key
+    cached_summary = get_verify_modal_summary(modal_key)
+    assert cached_summary["all_dates_request_id"] == "request-2"
+    assert cached_summary["all_dates_loading"] is True
+    assert cached_summary["active_date"] == "All"
+
+    ui_ready = {
+        "all_dates_request_id": cached_summary["all_dates_request_id"],
+        "active_date": cached_summary["active_date"],
+    }
+    assert _is_all_dates_ui_ready(second["summary"], ui_ready)
+    assert not _is_all_dates_ui_ready(second["summary"], {"all_dates_request_id": "request-1", "active_date": "All"})
+
+
+def test_all_dates_poll_reacts_to_new_all_dates_requests(mock_config):
+    from app.main import create_app
+
+    app = create_app(mock_config)
+    entry = next(
+        entry
+        for key, entry in app.callback_map.items()
+        if "verify-all-dates-poll.disabled" in key
+    )
+    inputs = {(dep["id"], dep["property"]) for dep in entry.get("inputs", [])}
+    states = {(dep["id"], dep["property"]) for dep in entry.get("state", [])}
+
+    # A queued reload only surfaces through the request store; polling must
+    # restart from it, not wait for the date or device selector to change.
+    assert ("verify-all-dates-request-store", "data") in inputs
+    assert ("verify-all-dates-request-store", "data") not in states
+    assert ("verify-all-dates-poll", "n_intervals") in inputs

@@ -18,6 +18,7 @@ from app.services.verify_all_dates_loader import (
 )
 from app.services.verify_modal_cache import (
     ensure_verify_modal_items,
+    update_verify_modal_summary,
     register_verify_modal_items,
 )
 
@@ -197,6 +198,19 @@ def _indexed_all_dates_view(
         modal_cache_key = register_verify_modal_items(indexed)
     else:
         modal_cache_key = ensure_verify_modal_items(indexed)
+        # The grid render reads its summary from this shared cache, and its
+        # UI-ready signal echoes the request id found there. Keep the request
+        # fields current so a queued reload can be started by the poll.
+        update_verify_modal_summary(
+            modal_cache_key,
+            {
+                "all_dates_loading": bool(updating),
+                "all_dates_preview": False,
+                "all_dates_index_available": True,
+                "all_dates_cache_key": cache_key,
+                "all_dates_request_id": request_id,
+            },
+        )
 
     compact = dict(indexed)
     compact["items"] = deepcopy(indexed_items[:_ALL_DATES_PREVIEW_MAX_ITEMS])
@@ -241,7 +255,7 @@ def register_verify_data_loading_callback(
         Input("global-date-selector", "value"),
         Input("global-device-selector", "value"),
         Input("verify-all-dates-poll", "n_intervals"),
-        State("verify-all-dates-request-store", "data"),
+        Input("verify-all-dates-request-store", "data"),
         State("verify-all-dates-ready-store", "data"),
         State("verify-ui-ready-store", "data"),
     )

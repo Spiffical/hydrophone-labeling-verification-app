@@ -350,6 +350,22 @@ def has_pending_verify_modal_changes(cache_key):
         )
 
 
+def update_verify_modal_summary(cache_key, updates):
+    """Merge fields into a cached summary so grid renders report current request state."""
+    if not cache_key or not isinstance(updates, dict) or not updates:
+        return False
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        if not isinstance(cache_entry, dict):
+            return False
+        summary = cache_entry.get("summary")
+        if not isinstance(summary, dict):
+            summary = {}
+            cache_entry["summary"] = summary
+        summary.update(deepcopy(updates))
+    return True
+
+
 def ensure_verify_modal_items(data):
     """Register verify items only when this dataset is not already cached."""
     summary = data.get("summary", {}) if isinstance(data, dict) else {}
