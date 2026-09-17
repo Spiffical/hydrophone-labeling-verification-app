@@ -1,6 +1,7 @@
 """
 Convert unified v2.x predictions format to internal app format.
 """
+import json
 from datetime import datetime, timezone
 from typing import Dict, List
 
@@ -49,6 +50,44 @@ def _build_data_source_index(predictions_json: dict) -> dict:
     return index
 
 
+def merge_duplicate_item_records(raw_items):
+    """Collapse repeated item ids from merged inference passes into one record each.
+
+    The last occurrence wins for model outputs and paths, since a later pass is
+    appended after an earlier one. Verifications from every copy are kept in
+    file order with exact repeats dropped, so no expert decision is lost.
+    Records without an item id pass through untouched.
+    """
+    if not isinstance(raw_items, list):
+        return []
+    merged = []
+    position = {}
+    for record in raw_items:
+        if not isinstance(record, dict):
+            continue
+        item_id = record.get("item_id")
+        if not item_id or item_id not in position:
+            if item_id:
+                position[item_id] = len(merged)
+            merged.append(record)
+            continue
+        index = position[item_id]
+        previous = merged[index]
+        combined = dict(record)
+        verifications = []
+        seen = set()
+        for source in (previous.get("verifications"), record.get("verifications")):
+            for verification in source if isinstance(source, list) else []:
+                key = json.dumps(verification, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
+                verifications.append(verification)
+        combined["verifications"] = verifications
+        merged[index] = combined
+    return merged
+
+
 def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None, *, path_exists=None) -> dict:
     """Convert unified v2.x predictions format to internal app format.
 
@@ -79,7 +118,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
     task_type = predictions_json.get("task_type", "unknown")
 
     global_review_filter_classes = predictions_json.get("review_filter_classes") or []
-    for item_data in predictions_json.get("items", []):
+    for item_data in merge_duplicate_item_records(predictions_json.get("items", [])):
         # Look up data source for this item
         ds_id = item_data.get("data_source_id", "_default")
         data_source = ds_index.get(ds_id, ds_index.get("_default", {}))
