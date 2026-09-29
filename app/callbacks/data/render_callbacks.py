@@ -3,7 +3,8 @@
 import os
 import time
 
-from dash import Input, Output, State, html, no_update, set_props
+from dash import Input, Output, State, ctx, html, no_update, set_props
+from dash.exceptions import PreventUpdate
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
 from app.services.grid_updates import grid_render_state, incremental_grid
@@ -11,6 +12,7 @@ from app.services.spectrogram_grid import (
     normalize_spectrogram_grid,
     spectrogram_grid_class,
 )
+from app.services.spectrogram_ranges import uses_visible_ranges
 from app.services.verify_modal_cache import (
     ensure_verify_modal_items,
     get_filtered_verify_items_page,
@@ -25,6 +27,21 @@ from app.utils.image_processing import (
 )
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _page_frequency_window(prefix, cfg, y_axis_min_hz, y_axis_max_hz, triggered_prop_ids):
+    """The page's frequency window, when it applies to the grid.
+
+    With visible ranges each card is drawn in its range's band, so the window
+    is ignored, and a change to nothing but the window does not redraw the grid.
+    """
+    if not uses_visible_ranges(cfg):
+        return y_axis_min_hz, y_axis_max_hz
+    window_props = {f"{prefix}-yaxis-min-input.value", f"{prefix}-yaxis-max-input.value"}
+    triggered = set(triggered_prop_ids or ())
+    if triggered and triggered <= window_props:
+        raise PreventUpdate
+    return None, None
 
 
 def _empty_all_dates_preview_ready_payload(summary, cache_key):
@@ -277,6 +294,9 @@ def register_render_callbacks(
         pass
 
         cfg = cfg or {}
+        y_axis_min_hz, y_axis_max_hz = _page_frequency_window(
+            "label", cfg, y_axis_min_hz, y_axis_max_hz, ctx.triggered_prop_ids
+        )
         is_loading_dataset = not isinstance(data, dict) or not data.get("load_timestamp")
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
@@ -476,6 +496,9 @@ def register_render_callbacks(
         pass
 
         cfg = cfg or {}
+        y_axis_min_hz, y_axis_max_hz = _page_frequency_window(
+            "verify", cfg, y_axis_min_hz, y_axis_max_hz, ctx.triggered_prop_ids
+        )
         _ = verify_cache_revision
         summary = get_verify_modal_summary(verify_cache_key) or {}
         is_loading_dataset = not verify_cache_key or not has_verify_modal_items(verify_cache_key)
@@ -839,6 +862,9 @@ def register_render_callbacks(
         spectrogram_ranges,
     ):
         cfg = cfg or {}
+        y_axis_min_hz, y_axis_max_hz = _page_frequency_window(
+            "explore", cfg, y_axis_min_hz, y_axis_max_hz, ctx.triggered_prop_ids
+        )
         data = data or {"items": [], "summary": {"total_items": 0}}
         summary = data.get("summary", {})
         items = data.get("items", [])

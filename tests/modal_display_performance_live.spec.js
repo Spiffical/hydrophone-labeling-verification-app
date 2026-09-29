@@ -2,7 +2,7 @@ const { test, expect } = require("playwright/test");
 
 test.use({ channel: "chrome" });
 
-test("modal contrast and frequency changes are local and latest-wins", async ({ page }) => {
+test("modal contrast changes are local and latest-wins", async ({ page }) => {
   test.skip(!process.env.MODAL_LIVE_BASE_URL, "Set MODAL_LIVE_BASE_URL for the live data check.");
   test.setTimeout(180_000);
   page.on("pageerror", (error) => console.log("page-error", error.message));
@@ -44,7 +44,6 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
 
   await page.locator("#image-modal summary.display-range-summary").click();
   const colorHandle = page.locator('#modal-colorbar-slider [role="slider"]').first();
-  const frequencyHandle = page.locator('#modal-yaxis-slider [role="slider"]').first();
 
   const contrastStarted = Date.now();
   await colorHandle.focus();
@@ -61,24 +60,6 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
   ).toBe(true);
   const contrastDuration = Date.now() - contrastStarted;
 
-  const frequencyBefore = await page.locator("#modal-image-graph").evaluate((element) => {
-    const graph = element.querySelector(".js-plotly-plot");
-    return graph.layout.meta.display_y_min_hz;
-  });
-  const frequencyStarted = Date.now();
-  await frequencyHandle.focus();
-  for (let index = 0; index < 6; index += 1) {
-    await page.keyboard.press("ArrowRight");
-  }
-  await expect.poll(
-    () => page.locator("#modal-image-graph").evaluate((element) => {
-      const graph = element.querySelector(".js-plotly-plot");
-      return graph.layout.meta.display_y_min_hz;
-    }),
-    { timeout: 2_000 },
-  ).not.toBe(frequencyBefore);
-  const frequencyDuration = Date.now() - frequencyStarted;
-
   // Let Dash finish committing the keyboard-driven slider value before the
   // isolated latest-wins probe below starts its own render sequence.
   await page.waitForTimeout(300);
@@ -88,7 +69,7 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
     const update = window.dash_clientside.modalDisplay.updateCommitted;
     const args = (minimum) => [
       "default", "linear",
-      null, null, minimum, -10,
+      minimum, -10,
       null, null, null, null, null, null,
       null, null, null, null, null, null,
       "verify", figure,
@@ -116,9 +97,8 @@ test("modal contrast and frequency changes are local and latest-wins", async ({ 
     return result;
   });
 
-  console.log("modal-display-ms", JSON.stringify({ contrastDuration, frequencyDuration }));
+  console.log("modal-display-ms", JSON.stringify({ contrastDuration }));
   expect(contrastDuration).toBeLessThan(1500);
-  expect(frequencyDuration).toBeLessThan(750);
   expect(latestWins.staleCancelled).toBe(true);
   expect(latestWins.latestMinimum).toBe(-65);
   expect(latestWins.latestSource).toMatch(/^blob:/);

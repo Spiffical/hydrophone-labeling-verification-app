@@ -141,79 +141,6 @@ def create_spectrogram_modal(config=None):
                     [
                         html.Div(
                             [
-                                html.Label("Frequency window (Hz)", className="display-range-label"),
-                                html.Div(
-                                    [
-                                        html.Span(
-                                            "Using page range",
-                                            id="modal-yaxis-readout",
-                                            className="display-range-readout",
-                                        ),
-                                        dbc.Button(
-                                            "Use page range",
-                                            id="modal-yaxis-reset-btn",
-                                            color="secondary",
-                                            outline=True,
-                                            size="sm",
-                                            n_clicks=0,
-                                            className="display-range-reset",
-                                        ),
-                                    ],
-                                    className="display-range-actions",
-                                ),
-                            ],
-                            className="display-range-group-header",
-                        ),
-                        html.Div(
-                            [
-                                dcc.Input(
-                                    id="modal-yaxis-manual-min-input",
-                                    type="number",
-                                    debounce=True,
-                                    inputMode="decimal",
-                                    step="any",
-                                    className="display-range-manual-input",
-                                ),
-                                html.Div(
-                                    dcc.RangeSlider(
-                                        id="modal-yaxis-slider",
-                                        min=0.0,
-                                        max=2.0,
-                                        value=[0.0, 2.0],
-                                        marks={0.0: "1 Hz", 1.0: "10 Hz", 2.0: "100 Hz"},
-                                        step=0.005,
-                                        allowCross=False,
-                                        updatemode="mouseup",
-                                        className="control-slider display-range-slider",
-                                    ),
-                                    className="display-range-slider-shell",
-                                ),
-                                dcc.Input(
-                                    id="modal-yaxis-manual-max-input",
-                                    type="number",
-                                    debounce=True,
-                                    inputMode="decimal",
-                                    step="any",
-                                    className="display-range-manual-input",
-                                ),
-                            ],
-                            className="display-range-slider-row",
-                        ),
-                        dbc.FormText(
-                            "Log-scaled slider. Reset returns to the current page range.",
-                            id="modal-yaxis-hint",
-                        ),
-                        dcc.Input(id="modal-yaxis-min-input", type="hidden"),
-                        dcc.Input(id="modal-yaxis-max-input", type="hidden"),
-                    ],
-                    md=6,
-                    xs=12,
-                    className="display-range-group",
-                ),
-                dbc.Col(
-                    [
-                        html.Div(
-                            [
                                 html.Label("Contrast (dB/Hz)", className="display-range-label"),
                                 html.Div(
                                     [
@@ -279,7 +206,6 @@ def create_spectrogram_modal(config=None):
                         dcc.Input(id="modal-colorbar-min-input", type="hidden"),
                         dcc.Input(id="modal-colorbar-max-input", type="hidden"),
                     ],
-                    md=6,
                     xs=12,
                     className="display-range-group",
                 ),
@@ -289,8 +215,6 @@ def create_spectrogram_modal(config=None):
         dcc.Store(
             id="modal-display-range-defaults-store",
             data={
-                "yaxis": [0.0, 2.0],
-                "yaxis_readout": "Using page range",
                 "colorbar": [-90.0, -10.0],
                 "colorbar_readout": "Auto contrast",
             },

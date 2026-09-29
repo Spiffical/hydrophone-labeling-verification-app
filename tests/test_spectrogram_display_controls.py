@@ -17,7 +17,7 @@ from app.utils.image_utils import (
     use_full_resolution_modal_image,
 )
 from app.layouts.display_controls import create_display_range_bar
-from app.callbacks.modal.display_helpers import build_modal_display_range_ui, resolve_mode_value
+from app.callbacks.modal.display_helpers import build_modal_contrast_ui, resolve_mode_value
 from app.callbacks.ui.display_range_callbacks import (
     _frequency_slider_state,
     _page_display_summary,
@@ -527,6 +527,9 @@ def test_display_settings_contains_frequency_presets_and_custom_controls():
     assert range_controls.children[4].id == "verify-spectrogram-custom-delete-list"
     assert range_controls.children[5].id == "verify-spectrogram-custom-collapse"
     assert frequency_group.children[0].children[0].children == "Frequency window"
+    # No source set: spectrogram files made beforehand, where the window applies.
+    assert frequency_group.id == "verify-frequency-window-group"
+    assert frequency_group.hidden is False
     assert appearance_section.children[1].children[0].label == "O3.0 colormap"
     assert appearance_section.children[1].children[1].label == "Log frequency axis"
 
@@ -539,7 +542,7 @@ def test_resolve_mode_value_selects_the_active_page_control():
     assert resolve_mode_value("explore", **values) == "explore value"
 
 
-def test_modal_display_ranges_describe_inherited_page_settings():
+def test_modal_contrast_describes_inherited_page_settings():
     figure = {
         "layout": {
             "meta": {
@@ -557,28 +560,23 @@ def test_modal_display_ranges_describe_inherited_page_settings():
         }
     }
 
-    ui = build_modal_display_range_ui(
+    ui = build_modal_contrast_ui(
         figure,
-        modal_y_min=None,
-        modal_y_max=None,
-        inherited_y_min=10.0,
-        inherited_y_max=500.0,
         modal_color_min=None,
         modal_color_max=None,
         inherited_color_min=-75.0,
         inherited_color_max=-20.0,
     )
 
-    assert ui["y_readout"] == "Using page range: 10.0 Hz to 500 Hz"
+    assert set(ui) == {
+        "color_slider_min", "color_slider_max", "color_slider_marks", "color_slider_value",
+        "color_readout", "color_default", "color_manual_min", "color_manual_max",
+    }
     assert ui["color_slider_value"] == [-75.0, -20.0]
     assert ui["color_readout"] == "Using page contrast: -75.0 dB/Hz to -20.0 dB/Hz"
 
-    partial_ui = build_modal_display_range_ui(
+    partial_ui = build_modal_contrast_ui(
         figure,
-        modal_y_min=None,
-        modal_y_max=None,
-        inherited_y_min=None,
-        inherited_y_max=None,
         modal_color_min=None,
         modal_color_max=None,
         inherited_color_min=-75.0,
@@ -587,7 +585,7 @@ def test_modal_display_ranges_describe_inherited_page_settings():
     assert partial_ui["color_slider_value"] == [-75.0, -20.0]
 
 
-def test_modal_display_controls_use_the_page_ranges_stored_on_the_figure():
+def test_modal_contrast_uses_the_page_contrast_stored_on_the_figure():
     figure = {
         "layout": {
             "meta": {
@@ -601,7 +599,6 @@ def test_modal_display_controls_use_the_page_ranges_stored_on_the_figure():
                 "auto_color_max": -10.0,
                 "display_color_min": 39.6,
                 "display_color_max": 76.36,
-                "uses_page_y_range": True,
                 "uses_page_color_range": True,
                 "page_display_y_min_hz": 30.338912,
                 "page_display_y_max_hz": 25589.983155,
@@ -611,26 +608,20 @@ def test_modal_display_controls_use_the_page_ranges_stored_on_the_figure():
         }
     }
 
-    ui = build_modal_display_range_ui(
+    ui = build_modal_contrast_ui(
         figure,
-        modal_y_min=None,
-        modal_y_max=None,
-        inherited_y_min=None,
-        inherited_y_max=None,
         modal_color_min=None,
         modal_color_max=None,
         inherited_color_min=None,
         inherited_color_max=None,
     )
 
-    assert ui["y_readout"].startswith("Using page range:")
     assert ui["color_readout"] == "Using page contrast: 39.6 dB/Hz to 76.4 dB/Hz"
     assert ui["color_slider_value"] == [39.6, 76.36]
     assert ui["color_slider_max"] == 76.36
-    assert ui["y_manual_max"] == 25590.0
 
 
-def test_modal_display_controls_preserve_automatic_item_contrast():
+def test_modal_contrast_preserves_automatic_item_contrast():
     figure = {
         "layout": {
             "meta": {
@@ -644,7 +635,6 @@ def test_modal_display_controls_preserve_automatic_item_contrast():
                 "auto_color_max": 76.36,
                 "display_color_min": 39.6,
                 "display_color_max": 76.36,
-                "uses_page_y_range": True,
                 "uses_page_color_range": True,
                 "page_display_y_min_hz": None,
                 "page_display_y_max_hz": None,
@@ -654,12 +644,8 @@ def test_modal_display_controls_preserve_automatic_item_contrast():
         }
     }
 
-    ui = build_modal_display_range_ui(
+    ui = build_modal_contrast_ui(
         figure,
-        modal_y_min=None,
-        modal_y_max=None,
-        inherited_y_min=None,
-        inherited_y_max=None,
         modal_color_min=None,
         modal_color_max=None,
         inherited_color_min=None,

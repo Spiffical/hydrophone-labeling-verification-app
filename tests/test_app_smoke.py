@@ -157,13 +157,13 @@ def test_modal_display_limit_updates_are_clientside(mock_config):
     assert set(modal_display_callbacks) == {
         "startViewRefresh",
         "updateCommitted",
-        "previewRanges",
+        "previewContrast",
         "commitRasterPreview",
         "extractDisplayMeta",
     }
     assert "modal-image-graph.figure" in modal_display_callbacks["updateCommitted"]["output"]
     assert "modal-colorbar-slider" in {
-        item["id"] for item in modal_display_callbacks["previewRanges"]["inputs"]
+        item["id"] for item in modal_display_callbacks["previewContrast"]["inputs"]
     }
     assert "modal-busy-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
     assert "modal-render-ready-store.data" in modal_display_callbacks["startViewRefresh"]["output"]

@@ -17,6 +17,18 @@ MAX_CUSTOM_RANGES = 8
 MAX_VISIBLE_COMPANION_RANGES = 5
 
 
+def uses_visible_ranges(cfg: Optional[Dict[str, Any]]) -> bool:
+    """True when spectrograms are drawn from audio, one per visible range.
+
+    Each range then sets its own frequency band, in the grid and in the modal.
+    Spectrogram files made beforehand have no ranges; there the page's
+    frequency window picks the band.
+    """
+    render_cfg = (cfg or {}).get("spectrogram_render") if isinstance(cfg, dict) else None
+    source = render_cfg.get("source", "existing") if isinstance(render_cfg, dict) else "existing"
+    return source == "audio_generated"
+
+
 def format_frequency(value: Any) -> str:
     parsed = float(value)
     if parsed >= 1000.0:
@@ -277,7 +289,7 @@ def resolve_visible_spectrogram_ranges(
     cfg: Optional[Dict[str, Any]],
     state: Any,
 ) -> List[Dict[str, Any]]:
-    if (cfg or {}).get("spectrogram_render", {}).get("source", "existing") != "audio_generated":
+    if not uses_visible_ranges(cfg):
         return []
     normalized = normalize_spectrogram_range_state(state, cfg)
     presets = {preset["id"]: preset for preset in get_spectrogram_presets(cfg)}

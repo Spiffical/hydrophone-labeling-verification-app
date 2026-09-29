@@ -114,7 +114,7 @@ In the spectrogram modal:
 
 ## Audio Controls
 
-Cards include play/pause and seek controls when matching audio is found. The detail modal adds playback speed, amplification, an EQ, and **Only play visible frequencies**, which filters playback to the current spectrogram frequency window.
+Cards include play/pause and seek controls when matching audio is found. The detail modal adds playback speed, amplification, an EQ, and **Only play visible frequencies**, which filters playback to the frequencies the main spectrogram shows (its visible range, or the part you zoomed into).
 
 Use `--audio-transport mp3_cached` only if browser seeking is unreliable with original audio files.
 

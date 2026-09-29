@@ -2,7 +2,7 @@ const { test, expect } = require("playwright/test");
 
 test.use({ channel: "chrome" });
 
-test("modal axis scale and frequency controls remain responsive", async ({ page }) => {
+test("modal axis scale and colormap controls remain responsive", async ({ page }) => {
   test.skip(!process.env.MODAL_LIVE_BASE_URL, "Set MODAL_LIVE_BASE_URL for the live data check.");
   test.setTimeout(300_000);
   const dashErrors = [];
@@ -45,7 +45,6 @@ test("modal axis scale and frequency controls remain responsive", async ({ page 
   });
   const initial = await graphState();
   expect(initial.type).toBe("linear");
-  const frequencyMinimum = page.locator('#modal-yaxis-slider [role="slider"]').first();
   const transitionDurations = {};
 
   for (const targetScale of ["log", "linear"]) {
@@ -67,25 +66,6 @@ test("modal axis scale and frequency controls remain responsive", async ({ page 
     }
     await expect(page.locator("#modal-busy-overlay")).toBeHidden({ timeout: 30_000 });
     transitionDurations[targetScale] = Date.now() - transitionStarted;
-
-    const beforeFrequency = await graphState();
-    await frequencyMinimum.focus();
-    for (let index = 0; index < 6; index += 1) {
-      await frequencyMinimum.press("ArrowRight");
-    }
-    await expect
-      .poll(graphState, { timeout: 10_000, message: JSON.stringify({ beforeFrequency, dashErrors }) })
-      .not.toMatchObject({ minimumHz: beforeFrequency.minimumHz });
-    await expect(page.locator("#modal-yaxis-min-input")).not.toHaveValue("", {
-      timeout: 10_000,
-    });
-    await expect
-      .poll(async () => {
-        const rendered = await graphState();
-        const committed = Number(await page.locator("#modal-yaxis-min-input").inputValue());
-        return Math.abs(rendered.minimumHz - committed);
-      }, { timeout: 10_000 })
-      .toBeLessThan(0.001);
   }
 
   const currentColormap = await page.locator('#modal-colormap-toggle input:checked').inputValue();

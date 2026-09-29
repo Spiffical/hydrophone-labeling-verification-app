@@ -4,6 +4,7 @@ from math import log10
 
 from dash import Input, Output, State, ctx, no_update
 
+from app.services.spectrogram_ranges import uses_visible_ranges
 from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
 from app.utils.image_processing import (
     get_spectrogram_render_settings,
@@ -1049,6 +1050,20 @@ def register_display_range_callbacks(
             )
             return no_update, no_update, color_manual_min, color_manual_max
 
+    # With visible ranges each spectrogram has its own band, and the page's
+    # frequency window would change nothing, so it is shown only for
+    # spectrogram files made beforehand.
+    def _register_frequency_window_visibility(prefix):
+        @app.callback(
+            Output(f"{prefix}-frequency-window-group", "hidden"),
+            Input("config-store", "data"),
+        )
+        def hide_frequency_window_with_visible_ranges(cfg):
+            return uses_visible_ranges(cfg)
+
+    _register_frequency_window_visibility("label")
+    _register_frequency_window_visibility("verify")
+    _register_frequency_window_visibility("explore")
     _register_slider_commit("label")
     _register_slider_commit("verify")
     _register_slider_commit("explore")

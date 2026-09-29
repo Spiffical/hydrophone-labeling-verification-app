@@ -1,7 +1,5 @@
 """Small UI display helpers for modal and cards."""
 
-from math import log10
-
 from dash import html
 import dash_bootstrap_components as dbc
 
@@ -97,111 +95,12 @@ def _figure_meta(fig):
     return meta if isinstance(meta, dict) else {}
 
 
-def _format_hz(value):
-    value = float(value)
-    if value >= 1000.0:
-        return f"{value / 1000.0:.2f} kHz"
-    if value >= 100.0:
-        return f"{value:.0f} Hz"
-    if value >= 10.0:
-        return f"{value:.1f} Hz"
-    return f"{value:.2f} Hz"
-
-
 def _format_db(value):
     return f"{float(value):.1f} dB/Hz"
 
 
-def _format_hz_mark(value):
-    value = float(value)
-    if value >= 1000.0:
-        scaled = value / 1000.0
-        if scaled >= 10.0 or abs(scaled - round(scaled)) < 0.05:
-            return f"{scaled:.0f}k"
-        return f"{scaled:.1f}k"
-    if value >= 100.0:
-        return f"{value:.0f}"
-    if value >= 10.0:
-        if abs(value - round(value)) < 0.05:
-            return f"{value:.0f}"
-        return f"{value:.1f}"
-    if value >= 1.0:
-        return f"{value:.1f}"
-    return f"{value:.2f}"
-
-
-def _round_frequency_input_value(value):
-    value = float(value)
-    if value >= 1000.0:
-        return round(value, 0)
-    if value >= 100.0:
-        return round(value, 1)
-    return round(value, 2)
-
-
 def _round_color_input_value(value):
     return round(float(value), 1)
-
-
-def _select_frequency_mark_values(min_hz, max_hz, *, limit=5):
-    reference = [
-        0.1,
-        0.2,
-        0.5,
-        1.0,
-        2.0,
-        5.0,
-        10.0,
-        20.0,
-        50.0,
-        100.0,
-        200.0,
-        500.0,
-        1000.0,
-        2000.0,
-        5000.0,
-        10000.0,
-        20000.0,
-        50000.0,
-        100000.0,
-        200000.0,
-    ]
-    candidates = [
-        round(float(value), 6)
-        for value in reference
-        if float(min_hz) <= float(value) <= float(max_hz)
-    ]
-    if len(candidates) < 2:
-        return sorted({round(float(min_hz), 6), round(float(max_hz), 6)})
-    if len(candidates) <= limit:
-        return candidates
-
-    log_min = log10(min_hz)
-    log_max = log10(max_hz)
-    targets = [log_min + (log_max - log_min) * idx / (limit - 1) for idx in range(limit)]
-    selected = []
-    used = set()
-    for target in targets:
-        choice = min(
-            candidates,
-            key=lambda value: (
-                abs(log10(value) - target),
-                abs(value - (10 ** target)),
-            ),
-        )
-        if choice in used:
-            continue
-        selected.append(choice)
-        used.add(choice)
-
-    return sorted({round(float(value), 6) for value in selected})
-
-
-def _frequency_marks(min_hz, max_hz):
-    return {
-        round(log10(value), 6): _format_hz_mark(value)
-        for value in _select_frequency_mark_values(min_hz, max_hz)
-    }
 
 
 def _linear_marks(min_value, max_value):
@@ -213,16 +112,6 @@ def _linear_marks(min_value, max_value):
         round(min_value + (span * idx / steps), 2): f"{min_value + (span * idx / steps):.1f}"
         for idx in range(steps + 1)
     }
-
-
-def _log_slider_pair(lower_hz, upper_hz, *, minimum_hz, maximum_hz):
-    lower_hz, upper_hz = _normalize_range(
-        lower_hz,
-        upper_hz,
-        minimum=minimum_hz,
-        maximum=maximum_hz,
-    )
-    return [round(log10(lower_hz), 6), round(log10(upper_hz), 6)]
 
 
 def build_modal_colorbar_ui(fig) -> tuple[str, str, str]:
@@ -253,65 +142,16 @@ def build_modal_colorbar_ui(fig) -> tuple[str, str, str]:
     return placeholder_min, placeholder_max, hint
 
 
-def build_modal_display_range_ui(
+def build_modal_contrast_ui(
     fig,
     *,
-    modal_y_min,
-    modal_y_max,
-    inherited_y_min,
-    inherited_y_max,
     modal_color_min,
     modal_color_max,
     inherited_color_min=None,
     inherited_color_max=None,
 ):
+    """Slider bounds, value and readout for the modal's contrast control."""
     meta = _figure_meta(fig)
-
-    positive_y_min_hz = max(0.001, float(_coerce_float(meta.get("positive_y_min_hz")) or 0.1))
-    data_y_max_hz = float(_coerce_float(meta.get("data_y_max_hz")) or max(positive_y_min_hz * 10.0, 100.0))
-    if data_y_max_hz <= positive_y_min_hz:
-        data_y_max_hz = positive_y_min_hz * 10.0
-
-    current_display_y_min_hz = float(
-        _coerce_float(meta.get("display_y_min_hz")) or positive_y_min_hz
-    )
-    current_display_y_max_hz = float(
-        _coerce_float(meta.get("display_y_max_hz")) or data_y_max_hz
-    )
-
-    if meta.get("uses_page_y_range"):
-        inherited_y_min = meta.get("page_display_y_min_hz", current_display_y_min_hz)
-        inherited_y_max = meta.get("page_display_y_max_hz", current_display_y_max_hz)
-
-    inherited_y_min = _coerce_float(inherited_y_min)
-    inherited_y_max = _coerce_float(inherited_y_max)
-    modal_y_min = _coerce_float(modal_y_min)
-    modal_y_max = _coerce_float(modal_y_max)
-
-    if inherited_y_min is None and inherited_y_max is None:
-        default_y_value = [round(log10(positive_y_min_hz), 6), round(log10(data_y_max_hz), 6)]
-    else:
-        default_y_value = _log_slider_pair(
-            inherited_y_min or current_display_y_min_hz,
-            inherited_y_max or current_display_y_max_hz,
-            minimum_hz=positive_y_min_hz,
-            maximum_hz=data_y_max_hz,
-        )
-
-    if modal_y_min is None and modal_y_max is None:
-        y_slider_value = list(default_y_value)
-        if inherited_y_min is None and inherited_y_max is None:
-            y_readout = "Full available range"
-        else:
-            y_readout = f"Using page range: {_format_hz(current_display_y_min_hz)} to {_format_hz(current_display_y_max_hz)}"
-    else:
-        y_slider_value = _log_slider_pair(
-            current_display_y_min_hz,
-            current_display_y_max_hz,
-            minimum_hz=positive_y_min_hz,
-            maximum_hz=data_y_max_hz,
-        )
-        y_readout = f"{_format_hz(current_display_y_min_hz)} to {_format_hz(current_display_y_max_hz)}"
 
     color_data_min = float(_coerce_float(meta.get("data_color_min")) or -120.0)
     color_data_max = float(_coerce_float(meta.get("data_color_max")) or 0.0)
@@ -385,15 +225,6 @@ def build_modal_display_range_ui(
         color_readout = f"{_format_db(display_color_min)} to {_format_db(display_color_max)}"
 
     return {
-        "y_slider_min": round(log10(positive_y_min_hz), 6),
-        "y_slider_max": round(log10(data_y_max_hz), 6),
-        "y_slider_marks": _frequency_marks(positive_y_min_hz, data_y_max_hz),
-        "y_slider_value": y_slider_value,
-        "y_readout": y_readout,
-        "y_hint": f"Available on this item: {_format_hz(positive_y_min_hz)} to {_format_hz(data_y_max_hz)}.",
-        "y_default": default_y_value,
-        "y_manual_min": _round_frequency_input_value(10 ** y_slider_value[0]),
-        "y_manual_max": _round_frequency_input_value(10 ** y_slider_value[1]),
         "color_slider_min": round(color_slider_min, 2),
         "color_slider_max": round(color_slider_max, 2),
         "color_slider_marks": _linear_marks(color_slider_min, color_slider_max),

@@ -6,6 +6,7 @@ from dash import dcc, html
 from app.services.spectrogram_presets import (
     get_spectrogram_presets,
 )
+from app.services.spectrogram_ranges import uses_visible_ranges
 from app.services.spectrogram_grid import (
     MAX_GRID_COLUMNS,
     MAX_GRID_ROWS,
@@ -34,6 +35,8 @@ def _slider_group(
     input_unit: Optional[str] = None,
     min_value=None,
     max_value=None,
+    group_id: Optional[str] = None,
+    hidden: bool = False,
 ) -> html.Div:
     def manual_input(component_id: str):
         field = dcc.Input(
@@ -100,6 +103,8 @@ def _slider_group(
             dcc.Input(id=max_id, type="hidden", value=max_value),
         ],
         className="display-range-group",
+        hidden=hidden,
+        **({"id": group_id} if group_id else {}),
     )
 
 
@@ -135,6 +140,10 @@ def create_display_range_bar(
         input_unit="Hz",
         min_value=display_cfg.get("y_axis_min_hz"),
         max_value=display_cfg.get("y_axis_max_hz"),
+        # Visible ranges set each spectrogram's band; the window only applies
+        # to spectrogram files made beforehand (display_range_callbacks.py).
+        group_id=f"{prefix}-frequency-window-group",
+        hidden=uses_visible_ranges(config),
     )
     contrast_group = _slider_group(
         label="Contrast",

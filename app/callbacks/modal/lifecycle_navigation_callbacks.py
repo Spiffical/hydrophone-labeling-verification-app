@@ -200,8 +200,6 @@ def register_modal_lifecycle_navigation_callbacks(
         Output("modal-colorbar-hint", "children", allow_duplicate=True),
         Output("modal-colormap-toggle", "value", allow_duplicate=True),
         Output("modal-y-axis-toggle", "value", allow_duplicate=True),
-        Output("modal-yaxis-min-input", "value", allow_duplicate=True),
-        Output("modal-yaxis-max-input", "value", allow_duplicate=True),
         Output("modal-colorbar-min-input", "value", allow_duplicate=True),
         Output("modal-colorbar-max-input", "value", allow_duplicate=True),
         Input("modal-open-request-store", "data"),
@@ -218,8 +216,6 @@ def register_modal_lifecycle_navigation_callbacks(
         State("current-filename", "data"),
         State("modal-colormap-toggle", "value"),
         State("modal-y-axis-toggle", "value"),
-        State("modal-yaxis-min-input", "value"),
-        State("modal-yaxis-max-input", "value"),
         State("modal-colorbar-min-input", "value"),
         State("modal-colorbar-max-input", "value"),
         State("label-yaxis-min-input", "value"),
@@ -261,8 +257,6 @@ def register_modal_lifecycle_navigation_callbacks(
         current_item_id,
         colormap,
         y_axis_scale,
-        modal_y_axis_min_hz,
-        modal_y_axis_max_hz,
         color_min,
         color_max,
         label_y_axis_min_hz,
@@ -372,8 +366,6 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
-                    no_update,
-                    no_update,
                 )
             pending_item_id = (action.get("item_id") or "").strip() if action.get("kind") == "open" else ""
             if pending_item_id and pending_item_id != current_item_id:
@@ -400,8 +392,6 @@ def register_modal_lifecycle_navigation_callbacks(
                     no_update,
                     no_update,
                     no_update,
-                    no_update,
-                    no_update,
                 )
 
         if action.get("kind") == "close":
@@ -421,8 +411,6 @@ def register_modal_lifecycle_navigation_callbacks(
                 {"dirty": False, "item_id": None},
                 False,
                 None,
-                no_update,
-                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -516,24 +504,8 @@ def register_modal_lifecycle_navigation_callbacks(
         if inherit_page_display:
             colormap = page_colormap
             y_axis_scale = page_y_axis_scale
-            modal_y_axis_min_hz = None
-            modal_y_axis_max_hz = None
             color_min = None
             color_max = None
-        effective_y_axis_min_hz = (
-            modal_y_axis_min_hz
-            if _coerce_float(modal_y_axis_min_hz) is not None
-            else page_y_axis_min_hz
-        )
-        effective_y_axis_max_hz = (
-            modal_y_axis_max_hz
-            if _coerce_float(modal_y_axis_max_hz) is not None
-            else page_y_axis_max_hz
-        )
-        use_page_y_range = (
-            _coerce_float(modal_y_axis_min_hz) is None
-            and _coerce_float(modal_y_axis_max_hz) is None
-        )
         use_page_color_range = (
             _coerce_float(color_min) is None and _coerce_float(color_max) is None
         )
@@ -547,8 +519,8 @@ def register_modal_lifecycle_navigation_callbacks(
                 cfg=cfg,
                 colormap=colormap,
                 y_axis_scale=y_axis_scale,
-                y_axis_min_hz=effective_y_axis_min_hz,
-                y_axis_max_hz=effective_y_axis_max_hz,
+                y_axis_min_hz=page_y_axis_min_hz,
+                y_axis_max_hz=page_y_axis_max_hz,
                 color_min=effective_color_min,
                 color_max=effective_color_max,
                 max_width=modal_image_width,
@@ -559,8 +531,8 @@ def register_modal_lifecycle_navigation_callbacks(
             cfg,
             colormap,
             y_axis_scale,
-            y_axis_min_hz=effective_y_axis_min_hz,
-            y_axis_max_hz=effective_y_axis_max_hz,
+            y_axis_min_hz=page_y_axis_min_hz,
+            y_axis_max_hz=page_y_axis_max_hz,
             color_min=effective_color_min,
             color_max=effective_color_max,
             image_source=modal_image_source,
@@ -579,7 +551,6 @@ def register_modal_lifecycle_navigation_callbacks(
         )
         figure_meta.update(
             {
-                "uses_page_y_range": use_page_y_range,
                 "uses_page_color_range": use_page_color_range,
                 "modal_item_id": item_id,
                 "display_colormap": colormap,
@@ -602,8 +573,8 @@ def register_modal_lifecycle_navigation_callbacks(
             prefetch_page_modal_spectrograms_in_background(
                 modal_neighbors,
                 cfg,
-                y_axis_min_hz=effective_y_axis_min_hz,
-                y_axis_max_hz=effective_y_axis_max_hz,
+                y_axis_min_hz=page_y_axis_min_hz,
+                y_axis_max_hz=page_y_axis_max_hz,
             )
             if modal_image_source and not uses_tiled_modal_raster:
                 prefetch_modal_images_in_background(
@@ -611,8 +582,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     cfg,
                     colormap=colormap,
                     y_axis_scale=y_axis_scale,
-                    y_axis_min_hz=effective_y_axis_min_hz,
-                    y_axis_max_hz=effective_y_axis_max_hz,
+                    y_axis_min_hz=page_y_axis_min_hz,
+                    y_axis_max_hz=page_y_axis_max_hz,
                     color_min=effective_color_min,
                     color_max=effective_color_max,
                     max_width=modal_image_width,
@@ -625,8 +596,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     cfg=cfg,
                     colormap=colormap,
                     y_axis_scale=y_axis_scale,
-                    y_axis_min_hz=effective_y_axis_min_hz,
-                    y_axis_max_hz=effective_y_axis_max_hz,
+                    y_axis_min_hz=page_y_axis_min_hz,
+                    y_axis_max_hz=page_y_axis_max_hz,
                     color_min=effective_color_min,
                     color_max=effective_color_max,
                     max_width=modal_image_width,
@@ -767,8 +738,6 @@ def register_modal_lifecycle_navigation_callbacks(
             colorbar_hint,
             colormap if inherit_page_display else no_update,
             y_axis_scale if inherit_page_display else no_update,
-            None if inherit_page_display else no_update,
-            None if inherit_page_display else no_update,
             None if inherit_page_display else no_update,
             None if inherit_page_display else no_update,
         )

@@ -131,10 +131,6 @@ test("a spectrogram modal inherits the active page display settings", async ({ p
   await page.locator("#image-modal summary.display-range-summary").click();
   await expect(page.locator('#modal-colormap-toggle input[value="hydrophone"]')).toBeChecked();
   await expect(page.locator('#modal-y-axis-toggle input[value="log"]')).toBeChecked();
-  await expect(page.locator("#modal-yaxis-readout")).toContainText("Using page range");
-  await expect(page.locator("#modal-yaxis-manual-min-input")).not.toHaveValue("", {
-    timeout: 30_000,
-  });
   await expect(page.locator("#modal-colorbar-readout")).toContainText("Using page contrast", {
     timeout: 30_000,
   });
@@ -160,7 +156,6 @@ test("a spectrogram modal inherits the active page display settings", async ({ p
       yMax: meta.display_y_max_hz,
       colorMin: meta.display_color_min,
       colorMax: meta.display_color_max,
-      usesPageY: meta.uses_page_y_range,
       usesPageColor: meta.uses_page_color_range,
       pageYMin: meta.page_display_y_min_hz,
       pageYMax: meta.page_display_y_max_hz,
@@ -171,8 +166,6 @@ test("a spectrogram modal inherits the active page display settings", async ({ p
     };
   });
   const modalControls = await page.evaluate(() => ({
-    yMin: Number(document.querySelector("#modal-yaxis-manual-min-input").value),
-    yMax: Number(document.querySelector("#modal-yaxis-manual-max-input").value),
     colorMin: Number(document.querySelector("#modal-colorbar-manual-min-input").value),
     colorMax: Number(document.querySelector("#modal-colorbar-manual-max-input").value),
   }));
@@ -184,8 +177,6 @@ test("a spectrogram modal inherits the active page display settings", async ({ p
   expect(renderedRanges.colorMax).toBeCloseTo(pageRanges.colorMax, 5);
   expect(renderedRanges.xGrid).toBe(false);
   expect(renderedRanges.yGrid).toBe(false);
-  expect(modalControls.yMin).toBeCloseTo(pageRanges.yMin, 0);
-  expect(modalControls.yMax).toBeCloseTo(pageRanges.yMax, 0);
   expect(modalControls.colorMin).toBeCloseTo(pageRanges.colorMin, 1);
   expect(modalControls.colorMax).toBeCloseTo(pageRanges.colorMax, 1);
 

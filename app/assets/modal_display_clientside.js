@@ -411,8 +411,6 @@
   function updateCommitted(
     _colormap,
     yAxisScale,
-    modalYMin,
-    modalYMax,
     modalColorMin,
     modalColorMax,
     labelYMin,
@@ -444,16 +442,16 @@
     const sequence = ++renderState.sequence;
     if (isRaster) cancelRasterPreviews();
 
+    // The band the page gave this spectrogram: its visible range, or the
+    // page's frequency window for spectrogram files made beforehand.
     const metaPageYMin = numeric(meta.page_display_y_min_hz);
     const metaPageYMax = numeric(meta.page_display_y_max_hz);
-    const inheritedYMin = metaPageYMin === null
+    const requestedYMin = metaPageYMin === null
       ? modeValue(mode, labelYMin, verifyYMin, exploreYMin)
       : metaPageYMin;
-    const inheritedYMax = metaPageYMax === null
+    const requestedYMax = metaPageYMax === null
       ? modeValue(mode, labelYMax, verifyYMax, exploreYMax)
       : metaPageYMax;
-    const requestedYMin = numeric(modalYMin) === null ? inheritedYMin : modalYMin;
-    const requestedYMax = numeric(modalYMax) === null ? inheritedYMax : modalYMax;
 
     const useInheritedContrast = numeric(modalColorMin) === null && numeric(modalColorMax) === null;
     const metaPageColorMin = numeric(meta.page_display_color_min);
@@ -494,34 +492,19 @@
       });
   }
 
-  function previewRanges(yDragValue, colorDragValue, yAxisScale, figure) {
+  function previewContrast(colorDragValue, yAxisScale, figure) {
     if (!figure || !figure.layout || !figure.layout.meta) return noUpdate();
-    const trigger = triggeredId();
-    if (trigger !== 'modal-yaxis-slider' && trigger !== 'modal-colorbar-slider') {
-      return noUpdate();
-    }
+    if (!Array.isArray(colorDragValue) || colorDragValue.length !== 2) return noUpdate();
     const meta = figure.layout.meta;
     const isRaster = meta.transport_mode === 'full_resolution_lossless_png';
     const currentScale = figure.layout.yaxis && figure.layout.yaxis.type === 'log' ? 'log' : 'linear';
     if (currentScale !== yAxisScale) return noUpdate();
     if (!isRaster && !['float32', 'float64'].includes(meta.transport_mode)) return noUpdate();
 
-    const updated = cloneFigure(figure);
-    if (trigger === 'modal-yaxis-slider' && Array.isArray(yDragValue) && yDragValue.length === 2) {
-      renderState.sequence += 1;
-      const frequency = resolveFrequencyWindow(
-        meta,
-        yAxisScale,
-        10 ** Number(yDragValue[0]),
-        10 ** Number(yDragValue[1]),
-      );
-      applyFrequencyWindow(updated, yAxisScale, frequency[0], frequency[1]);
-      return updated;
-    }
-    if (!Array.isArray(colorDragValue) || colorDragValue.length !== 2) return noUpdate();
     const contrast = resolveContrast(meta, colorDragValue[0], colorDragValue[1]);
     if (!isRaster) {
       renderState.sequence += 1;
+      const updated = cloneFigure(figure);
       updateTraceContrast(updated, contrast[0], contrast[1]);
       return updated;
     }
@@ -562,7 +545,7 @@
       'data_color_min', 'data_color_max', 'auto_color_min', 'auto_color_max',
       'display_color_min', 'display_color_max',
       'transport_mode', 'display_colormap',
-      'uses_page_y_range', 'uses_page_color_range', 'modal_item_id',
+      'uses_page_color_range', 'modal_item_id',
       'page_display_y_min_hz', 'page_display_y_max_hz',
       'page_display_color_min', 'page_display_color_max',
       'local_display_update_sequence',
@@ -589,7 +572,7 @@
     modalDisplay: {
       startViewRefresh,
       updateCommitted,
-      previewRanges,
+      previewContrast,
       commitRasterPreview,
       extractDisplayMeta,
     },
