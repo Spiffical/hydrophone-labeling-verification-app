@@ -1473,6 +1473,45 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Function to update the playback position marker on the spectrogram
+// The red line on one spectrogram at plot position ``x``, as an HTML overlay.
+function positionPlaybackOverlay(graphDiv, x) {
+    const fullLayout = graphDiv && graphDiv._fullLayout;
+    const xAxisFull = fullLayout && fullLayout.xaxis;
+    const yAxisFull = fullLayout && fullLayout.yaxis;
+    if (!xAxisFull) return;
+    const converter = typeof xAxisFull.d2p === 'function' ? xAxisFull.d2p : xAxisFull.l2p;
+    if (typeof converter !== 'function') return;
+    const xOffset = isFinite(xAxisFull._offset) ? xAxisFull._offset : 0;
+    const markerPx = xOffset + converter.call(xAxisFull, x);
+    if (!isFinite(markerPx)) return;
+    const yOffset = yAxisFull && isFinite(yAxisFull._offset) ? yAxisFull._offset : 0;
+    const yLength = yAxisFull && isFinite(yAxisFull._length) ? yAxisFull._length : graphDiv.clientHeight;
+
+    const overlayRoot = graphDiv.querySelector('.svg-container') || graphDiv;
+    if (window.getComputedStyle(overlayRoot).position === 'static') {
+        overlayRoot.style.position = 'relative';
+    }
+    let overlayMarker = overlayRoot.querySelector('.hydro-playback-marker-overlay');
+    if (!overlayMarker) {
+        overlayMarker = document.createElement('div');
+        overlayMarker.className = 'hydro-playback-marker-overlay';
+        overlayMarker.style.position = 'absolute';
+        overlayMarker.style.pointerEvents = 'none';
+        overlayMarker.style.width = '2px';
+        overlayMarker.style.background = 'rgba(255, 50, 50, 0.8)';
+        overlayMarker.style.zIndex = '20';
+        overlayMarker.setAttribute('aria-hidden', 'true');
+        overlayRoot.appendChild(overlayMarker);
+    }
+    overlayMarker.style.left = `${markerPx - 1}px`;
+    overlayMarker.style.top = `${yOffset}px`;
+    overlayMarker.style.height = `${yLength}px`;
+    // Hidden while the playhead is off the part of the clip on screen.
+    const xLength = isFinite(xAxisFull._length) ? xAxisFull._length : null;
+    overlayMarker.style.display = xLength !== null
+        && (markerPx < xOffset - 1 || markerPx > xOffset + xLength + 1) ? 'none' : '';
+}
+
 function updateSpectrogramPlaybackMarker(currentTime, duration) {
     try {
         const modalGraph = document.getElementById('modal-image-graph');
@@ -1585,23 +1624,6 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
             graphDiv.layout.shapes[0].line.color = 'rgba(255, 50, 50, 0)';
         }
 
-        const fullLayout = graphDiv._fullLayout || {};
-        const xAxisFull = fullLayout.xaxis;
-        const yAxisFull = fullLayout.yaxis;
-        const xOffset = xAxisFull && isFinite(xAxisFull._offset) ? xAxisFull._offset : 0;
-        const yOffset = yAxisFull && isFinite(yAxisFull._offset) ? yAxisFull._offset : 0;
-        const yLength = yAxisFull && isFinite(yAxisFull._length) ? yAxisFull._length : graphDiv.clientHeight;
-        const axisToPixels = function (axis, value) {
-            if (!axis) return null;
-            const converter = typeof axis.d2p === 'function' ? axis.d2p : axis.l2p;
-            if (typeof converter !== 'function') return null;
-            const px = converter.call(axis, value);
-            if (!isFinite(px)) return null;
-            return (isFinite(axis._offset) ? axis._offset : 0) + px;
-        };
-        const markerPx = axisToPixels(xAxisFull, markerPosition);
-        if (markerPx === null) return;
-
         const shapeLayer = graphDiv.querySelector('.shapelayer');
         const svgMarker = shapeLayer && (shapeLayer.querySelector('path') || shapeLayer.querySelector('line'));
         if (svgMarker) {
@@ -1610,32 +1632,12 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
             svgMarker.style.stroke = 'rgba(255, 50, 50, 0)';
         }
 
-        const overlayRoot = graphDiv.querySelector('.svg-container') || graphDiv;
-        if (overlayRoot) {
-            const overlayStyle = window.getComputedStyle(overlayRoot);
-            if (overlayStyle.position === 'static') {
-                overlayRoot.style.position = 'relative';
-            }
-            let overlayMarker = overlayRoot.querySelector('.hydro-playback-marker-overlay');
-            if (!overlayMarker) {
-                overlayMarker = document.createElement('div');
-                overlayMarker.className = 'hydro-playback-marker-overlay';
-                overlayMarker.style.position = 'absolute';
-                overlayMarker.style.pointerEvents = 'none';
-                overlayMarker.style.width = '2px';
-                overlayMarker.style.background = 'rgba(255, 50, 50, 0.8)';
-                overlayMarker.style.zIndex = '20';
-                overlayMarker.setAttribute('aria-hidden', 'true');
-                overlayRoot.appendChild(overlayMarker);
-            }
-            overlayMarker.style.left = `${markerPx - 1}px`;
-            overlayMarker.style.top = `${yOffset}px`;
-            overlayMarker.style.height = `${yLength}px`;
-            // Hidden while the playhead is off the part of the clip on screen.
-            const xLength = xAxisFull && isFinite(xAxisFull._length) ? xAxisFull._length : null;
-            overlayMarker.style.display = xLength !== null
-                && (markerPx < xOffset - 1 || markerPx > xOffset + xLength + 1) ? 'none' : '';
-        }
+        positionPlaybackOverlay(graphDiv, markerPosition);
+        // The other spectrograms share the main plot's time axis
+        // (modal_range_panels.js); each gets its own line.
+        document.querySelectorAll('.spectrogram-modal-range-graph .js-plotly-plot').forEach(function (panel) {
+            positionPlaybackOverlay(panel, markerPosition);
+        });
     } catch (e) {
         // Silently fail if there's an issue
         console.debug('Error updating playback marker:', e);

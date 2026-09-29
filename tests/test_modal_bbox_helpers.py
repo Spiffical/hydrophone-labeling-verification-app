@@ -535,3 +535,13 @@ def test_apply_modal_boxes_to_figure_preserves_spectrogram_source_annotation():
     )
 
     assert updated["layout"]["annotations"] == [source_annotation]
+
+
+def test_boxes_in_another_band_are_not_drawn_on_the_main_plot():
+    from app.services.modal_boxes import extent_to_shape
+
+    meta = {"x_min": 0, "x_max": 10, "y_min": 0.1, "y_max": 2, "x_to_seconds": 1, "y_to_hz": 1000}
+    low = {"type": "time_freq_box", "time_start_sec": 6, "time_end_sec": 8, "freq_min_hz": 30, "freq_max_hz": 90}
+    assert extent_to_shape(low, meta) is None
+    overlapping = dict(low, freq_max_hz=300)
+    assert extent_to_shape(overlapping, meta)["y0"] == 0.1

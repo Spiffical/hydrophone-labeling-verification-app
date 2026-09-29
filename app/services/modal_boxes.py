@@ -161,6 +161,10 @@ def extent_to_shape(extent, axis_meta):
     if cleaned["type"] in {"freq_range", "time_freq_box"}:
         shape["y0"] = cleaned["freq_min_hz"] / y_to_hz
         shape["y1"] = cleaned["freq_max_hz"] / y_to_hz
+        # A box in another band (drawn on another spectrogram) is not drawn
+        # here, rather than flattened onto this plot's edge. Mirrors bbox_clientside.js.
+        if max(shape["y0"], shape["y1"]) <= y_min or min(shape["y0"], shape["y1"]) >= y_max:
+            return None
     else:
         shape["y0"] = y_min
         shape["y1"] = y_max

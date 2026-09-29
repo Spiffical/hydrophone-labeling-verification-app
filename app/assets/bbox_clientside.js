@@ -233,6 +233,11 @@
       }
       shape.y0 = freqMin / yFactor;
       shape.y1 = freqMax / yFactor;
+      // A box in another band (drawn on another spectrogram) is not drawn
+      // here, rather than flattened onto this plot's edge.
+      if (Math.max(shape.y0, shape.y1) <= axisMeta.y_min || Math.min(shape.y0, shape.y1) >= axisMeta.y_max) {
+        return null;
+      }
     } else {
       shape.y0 = axisMeta.y_min;
       shape.y1 = axisMeta.y_max;
@@ -858,6 +863,13 @@
       '',
     ];
   }
+
+  // For the other spectrograms in the modal (modal_range_panels.js), which
+  // show and draw boxes on their own frequency band.
+  window.bboxGeometry = {
+    shapeToExtent: shapeToExtent,
+    boxStyle: boxStyle,
+  };
 
   window.dash_clientside = Object.assign({}, window.dash_clientside, {
     bboxInteractions: Object.assign({}, (window.dash_clientside || {}).bboxInteractions, {

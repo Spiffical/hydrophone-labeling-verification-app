@@ -256,11 +256,11 @@ def test_modal_range_panels_take_their_height_from_the_layout(mock_config):
         "active_range_id": "low",
     }
     active_figure = {"layout": {"meta": {"x_min": 0.0, "x_max": 10.0}, "xaxis": {"range": [0, 10]}}}
-    _title, _readout, above, below, _section = render(
+    _title, _readout, above, below, _section, _only_range = render(
         {"item_id": "clip-1", "audio_path": "clip-1.wav"},
         state, cfg, "default", "linear", {}, active_figure, None, None, None,
     )
-    panels = above + below
+    panels = [node for node in above + below if getattr(node, "className", "") and "spectrogram-panel-splitter" not in node.className]
     assert len(panels) == 1
     graph = panels[0].children[1]
     assert "height" not in (getattr(graph, "style", None) or {})
@@ -293,11 +293,12 @@ def test_modal_range_panels_line_up_with_the_main_plot_in_clip_time(mock_config,
         "meta": {"x_min": 0.0, "x_max": 9.75, "x_to_seconds": 1.0, "x_origin_seconds": 0.125},
         "xaxis": {"range": [2.0, 4.0], "tickformat": ".2f", "title": {"text": "Time (seconds)"}},
     }}
-    _title, _readout, above, below, _section = render(
+    _title, _readout, above, below, _section, _only_range = render(
         {"item_id": "clip-1", "audio_path": "clip-1.wav"},
         state, cfg, "default", "linear", {}, active_figure, None, None, None,
     )
-    figure = (above + below)[0].children[1].figure
+    panels = [node for node in above + below if "spectrogram-panel-splitter" not in (node.className or "")]
+    figure = panels[0].children[1].figure
     image = figure.layout.images[0]
     assert (image.xref, image.yref, image.x, image.sizex) == ("x", "paper", 0.375, 9.0)
     # The panel starts on the main plot's window and never zooms on its own
@@ -306,3 +307,70 @@ def test_modal_range_panels_line_up_with_the_main_plot_in_clip_time(mock_config,
     assert figure.layout.xaxis.tickformat == ".2f"
     assert figure.layout.xaxis.fixedrange and figure.layout.yaxis.fixedrange
     assert figure.layout.xaxis.automargin is False and figure.layout.yaxis.automargin is False
+
+
+def test_modal_panels_have_splitters_controls_and_their_band(mock_config):
+    from app.main import create_app
+
+    cfg = {**mock_config, **_config()}
+    render = next(
+        entry["callback"].__wrapped__
+        for entry in create_app(cfg).callback_map.values()
+        if "callback" in entry and entry["callback"].__wrapped__.__name__ == "render_modal_visible_ranges"
+    )
+    state = {"schema_version": "spectrogram-visible-ranges-v2", "preset_ids": ["low", "high"],
+             "custom_ranges": [], "active_range_id": "low"}
+    figure = {"layout": {"meta": {"x_min": 0.0, "x_max": 10.0, "x_to_seconds": 1.0, "x_origin_seconds": 0.0},
+                         "xaxis": {"range": [0, 10]}}}
+    *_labels, above, below, _section, only_range = render(
+        {"item_id": "clip-1", "audio_path": "clip-1.wav"}, state, cfg, "default", "linear", {}, figure, None, None, None,
+    )
+    # High sits above Low (the main plot): the panel, then a splitter before the main plot.
+    kinds = [node.className.split()[0] for node in above + below]
+    assert kinds == ["spectrogram-range-section", "spectrogram-panel-splitter"]
+    panel = above[0]
+    assert getattr(panel, "data-range-key") == "high"
+    meta = panel.children[1].figure.layout.meta
+    assert (meta["range_id"], meta["freq_min_hz"], meta["freq_max_hz"]) == ("high", 2000.0, 32000.0)
+    remove = panel.children[0].children[2].children[1]
+    assert remove.id == {"type": "modal-range-remove", "range": "high"} and not remove.disabled
+    assert only_range is False
+
+
+def test_removing_a_spectrogram_in_the_modal_keeps_at_least_one(mock_config):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import pytest
+    from dash.exceptions import PreventUpdate
+
+    import app.callbacks.ui.spectrogram_preset_callbacks as preset_callbacks
+    from app.main import create_app
+
+    cfg = {**mock_config, **_config()}
+    remove = next(
+        entry["callback"].__wrapped__
+        for entry in create_app(cfg).callback_map.values()
+        if "callback" in entry and entry["callback"].__wrapped__.__name__ == "remove_modal_range"
+    )
+    state = {"schema_version": "spectrogram-visible-ranges-v2", "preset_ids": ["low", "high"],
+             "custom_ranges": [], "active_range_id": "low"}
+
+    def click(target, value=1):
+        return patch.object(preset_callbacks, "ctx", SimpleNamespace(triggered_id=target, triggered=[{"value": value}]))
+
+    with click({"type": "modal-range-remove", "range": "high"}):
+        updated, _cfg = remove([1], 0, state, cfg)
+    assert (updated["preset_ids"], updated["active_range_id"]) == (["low"], "low")
+
+    # The main plot's × removes the active range; the next one takes its place.
+    with click("modal-active-range-remove"):
+        updated, _cfg = remove([0], 1, state, cfg)
+    assert (updated["preset_ids"], updated["active_range_id"]) == (["high"], "high")
+
+    only_one = dict(state, preset_ids=["low"])
+    with click("modal-active-range-remove"), pytest.raises(PreventUpdate):
+        remove([], 1, only_one, cfg)
+    # Buttons drawn with a new render report n_clicks 0: not a click.
+    with click({"type": "modal-range-remove", "range": "high"}, value=0), pytest.raises(PreventUpdate):
+        remove([0], 0, state, cfg)

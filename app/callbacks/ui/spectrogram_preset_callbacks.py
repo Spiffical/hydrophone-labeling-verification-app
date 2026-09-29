@@ -58,12 +58,15 @@ def _generation_frequency_bounds(current_min, current_max, defaults):
 
 
 def register_spectrogram_preset_callbacks(app):
-    def register_visible_ranges(prefix):
-        app.clientside_callback(
-            "function(source) { return {display: source === 'audio_generated' ? 'block' : 'none'}; }",
-            Output(f"{prefix}-spectrogram-range-controls", "style"),
-            Input(f"{prefix}-spectrogram-source", "value"),
-        )
+    def register_visible_ranges(prefix, *, modal=False):
+        # The spectrogram modal has the same range controls as each mode's
+        # Spectrogram menu, without a source switch or a mode of its own.
+        if not modal:
+            app.clientside_callback(
+                "function(source) { return {display: source === 'audio_generated' ? 'block' : 'none'}; }",
+                Output(f"{prefix}-spectrogram-range-controls", "style"),
+                Input(f"{prefix}-spectrogram-source", "value"),
+            )
 
         @app.callback(
             Output(f"{prefix}-spectrogram-extra-presets", "options"),
@@ -141,7 +144,7 @@ def register_spectrogram_preset_callbacks(app):
             cfg,
             active_mode,
         ):
-            if str(active_mode or "").strip().lower() != prefix:
+            if not modal and str(active_mode or "").strip().lower() != prefix:
                 raise PreventUpdate
             if not apply_clicks:
                 raise PreventUpdate
@@ -471,3 +474,45 @@ def register_spectrogram_preset_callbacks(app):
     for mode_prefix in ("label", "verify", "explore"):
         register_render_settings(mode_prefix)
         register_visible_ranges(mode_prefix)
+    register_visible_ranges("modal", modal=True)
+
+    # The × on a spectrogram in the modal hides that range; the last one stays.
+    @app.callback(
+        Output("spectrogram-ranges-store", "data", allow_duplicate=True),
+        Output("config-store", "data", allow_duplicate=True),
+        Input({"type": "modal-range-remove", "range": ALL}, "n_clicks"),
+        Input("modal-active-range-remove", "n_clicks"),
+        State("spectrogram-ranges-store", "data"),
+        State("config-store", "data"),
+        prevent_initial_call=True,
+    )
+    def remove_modal_range(companion_clicks, active_clicks, state, cfg):
+        current = normalize_spectrogram_range_state(state, cfg)
+        triggered = ctx.triggered_id
+        clicked = next(
+            (entry.get("value") for entry in (ctx.triggered or []) if entry.get("value")),
+            None,
+        )
+        if not clicked:
+            raise PreventUpdate  # buttons appearing with a new render, not a click
+        if triggered == "modal-active-range-remove":
+            target = current.get("active_range_id")
+        elif isinstance(triggered, dict) and triggered.get("type") == "modal-range-remove":
+            target = triggered.get("range")
+        else:
+            raise PreventUpdate
+        visible_custom = [
+            candidate["id"] for candidate in current["custom_ranges"] if candidate.get("visible")
+        ]
+        if target not in current["preset_ids"] + visible_custom or len(current["preset_ids"]) + len(visible_custom) <= 1:
+            raise PreventUpdate
+        updated = update_spectrogram_range_visibility(
+            current,
+            cfg,
+            preset_ids=[preset_id for preset_id in current["preset_ids"] if preset_id != target],
+            visible_custom_ids=[range_id for range_id in visible_custom if range_id != target],
+        )
+        if updated == current:
+            raise PreventUpdate
+        updated_cfg = _config_for_active_visible_range(cfg, updated)
+        return updated, updated_cfg if updated_cfg != (cfg or {}) else no_update

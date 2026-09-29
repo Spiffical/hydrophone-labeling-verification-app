@@ -21,6 +21,7 @@ from app.services.spectrogram_ranges import (
     resolve_visible_spectrogram_ranges,
     resolve_active_spectrogram_range,
 )
+from app.components.range_panels import panel_controls
 from app.utils.image_processing import create_item_spectrogram_figure, spectrogram_time_span
 from app.utils.image_utils import (
     build_modal_image_request_src,
@@ -243,6 +244,7 @@ def register_modal_view_callbacks(
         Output("modal-visible-ranges-above", "children"),
         Output("modal-visible-ranges-below", "children"),
         Output("modal-active-range-section", "className"),
+        Output("modal-active-range-remove", "disabled"),
         Input("modal-item-store", "data"),
         Input("spectrogram-ranges-store", "data"),
         Input("config-store", "data"),
@@ -271,7 +273,7 @@ def register_modal_view_callbacks(
             "spectrogram-modal-plot-section"
         )
         if not isinstance(modal_item, dict) or not modal_item.get("item_id"):
-            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single"
+            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single", True
         cfg = cfg or {}
         display_meta = display_meta if isinstance(display_meta, dict) else {}
         normalized_state = normalize_spectrogram_range_state(ranges_state, cfg)
@@ -287,7 +289,7 @@ def register_modal_view_callbacks(
         )
         active_range = visible_ranges[active_index] if visible_ranges else None
         if active_range is None:
-            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single"
+            return "", "", [], [], f"{base_section_class} spectrogram-range-section--single", True
 
         width, _height = resolve_modal_image_target(modal_viewport)
         panel_width = min(width or 1200, 1400)
@@ -320,8 +322,9 @@ def register_modal_view_callbacks(
         x_to_seconds = active_meta.get("x_to_seconds")
         x_to_seconds = float(x_to_seconds) if isinstance(x_to_seconds, (int, float)) and x_to_seconds > 0 else 1.0
         x_origin_seconds = active_meta.get("x_origin_seconds")
-        x_title = active_xaxis.get("title", "Time") if isinstance(active_xaxis, dict) else "Time"
         x_tickformat = active_xaxis.get("tickformat") if isinstance(active_xaxis, dict) else None
+
+        only_range = len(visible_ranges) <= 1
 
         def build_plot_panel(range_spec, index):
             range_cfg = (
@@ -392,11 +395,20 @@ def register_modal_view_callbacks(
             # zooms on its own and Plotly must not move the margins.
             figure.update_layout(
                 autosize=True,
-                margin={"l": 70, "r": 36, "t": 18, "b": 50},
+                # The main plot names the axes; these panels keep their ticks.
+                margin={"l": 70, "r": 36, "t": 12, "b": 26},
                 template="plotly_white",
                 dragmode=False,
+                meta={
+                    "range_id": range_spec["selection_id"],
+                    "freq_min_hz": freq_min_hz,
+                    "freq_max_hz": freq_max_hz,
+                    "x_min": x_min,
+                    "x_max": x_max,
+                    "x_to_seconds": x_to_seconds,
+                },
                 xaxis={
-                    "title": x_title,
+                    "title": None,
                     "range": view_range,
                     "showgrid": False,
                     "tickformat": x_tickformat,
@@ -404,7 +416,7 @@ def register_modal_view_callbacks(
                     "automargin": False,
                 },
                 yaxis={
-                    "title": "Frequency (Hz)",
+                    "title": "Hz",
                     "type": "log" if (y_axis_scale or "linear") == "log" else "linear",
                     "range": (
                         [log10(max(freq_min_hz, 1e-9)), log10(freq_max_hz)]
@@ -431,6 +443,11 @@ def register_modal_view_callbacks(
                                 ),
                                 className="spectrogram-range-frequency",
                             ),
+                            panel_controls(
+                                range_spec["label"],
+                                {"type": "modal-range-remove", "range": range_spec["selection_id"]},
+                                remove_disabled=only_range,
+                            ),
                         ],
                         className="spectrogram-range-header",
                     ),
@@ -448,19 +465,27 @@ def register_modal_view_callbacks(
                     "spectrogram-range-section spectrogram-range-section--visible "
                     f"spectrogram-range-accent-{index % 5} spectrogram-modal-plot-section"
                 ),
+                **{"data-range-key": range_spec["selection_id"]},
             )
 
-        above = [
-            build_plot_panel(range_spec, index)
-            for index, range_spec in enumerate(visible_ranges[:active_index])
-        ]
-        below = [
-            build_plot_panel(range_spec, index)
-            for index, range_spec in enumerate(
-                visible_ranges[active_index + 1 :],
-                start=active_index + 1,
+        def splitter():
+            # Drag to share height between the panels either side (modal_range_layout.js).
+            return html.Div(
+                className="spectrogram-panel-splitter",
+                role="separator",
+                tabIndex=0,
+                title="Drag to resize; double-click to share evenly",
+                **{"aria-orientation": "horizontal", "aria-label": "Resize spectrograms"},
             )
-        ]
+
+        # A splitter between every two panels: after each panel above the main
+        # plot, and before each one below it.
+        above = []
+        for index, range_spec in enumerate(visible_ranges[:active_index]):
+            above += [build_plot_panel(range_spec, index), splitter()]
+        below = []
+        for index, range_spec in enumerate(visible_ranges[active_index + 1 :], start=active_index + 1):
+            below += [splitter(), build_plot_panel(range_spec, index)]
         return (
             active_range["label"],
             format_frequency_range(
@@ -470,6 +495,7 @@ def register_modal_view_callbacks(
             above,
             below,
             f"{base_section_class} spectrogram-range-accent-{active_index % 5}",
+            len(visible_ranges) <= 1,
         )
 
     app.clientside_callback(

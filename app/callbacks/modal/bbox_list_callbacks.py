@@ -42,3 +42,13 @@ def register_modal_bbox_list_callbacks(app):
         Input("bbox-editor-tag-dropdown", "value"),
         State("modal-bbox-list-config-store", "data"),
     )
+
+    # "Delete box" in the box editor removes the box being edited (bbox_list.js).
+    app.clientside_callback(
+        ClientsideFunction(namespace="bboxList", function_name="deleteFromEditor"),
+        Output("bbox-editor-modal", "is_open", allow_duplicate=True),
+        Input("bbox-editor-delete", "n_clicks"),
+        State("bbox-editor-index-store", "data"),
+        State("current-filename", "data"),
+        prevent_initial_call=True,
+    )

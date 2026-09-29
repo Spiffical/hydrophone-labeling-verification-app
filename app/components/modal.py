@@ -1,6 +1,8 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.range_panels import panel_controls
+from app.layouts.display_controls import create_spectrogram_range_controls
 from app.services.bbox_tags import get_bbox_bulk_tagging, get_bbox_tag_options, get_bbox_tag_sets
 from taxonomy.hierarchical_labels import get_all_paths, path_to_string
 
@@ -55,7 +57,13 @@ def _help_menu(tag_sets):
                         "details; its × deletes it and ✎ edits it. Click a box's time in the "
                         "list to show it.",
                         className="modal-help-note",
-                    )
+                    ),
+                    html.P(
+                        "With several spectrograms, drag the bar between two to resize them; "
+                        "– minimizes one and × removes it. In draw mode you can draw on any of "
+                        "them; boxes show on every spectrogram their frequencies reach.",
+                        className="modal-help-note",
+                    ),
                 ],
                 className="modal-help-panel",
             ),
@@ -305,6 +313,7 @@ def create_spectrogram_modal(config=None):
                         id="modal-active-range-readout",
                         className="spectrogram-range-frequency",
                     ),
+                    panel_controls(None, "modal-active-range-remove", remove_disabled=True),
                 ],
                 className="spectrogram-range-header",
             ),
@@ -349,6 +358,26 @@ def create_spectrogram_modal(config=None):
             "spectrogram-range-section spectrogram-range-section--visible "
             "spectrogram-range-accent-0 spectrogram-modal-plot-section"
         ),
+        **{"data-range-key": "main"},
+    )
+
+    # Which ranges are shown: the same controls as the Spectrogram menu.
+    ranges_menu = html.Details(
+        [
+            html.Summary(
+                [
+                    html.I(className="bi bi-layers", **{"aria-hidden": "true"}),
+                    html.Span("Spectrograms"),
+                ],
+                className="modal-ranges-summary",
+            ),
+            html.Div(
+                create_spectrogram_range_controls("modal", config),
+                className="modal-ranges-panel",
+            ),
+        ],
+        id="modal-ranges-menu",
+        className="modal-ranges-menu",
     )
 
     main_modal = dbc.Modal(
@@ -413,6 +442,7 @@ def create_spectrogram_modal(config=None):
                         html.Div(
                             [
                                 display_settings,
+                                ranges_menu,
                                 # Draw toggle, tag for new boxes and box count (bbox_list.js).
                                 html.Div(id="modal-bbox-toolbar", className="modal-bbox-toolbar"),
                                 _help_menu(tag_sets),
@@ -431,6 +461,16 @@ def create_spectrogram_modal(config=None):
                                         html.Div(
                                             id="modal-visible-ranges-below",
                                             className="spectrogram-modal-range-stack",
+                                        ),
+                                        # Opens the Spectrograms menu (modal_range_layout.js).
+                                        html.Button(
+                                            [
+                                                html.I(className="bi bi-plus-lg", **{"aria-hidden": "true"}),
+                                                html.Span("Add spectrogram"),
+                                            ],
+                                            type="button",
+                                            className="modal-add-range-btn",
+                                            title="Show another frequency range",
                                         ),
                                         html.Div(
                                             id='modal-audio-player',
@@ -597,6 +637,15 @@ def create_spectrogram_modal(config=None):
             ),
             dbc.ModalFooter(
                 [
+                    # Also reaches boxes that are only on another spectrogram.
+                    dbc.Button(
+                        "Delete box",
+                        id="bbox-editor-delete",
+                        color="danger",
+                        outline=True,
+                        n_clicks=0,
+                        className="me-auto",
+                    ),
                     dbc.Button("Cancel", id="bbox-editor-cancel", color="secondary", n_clicks=0),
                     dbc.Button("Apply", id="bbox-editor-apply", color="primary", n_clicks=0),
                 ]

@@ -98,7 +98,7 @@ def test_box_list_is_rendered_and_tagged_in_the_browser(mock_config):
         if (entry.get("clientside_function") or {}).get("namespace") == "bboxList"
     }
 
-    assert set(list_callbacks) == {"render", "applyCommand", "editorTagOptions"}
+    assert set(list_callbacks) == {"render", "applyCommand", "editorTagOptions", "deleteFromEditor"}
     # The box editor lists the tags of the species chosen in it.
     assert list_callbacks["editorTagOptions"]["output"] == "bbox-editor-tag-dropdown.options"
     assert ("bbox-editor-label-dropdown", "value") in {

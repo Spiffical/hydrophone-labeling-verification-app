@@ -889,9 +889,13 @@
     view.anyTaggable = view.boxes.some(canTag);
     renderToolbar(toolbar);
     renderPanel(panel, previousCount);
-    // The clip overview under the plot marks every box (modal_paging.js).
+    // The clip overview under the plot marks every box (modal_paging.js), and
+    // the other spectrograms show them (modal_range_panels.js).
     if (window.modalPaging) {
       window.modalPaging.refresh();
+    }
+    if (window.modalRangePanels && typeof window.modalRangePanels.schedule === 'function') {
+      window.modalRangePanels.schedule();
     }
     return true;
   }
@@ -1124,6 +1128,26 @@
     },
     // For the clip overview under the plot (modal_paging.js).
     needsTag: needsTag,
+    // A box drawn on another spectrogram: the label being drawn, and the tag
+    // for new boxes if that species has it.
+    addBox: function (extent) {
+      const draw = window.bboxDrawMode;
+      const label = draw && typeof draw.label === 'function' ? draw.label() : null;
+      if (!view.editable || !view.open || !view.itemId || !label || !extent) {
+        return false;
+      }
+      const box = { label: label, annotation_extent: extent, source: 'manual', decision: 'added' };
+      const tag = boxOptions(label).some(function (option) { return option.value === view.activeTag; }) ? view.activeTag : null;
+      if (tag) {
+        box.tag = tag;
+        box.tag_source = 'human';
+        box.tag_scope = 'time_freq_box';
+      }
+      setProps('modal-bbox-command-store', {
+        data: { action: 'add_box', item_id: view.itemId, box: box, nonce: Date.now() + Math.random() },
+      });
+      return true;
+    },
     highlightRow: function (index) {
       const panel = document.getElementById(PANEL_ID);
       if (!panel) {
@@ -1219,6 +1243,41 @@
         const complete = typeof interactions().profileIsComplete === 'function'
           && interactions().profileIsComplete(profile);
         const apply = interactions().applyBoxesToFigure;
+        // A box drawn on another spectrogram in the modal (modal_range_panels.js).
+        if (command && command.action === 'add_box') {
+          if (
+            mode === 'explore' || !complete || !currentItemId || command.item_id !== currentItemId ||
+            !command.box || typeof command.box !== 'object'
+          ) {
+            return unchanged;
+          }
+          const current = bboxStore && typeof bboxStore === 'object' && bboxStore.item_id === currentItemId
+            ? bboxStore
+            : { item_id: currentItemId, boxes: [] };
+          const boxes = (Array.isArray(current.boxes) ? current.boxes : []).concat([command.box]);
+          return [
+            Object.assign({}, current, { item_id: currentItemId, boxes: boxes }),
+            figure && typeof apply === 'function' ? apply(figure, boxes) : noUpdate,
+            { dirty: true, item_id: currentItemId },
+          ];
+        }
+        // "Delete box" in the box editor.
+        if (command && command.action === 'delete_box') {
+          const index = Number(command.index);
+          const current = bboxStore && typeof bboxStore === 'object' && bboxStore.item_id === currentItemId ? bboxStore : null;
+          if (
+            mode === 'explore' || !complete || !currentItemId || command.item_id !== currentItemId || !current ||
+            !Array.isArray(current.boxes) || !Number.isInteger(index) || index < 0 || index >= current.boxes.length
+          ) {
+            return unchanged;
+          }
+          const boxes = current.boxes.filter(function (_box, position) { return position !== index; });
+          return [
+            Object.assign({}, current, { boxes: boxes }),
+            figure && typeof apply === 'function' ? apply(figure, boxes) : noUpdate,
+            { dirty: true, item_id: currentItemId },
+          ];
+        }
         // Re-place box handles for a new page length (modal_paging.js); the
         // boxes themselves do not change.
         if (command && command.action === 'redraw') {
@@ -1246,6 +1305,18 @@
           figure && typeof apply === 'function' ? apply(figure, result.boxes) : noUpdate,
           { dirty: true, item_id: currentItemId },
         ];
+      },
+
+      deleteFromEditor: function (clicks, index, currentItemId) {
+        const noUpdate = (window.dash_clientside || {}).no_update;
+        const boxIndex = Number(index);
+        if (!clicks || !currentItemId || !Number.isInteger(boxIndex) || boxIndex < 0) {
+          return noUpdate;
+        }
+        setProps('modal-bbox-command-store', {
+          data: { action: 'delete_box', item_id: currentItemId, index: boxIndex, nonce: Date.now() + Math.random() },
+        });
+        return false;
       },
 
       // The box editor offers the tags of the species chosen in it; a tag the

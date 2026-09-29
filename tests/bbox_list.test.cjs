@@ -468,3 +468,51 @@ test('new boxes and the box editor use the tags of the box species', () => {
   assert.deepEqual(Array.from(editorOptions(HUMPBACK, null, SPECIES_CONFIG)), []);
   assert.deepEqual(JSON.parse(JSON.stringify(editorOptions(HUMPBACK, '40Hz', SPECIES_CONFIG))), [{ label: '40 Hz', value: '40Hz' }]);
 });
+
+test('a box drawn on another spectrogram is added with the draw label and its tag', () => {
+  const { window, list } = loadWithToolbar({ drawLabel: FIN });
+  const store = { item_id: 'clip-1', boxes: [box('20Hz', { label: FIN })] };
+  list.render(store, '40Hz', 'verify', 'clip-1', PROFILE, true, SPECIES_CONFIG);
+  const extent = { type: 'time_freq_box', time_start_sec: 2, time_end_sec: 3, freq_min_hz: 20, freq_max_hz: 60 };
+  const commands = [];
+  window.dash_clientside.set_props = (id, props) => commands.push([id, props]);
+  assert.equal(window.bboxPanel.addBox(extent), true);
+  const command = commands[0][1].data;
+  assert.equal(commands[0][0], 'modal-bbox-command-store');
+  assert.deepEqual(JSON.parse(JSON.stringify(command.box)),
+    { label: FIN, annotation_extent: extent, source: 'manual', decision: 'added', tag: '40Hz', tag_source: 'human', tag_scope: 'time_freq_box' });
+
+  const figure = { data: [], layout: { meta: { x_min: 0, x_max: 10, y_min: 5, y_max: 100 }, shapes: [] } };
+  const [nextStore, nextFigure, unsaved] = list.applyCommand(command, store, figure, 'clip-1', 'verify', PROFILE);
+  assert.equal(nextStore.boxes.length, 2);
+  assert.equal(nextStore.boxes[1].annotation_extent.time_start_sec, 2);
+  assert.ok(nextFigure.layout.shapes.some(shape => shape.name === 'bbox-1'));
+  assert.deepEqual({ ...unsaved }, { dirty: true, item_id: 'clip-1' });
+  // Only for the clip on screen.
+  assert.deepEqual(Array.from(list.applyCommand(command, store, figure, 'clip-2', 'verify', PROFILE)),
+    [window.dash_clientside.no_update, window.dash_clientside.no_update, window.dash_clientside.no_update]);
+});
+
+test('a box in another band is left off the main plot instead of flattened onto its edge', () => {
+  const { window } = load();
+  const { applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  // Main plot: 100 Hz - 2 kHz (in kHz). The box is 30-90 Hz, drawn on the Low panel.
+  const figure = { data: [], layout: { meta: { x_min: 0, x_max: 10, y_min: 0.1, y_max: 2, y_to_hz: 1000 }, shapes: [] } };
+  const low = box('20Hz', { annotation_extent: { type: 'time_freq_box', time_start_sec: 6, time_end_sec: 8, freq_min_hz: 30, freq_max_hz: 90 } });
+  const mid = box('20Hz', { annotation_extent: { type: 'time_freq_box', time_start_sec: 1, time_end_sec: 2, freq_min_hz: 50, freq_max_hz: 300 } });
+  const names = applyBoxesToFigure(figure, [low, mid]).layout.shapes.map(shape => shape.name).filter(Boolean);
+  assert.deepEqual(Array.from(names), ['playback-marker', 'bbox-1']);
+});
+
+test('"Delete box" in the editor removes the box being edited', () => {
+  const { window, list } = load();
+  const commands = [];
+  window.dash_clientside.set_props = (id, props) => commands.push(props.data);
+  assert.equal(list.deleteFromEditor(1, 0, 'clip-1'), false, 'the editor closes');
+  assert.equal(list.deleteFromEditor(0, 0, 'clip-1'), window.dash_clientside.no_update);
+  const store = { item_id: 'clip-1', boxes: [box('20Hz'), box('40Hz')] };
+  const figure = { data: [], layout: { meta: { x_min: 0, x_max: 10, y_min: 5, y_max: 100 }, shapes: [] } };
+  const [next, , unsaved] = list.applyCommand(commands[0], store, figure, 'clip-1', 'verify', PROFILE);
+  assert.deepEqual(Array.from(next.boxes, b => b.tag), ['40Hz']);
+  assert.equal(unsaved.dirty, true);
+});

@@ -643,3 +643,188 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
         max-height: 50vh;
     }
 }
+
+/* Controls on each spectrogram: minimize and remove (modal_range_layout.js,
+   remove_modal_range). Frequencies and controls sit on the right. */
+.spectrogram-modal-range-stack .spectrogram-range-header .spectrogram-range-frequency {
+    margin-left: auto;
+}
+
+.spectrogram-panel-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 8px;
+    align-self: center;
+}
+
+.spectrogram-panel-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1;
+}
+
+.spectrogram-panel-btn:hover:not(:disabled) {
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.spectrogram-panel-btn--remove:hover:not(:disabled) {
+    color: var(--danger, #dc3545);
+}
+
+.spectrogram-panel-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* A minimized spectrogram keeps only its header. */
+.modal-workbench-plot .spectrogram-modal-plot-section.is-minimized {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    padding-bottom: 6px;
+}
+
+.modal-workbench-plot .spectrogram-modal-plot-section.is-minimized > :not(.spectrogram-range-header) {
+    display: none !important;
+}
+
+.modal-workbench-plot .spectrogram-modal-plot-section.is-minimized > .spectrogram-range-header {
+    padding-bottom: 0;
+}
+
+/* Splitters between spectrograms: they sit in the column's gap. */
+.modal-workbench-plot > .spectrogram-modal-range-stack > .spectrogram-panel-splitter {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 8px;
+    margin: -8px 0;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.spectrogram-panel-splitter::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 42%;
+    right: 42%;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border);
+    transition: left 0.12s, right 0.12s, background-color 0.12s;
+}
+
+.spectrogram-panel-splitter:hover::after,
+.spectrogram-panel-splitter:focus-visible::after,
+.spectrogram-panel-splitter.is-active::after {
+    left: 0;
+    right: 0;
+    background: var(--accent);
+}
+
+.spectrogram-panel-splitter:focus-visible {
+    outline: none;
+}
+
+.modal-workbench-plot.is-resizing {
+    cursor: row-resize;
+    user-select: none;
+}
+
+.modal-workbench-plot.is-resizing .js-plotly-plot {
+    pointer-events: none;
+}
+
+/* Smaller panels are allowed once the reviewer sizes them. */
+.modal-workbench-plot > .spectrogram-modal-plot-section {
+    min-height: 200px;
+}
+
+.modal-workbench-plot .spectrogram-modal-range-stack > .spectrogram-range-section {
+    min-height: 150px;
+}
+
+/* "Add spectrogram" under the stack opens the Spectrograms menu. */
+.modal-workbench-plot > .modal-add-range-btn {
+    flex: 0 0 auto;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.modal-workbench-plot > .modal-add-range-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Spectrograms menu: the Spectrogram menu's range controls, over the plot. */
+.modal-ranges-menu {
+    position: relative;
+}
+
+.modal-ranges-menu > .modal-ranges-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+
+.modal-ranges-menu > .modal-ranges-summary::-webkit-details-marker {
+    display: none;
+}
+
+.modal-ranges-menu[open] > .modal-ranges-summary {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.modal-ranges-menu[open] > .modal-ranges-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    width: min(460px, calc(100vw - 48px));
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-ranges-panel .spectrogram-companion-controls {
+    margin: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
+/* Stacked layout: panels have fixed heights, so there is nothing to drag. */
+@media (max-width: 991.98px) {
+    .modal-workbench-plot > .spectrogram-modal-range-stack > .spectrogram-panel-splitter {
+        display: none;
+    }
+}
