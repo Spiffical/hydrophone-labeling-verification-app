@@ -219,6 +219,7 @@ This structure is used for **both** expert verification of model predictions
 | `notes` | string | no | Free-text reviewer comments. |
 | `label_source` | enum | no | `"expert"`, `"auto"`, or `"consensus"`. |
 | `taxonomy_version` | string | no | Version of the taxonomy used during review. |
+| `annotation_time_reference` | enum | no | `"audio_start"`: this round's `annotation_extent` times are seconds from `items[].audio_start_time`, as defined below. Written by review builds from 2026-09-30. Rounds without it, saved by earlier builds on spectrograms generated from audio, measured times from the first spectrogram frame's centre: add half the FFT window (`spectrogram_render.win_dur_s / 2`, 0.5 s on the fin whale dashboards) to get clip time. |
 
 Use `label_decisions` as canonical. Do not duplicate derived verification-level fields
 like `labels`, `added_labels`, `rejected_labels`, or top-level `threshold_used`.

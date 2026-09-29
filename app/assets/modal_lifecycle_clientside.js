@@ -275,8 +275,13 @@
     const xRange = layout.xaxis && layout.xaxis.range;
     const yRange = layout.yaxis && layout.yaxis.range;
     if (!Array.isArray(xRange) || !Array.isArray(yRange)) return null;
-    const xMin = Number(meta.x_min);
-    const xMax = Number(meta.x_max);
+    // Columns run between the first and last frame centres, which on a
+    // clip-time axis sit half a window inside x_min and x_max.
+    const imageXMin = Number(meta.image_x_min);
+    const imageXMax = Number(meta.image_x_max);
+    const hasImageExtent = Number.isFinite(imageXMin) && Number.isFinite(imageXMax) && imageXMax > imageXMin;
+    const xMin = hasImageExtent ? imageXMin : Number(meta.x_min);
+    const xMax = hasImageExtent ? imageXMax : Number(meta.x_max);
     const yToHz = Number(meta.y_to_hz) || 1;
     const yMin = Number(meta.data_y_min_hz) / yToHz;
     const yMax = Number(meta.data_y_max_hz) / yToHz;
@@ -682,5 +687,7 @@
   });
   window.hydrophoneModalLifecycle = Object.assign({}, window.hydrophoneModalLifecycle, {
     beginRender,
+    // For tests: the source columns and placement of a zoomed raster.
+    visibleRasterCrop,
   });
 })();

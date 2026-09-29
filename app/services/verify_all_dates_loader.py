@@ -20,7 +20,9 @@ _LOCK = RLock()
 _ENTRIES: Dict[str, Dict[str, Any]] = {}
 _PREVIEWS: Dict[str, Dict[str, Any]] = {}
 _MAX_ENTRIES = 4
-_PERSISTED_CACHE_VERSION = 1
+# 2: items carry box times in clip time (annotation_times.py); caches written
+# before that hold the old plot-axis times and must be rebuilt.
+_PERSISTED_CACHE_VERSION = 2
 _PERSISTED_CACHE_DIR = Path(
     os.environ.get(
         "HYDROPHONE_ALL_DATES_CACHE_DIR",
@@ -78,6 +80,9 @@ def build_all_dates_cache_key(config: Dict[str, Any], hydrophone: str | None) ->
         "fallback_hydrophone": verify_config.get("hydrophone") if hydrophone is None else None,
         "hydrophone": hydrophone,
         "predictions_file_fingerprint": _predictions_file_fingerprint(data_config),
+        # Set the clip-time offset of boxes in older rounds (annotation_times.py).
+        "spectrogram_render": config.get("spectrogram_render"),
+        "annotation_times": config.get("annotation_times"),
     }
     encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
     return sha256(encoded).hexdigest()

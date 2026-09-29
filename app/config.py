@@ -48,6 +48,17 @@ def _coerce_non_negative_int(value: Any, default: int) -> int:
         return int(default)
 
 
+def _annotation_times_config(section: Any) -> Dict[str, Any]:
+    """``legacy_window_s``: the FFT window a dashboard's older rounds were drawn
+    with. Pinned, it keeps those boxes in place if the window changes later."""
+    section = section if isinstance(section, dict) else {}
+    try:
+        window = float(section.get("legacy_window_s"))
+    except (TypeError, ValueError):
+        window = None
+    return {"legacy_window_s": window if window is not None and 0 < window <= 30 else None}
+
+
 def _coerce_bool(value: Any, default: bool) -> bool:
     if value is None:
         return bool(default)
@@ -325,6 +336,8 @@ def get_config() -> Dict[str, Any]:
         },
         "spectrogram_render": normalized_spec_render_cfg,
         "bounding_box_tags": load_bbox_tag_options(repo_root, bbox_tags_cfg),
+        # The window older rounds' boxes were drawn with (annotation_times.py).
+        "annotation_times": _annotation_times_config(config.get("annotation_times")),
         "server": {
             "host": args.host,
             "port": args.port,

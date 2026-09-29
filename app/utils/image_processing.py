@@ -382,10 +382,18 @@ def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> D
     freq = spectrogram_data["freq"]
     time = spectrogram_data["time"]
 
+    clip_time = spectrogram_data.get("_time_reference") == "audio_start"
     if len(time) > 0 and time[0] > 1000:
+        clip_time = False
         time_plot = (time - time[0]) * 24 * 60
         x_label = "Time (minutes)"
         x_to_seconds = 60.0
+    elif clip_time:
+        # Spectrograms generated from audio: seconds into the clip, so box
+        # times, the audio clock and the axis agree (annotation_times.py).
+        time_plot = time
+        x_label = "Time (seconds)"
+        x_to_seconds = 1.0
     else:
         time_plot = time - time[0] if len(time) > 0 else time
         x_label = "Time (seconds)"
@@ -412,6 +420,7 @@ def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> D
 
     return {
         "psd": psd,
+        "clip_time": clip_time,
         "time_plot": np.asarray(time_plot),
         "x_label": x_label,
         "x_to_seconds": x_to_seconds,
@@ -795,6 +804,8 @@ def _load_audio_spectrogram_torch(
         "psd": pdB.cpu().numpy()[freq_mask, :].astype(np.float32),
         "freq": freq[freq_mask].astype(np.float64),
         "time": time.astype(np.float64),
+        # Frame centres in seconds from the start of the clip's audio.
+        "_time_reference": "audio_start",
         "_source_sample_rate_hz": source_sample_rate_hz,
         "_source_nyquist_hz": source_nyquist_hz,
         "_requested_freq_max_hz": float(freq_max_hz),
@@ -2539,18 +2550,26 @@ def create_spectrogram_figure(
         y_axis_range = [y_window["display_min_plot"], y_window["display_max_plot"]]
 
     if len(time_plot):
-        x_min = float(np.min(time_plot))
-        x_max = float(np.max(time_plot))
+        image_x_min = float(np.min(time_plot))
+        image_x_max = float(np.max(time_plot))
     else:
+        image_x_min = 0.0
+        image_x_max = 1.0
+    if plot_axes["clip_time"]:
+        # The whole clip: each frame covers half a window either side of its
+        # centre, so the image (frame centres) leaves that much at each end.
         x_min = 0.0
-        x_max = 1.0
-    # x = 0 is the first frame centre; other ranges are placed against this.
-    raw_time = np.asarray(spectrogram_data.get("time", []), dtype=np.float64)
-    x_origin_seconds = (
-        float(raw_time[0])
-        if raw_time.size and x_to_seconds == 1.0 and np.isfinite(raw_time[0]) and raw_time[0] <= 1000
-        else None
-    )
+        x_max = image_x_max + max(0.0, image_x_min)
+        x_origin_seconds = 0.0
+    else:
+        x_min, x_max = image_x_min, image_x_max
+        # x = 0 is the first frame; other ranges are placed against this.
+        raw_time = np.asarray(spectrogram_data.get("time", []), dtype=np.float64)
+        x_origin_seconds = (
+            float(raw_time[0])
+            if raw_time.size and x_to_seconds == 1.0 and np.isfinite(raw_time[0]) and raw_time[0] <= 1000
+            else None
+        )
     image_y_min = float(np.min(freq_plot)) if len(freq_plot) else 0.0
     image_y_max = float(np.max(freq_plot)) if len(freq_plot) else 1.0
 
@@ -2733,6 +2752,9 @@ def create_spectrogram_figure(
             "page_seconds": page_seconds,
             "page_seconds_options": page_seconds_options,
             "x_origin_seconds": x_origin_seconds,
+            # Where the raster sits on the axis (zoom crops map columns to it).
+            "image_x_min": image_x_min,
+            "image_x_max": image_x_max,
         },
         uirevision=render_signature,
     )

@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 from filelock import FileLock
 
 from app.services.label_attributes import normalize_label_attributes, prune_label_attributes
+from app.services.annotation_times import AUDIO_START, TIME_REFERENCE_KEY
 
 # Create a FileLock instance at module level
 _lock_file = os.path.join(tempfile.gettempdir(), 'hydrophone_labels_lock.lock')
@@ -284,6 +285,8 @@ def save_labels(
                 "label_source": "expert",
                 "notes": note_text,
                 "label_attributes": cleaned_label_attributes,
+                # Box times are in clip time (annotation_times.py).
+                TIME_REFERENCE_KEY: AUDIO_START,
             }
             verifications.append(new_verification)
             existing_item["verifications"] = verifications

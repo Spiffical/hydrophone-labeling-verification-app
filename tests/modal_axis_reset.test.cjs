@@ -80,3 +80,22 @@ test('on a long clip, Home returns to the page on screen as a GUI edit', async (
     assert.deepEqual(Array.from(guiResets[0]['xaxis.range']), [2, 3]);
     assert.deepEqual(Array.from(guiResets[0]['yaxis.range']), [.01, 20]);
 });
+
+test('zoom rasters map columns to the image, which starts half a window into a clip-time axis', async () => {
+    const s = await setup();
+    const crop = s.window.hydrophoneModalLifecycle.visibleRasterCrop;
+    // 391 frames, centres 0.125-9.875 s on a 0-10 s axis (a 0.25 s window).
+    const graph = { layout: {
+        meta: { x_min: 0, x_max: 10, image_x_min: 0.125, image_x_max: 9.875, source_matrix_shape: [100, 391],
+            modal_image_url: '/modal-image/t', y_to_hz: 1, data_y_min_hz: 0, data_y_max_hz: 100 },
+        xaxis: { range: [2, 4] }, yaxis: { range: [0, 100] } }, clientWidth: 800, clientHeight: 400 };
+    const zoomed = crop(graph);
+    // 40 columns per second from 0.125 s, with an 8% margin either side.
+    assert.equal(zoomed.columnStart, 68);
+    assert.equal(zoomed.columnEnd, 163);
+    assert.ok(Math.abs(zoomed.x - 1.825) < 1e-9);
+    // Figures from before image_x_min fall back to the axis bounds.
+    delete graph.layout.meta.image_x_min;
+    delete graph.layout.meta.image_x_max;
+    assert.equal(crop(graph).columnStart, 71);
+});

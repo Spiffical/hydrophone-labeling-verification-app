@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional
 
 from app.utils.file_io import read_json, write_json
+from app.services.annotation_times import AUDIO_START, TIME_REFERENCE_KEY
 from app.services.label_attributes import prune_label_attributes
 
 
@@ -62,6 +63,9 @@ def _sanitize_verification_payload(verification: Dict) -> Dict:
             out[key] = verification[key]
 
     out["label_decisions"] = _sanitize_label_decisions(verification.get("label_decisions"))
+    # Box times are in clip time (annotation_times.py); rounds without this
+    # field were saved on the old plot axis.
+    out[TIME_REFERENCE_KEY] = AUDIO_START
     accepted_labels = [
         entry["label"]
         for entry in out["label_decisions"]

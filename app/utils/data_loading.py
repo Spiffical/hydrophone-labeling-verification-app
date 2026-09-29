@@ -12,6 +12,7 @@ from app.utils.format_converters import (
     convert_legacy_labeling_to_unified,
     convert_whale_predictions_to_unified,
 )
+from app.services.annotation_times import normalize_review_json
 from app.services.annotations import clean_box_annotation
 from app.services.label_attributes import normalize_label_attributes
 from app.utils.unified_format_converter import is_unified_v2_format, convert_unified_v2_to_internal
@@ -629,10 +630,12 @@ def _clean_box_annotations(entries) -> list:
     return cleaned
 
 
-def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
+def _extract_labels_map(labels_json: dict, config: Optional[Dict] = None) -> Dict[str, dict]:
     labels_map: Dict[str, dict] = {}
     if not isinstance(labels_json, dict):
         return labels_map
+    # Boxes from rounds saved before clip time was recorded move to clip time.
+    labels_json = normalize_review_json(labels_json, config)
 
     if isinstance(labels_json.get("items"), list):
         for item in labels_json.get("items", []):
@@ -762,6 +765,7 @@ def _collect_hierarchical_labels_map(
     data_dir: str,
     date_str: Optional[str],
     hydrophone: Optional[str],
+    config: Optional[Dict] = None,
 ) -> Dict[str, dict]:
     if not data_dir or not os.path.exists(data_dir):
         return {}
@@ -781,21 +785,21 @@ def _collect_hierarchical_labels_map(
 
     root_labels = os.path.join(data_dir, "labels.json")
     if os.path.exists(root_labels):
-        labels_map.update(_extract_labels_map(read_json(root_labels) or {}))
+        labels_map.update(_extract_labels_map(read_json(root_labels) or {}, config))
 
     for date in dates_to_check:
         if not date:
             continue
         date_labels = os.path.join(data_dir, date, "labels.json")
         if os.path.exists(date_labels):
-            labels_map.update(_extract_labels_map(read_json(date_labels) or {}))
+            labels_map.update(_extract_labels_map(read_json(date_labels) or {}, config))
 
         for device in devices_to_check:
             if not device:
                 continue
             device_labels = os.path.join(data_dir, date, device, "labels.json")
             if os.path.exists(device_labels):
-                labels_map.update(_extract_labels_map(read_json(device_labels) or {}))
+                labels_map.update(_extract_labels_map(read_json(device_labels) or {}, config))
 
     return labels_map
 
@@ -854,14 +858,15 @@ def _build_audio_only_item(audio_path: str, existing_labels: dict, hydrophone: O
 
 
 def _load_items_from_folder(folder: str, audio_folder: Optional[str], labels_file: Optional[str],
-                             hydrophone: Optional[str], date_str: Optional[str] = None) -> list:
+                             hydrophone: Optional[str], date_str: Optional[str] = None,
+                             config: Optional[Dict] = None) -> list:
     """Load spectrogram items from a single folder."""
     if not folder or not os.path.exists(folder):
         return []
     
     existing_labels = {}
     if labels_file and os.path.exists(labels_file):
-        existing_labels = _extract_labels_map(read_json(labels_file) or {})
+        existing_labels = _extract_labels_map(read_json(labels_file) or {}, config)
     
     mat_files = sorted(glob.glob(os.path.join(folder, "*.mat")))
     npy_files = sorted(glob.glob(os.path.join(folder, "*.npy")))
@@ -1014,7 +1019,8 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                     device_audio_folder if device_audio_folder and os.path.exists(device_audio_folder) else None,
                     device_labels_file if os.path.exists(device_labels_file) else None,
                     dev,
-                    d
+                    d,
+                    config=config,
                 )
                 all_items.extend(items)
                 if spec_folder:
@@ -1028,9 +1034,9 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
         # Overlay labels from root/date/device labels.json (if present).
         labels_map = {}
         if labels_file and os.path.exists(labels_file):
-            labels_map = _extract_labels_map(read_json(labels_file) or {})
+            labels_map = _extract_labels_map(read_json(labels_file) or {}, config)
         else:
-            labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone)
+            labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone, config)
             root_labels = os.path.join(data_dir, "labels.json")
             if not labels_file and os.path.exists(root_labels):
                 labels_file = root_labels
@@ -1122,6 +1128,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
                 selected_labels_file if selected_labels_file and os.path.exists(selected_labels_file) else None,
                 dev,
                 active_date_label,
+                config=config,
             )
             all_items.extend(items)
             if spec_folder:
@@ -1134,7 +1141,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
 
         # Overlay root-level labels.json when present (useful for shared labels at date root).
         root_labels = os.path.join(data_dir, "labels.json")
-        root_labels_map = _extract_labels_map(read_json(root_labels) or {}) if os.path.exists(root_labels) else {}
+        root_labels_map = _extract_labels_map(read_json(root_labels) or {}, config) if os.path.exists(root_labels) else {}
         if root_labels_map and data["items"]:
             for item in data["items"]:
                 item_id = item.get("item_id")
@@ -1167,7 +1174,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
         if folder and os.path.exists(folder):
             if not labels_file:
                 labels_file = get_default_labels_path(folder)
-            items = _load_items_from_folder(folder, audio_folder, labels_file, hydrophone, date_str)
+            items = _load_items_from_folder(folder, audio_folder, labels_file, hydrophone, date_str, config=config)
             data["items"] = items
             if audio_folder:
                 audio_roots.append(audio_folder)
@@ -1175,7 +1182,7 @@ def load_label_mode(config: Dict, date_str: Optional[str] = None, hydrophone: Op
         # Manual folder override
         if not labels_file:
             labels_file = get_default_labels_path(folder)
-        items = _load_items_from_folder(folder, audio_folder, labels_file, hydrophone, date_str)
+        items = _load_items_from_folder(folder, audio_folder, labels_file, hydrophone, date_str, config=config)
         data["items"] = items
         if audio_folder:
             audio_roots.append(audio_folder)
@@ -1250,7 +1257,7 @@ def load_verify_mode(
         if predictions_path in override_cache:
             return override_cache[predictions_path]
         whale_config = {"whale": {"predictions_json": predictions_path}}
-        loaded = load_whale_mode(whale_config, path_exists=path_index.exists)
+        loaded = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
         _attach_predictions_path(loaded.get("items", []), predictions_path)
         override_cache[predictions_path] = loaded
         return loaded
@@ -1279,7 +1286,7 @@ def load_verify_mode(
         # If we have predictions, load them
         if predictions_path and path_index.exists(predictions_path):
             whale_config = {"whale": {"predictions_json": predictions_path}}
-            data = load_whale_mode(whale_config, path_exists=path_index.exists)
+            data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
             _attach_predictions_path(data.get("items", []), predictions_path)
         
         # Add items from mat files if no predictions or to supplement
@@ -1381,7 +1388,7 @@ def load_verify_mode(
 
         if predictions_file_override and path_index.exists(predictions_file_override):
             whale_config = {"whale": {"predictions_json": predictions_file_override}}
-            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
             predictions_path = predictions_file_override
             predictions_paths_loaded.append(predictions_file_override)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
@@ -1390,7 +1397,7 @@ def load_verify_mode(
             if path_index.exists(root_pred_candidate):
                 root_predictions_path = root_pred_candidate
                 whale_config = {"whale": {"predictions_json": root_pred_candidate}}
-                root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+                root_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
                 predictions_path = root_pred_candidate
                 predictions_paths_loaded.append(root_pred_candidate)
                 _attach_predictions_path(root_data.get("items", []), predictions_path)
@@ -1453,7 +1460,7 @@ def load_verify_mode(
                 local_predictions_path = os.path.join(base_path, "predictions.json")
                 if path_index.exists(local_predictions_path):
                     whale_config = {"whale": {"predictions_json": local_predictions_path}}
-                    folder_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+                    folder_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
                     predictions_paths_loaded.append(local_predictions_path)
                     _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
                 else:
@@ -1585,13 +1592,13 @@ def load_verify_mode(
         root_data = None
         if predictions_file_override and path_index.exists(predictions_file_override):
             whale_config = {"whale": {"predictions_json": predictions_file_override}}
-            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
             predictions_path = predictions_file_override
             predictions_paths_loaded.append(predictions_file_override)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
         elif root_predictions_path:
             whale_config = {"whale": {"predictions_json": root_predictions_path}}
-            root_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+            root_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
             predictions_path = root_predictions_path
             predictions_paths_loaded.append(root_predictions_path)
             _attach_predictions_path(root_data.get("items", []), predictions_path)
@@ -1621,7 +1628,7 @@ def load_verify_mode(
                 if path_index.exists(date_pred_candidate):
                     date_predictions_path = date_pred_candidate
                     whale_config = {"whale": {"predictions_json": date_predictions_path}}
-                    date_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+                    date_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
                     predictions_paths_loaded.append(date_predictions_path)
                     _attach_predictions_path(date_data.get("items", []), date_predictions_path)
                 else:
@@ -1707,7 +1714,7 @@ def load_verify_mode(
                     local_predictions_path = os.path.join(base_path, "predictions.json")
                     if path_index.exists(local_predictions_path):
                         whale_config = {"whale": {"predictions_json": local_predictions_path}}
-                        folder_data = load_whale_mode(whale_config, path_exists=path_index.exists)
+                        folder_data = load_whale_mode(whale_config, path_exists=path_index.exists, annotation_config=config)
                         predictions_paths_loaded.append(local_predictions_path)
                         _attach_predictions_path(folder_data.get("items", []), local_predictions_path)
                     else:
@@ -1917,7 +1924,7 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
     if config.get("data", {}).get("data_dir"):
         data_dir = config.get("data", {}).get("data_dir")
         data = load_verify_mode(config, date_str, hydrophone, allow_unlabeled=True)
-        labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone)
+        labels_map = _collect_hierarchical_labels_map(data_dir, date_str, hydrophone, config)
         if labels_map and data.get("items"):
             for item in data.get("items", []):
                 item_id = item.get("item_id")
@@ -1955,12 +1962,15 @@ def load_explore_mode(config: Dict, date_str: Optional[str] = None, hydrophone: 
     return load_label_mode(config)
 
 
-def load_whale_mode(config: Dict, *, path_exists=None) -> Dict:
+def load_whale_mode(config: Dict, *, path_exists=None, annotation_config: Optional[Dict] = None) -> Dict:
     # Check multiple locations for predictions path (legacy whale section or verify section)
     whale_cfg = config.get("whale", {})
     verify_cfg = config.get("verify", {})
     predictions_path = whale_cfg.get("predictions_json") or verify_cfg.get("predictions_json")
     predictions_json = read_json(predictions_path) if predictions_path else {}
+    # Boxes from rounds saved before clip time was recorded move to clip time,
+    # by the dashboard's spectrogram settings (the app config).
+    predictions_json = normalize_review_json(predictions_json, annotation_config or config)
 
     # Get base path for resolving relative paths in predictions
     base_path = os.path.dirname(predictions_path) if predictions_path else None

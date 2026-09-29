@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from matplotlib.image import imread
 import numpy as np
+import pytest
 import soundfile as sf
 
 from app.utils import image_processing
@@ -442,3 +443,21 @@ def test_modal_figure_records_where_its_time_axis_starts_in_the_clip():
     datenums = dict(source, time=739000.0 + np.arange(10) / 86400.0)
     fig = image_processing.create_spectrogram_figure(datenums, "default", image_source="/modal-image/t")
     assert fig.layout.meta["x_origin_seconds"] is None
+
+
+def test_spectrograms_from_audio_are_plotted_in_clip_time():
+    # Frames of a 0.25 s window: centres from 0.125 s. The axis runs from the
+    # clip start to the last frame's end; the image spans the frame centres.
+    source = {
+        "psd": np.zeros((4, 10)),
+        "freq": np.linspace(100.0, 400.0, 4),
+        "time": 0.125 + 0.025 * np.arange(10),
+        "_time_reference": "audio_start",
+    }
+    fig = image_processing.create_spectrogram_figure(source, "default", image_source="/modal-image/t")
+    meta = fig.layout.meta
+    assert (meta["x_min"], meta["x_origin_seconds"]) == (0.0, 0.0)
+    assert meta["x_max"] == pytest.approx(0.125 + 0.35)
+    assert (meta["image_x_min"], meta["image_x_max"]) == pytest.approx((0.125, 0.35))
+    assert fig.layout.images[0].x == pytest.approx(0.125)
+    assert list(fig.layout.xaxis.range) == pytest.approx([0.0, 0.475])
