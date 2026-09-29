@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional
 
 from app.utils.file_io import read_json, write_json
+from app.services.label_attributes import prune_label_attributes
 
 
 def _sanitize_label_decisions(label_decisions: Optional[List[Dict]]) -> List[Dict]:
@@ -32,6 +33,8 @@ def _sanitize_label_decisions(label_decisions: Optional[List[Dict]]) -> List[Dic
         tag = entry.get("tag")
         if isinstance(tag, str) and tag.strip():
             sanitized["tag"] = tag.strip()
+            sanitized["tag_source"] = "model" if entry.get("tag_source") == "model" else "human"
+            sanitized["tag_scope"] = "time_freq_box"
         cleaned.append(sanitized)
     return cleaned
 
@@ -59,6 +62,16 @@ def _sanitize_verification_payload(verification: Dict) -> Dict:
             out[key] = verification[key]
 
     out["label_decisions"] = _sanitize_label_decisions(verification.get("label_decisions"))
+    accepted_labels = [
+        entry["label"]
+        for entry in out["label_decisions"]
+        if entry.get("decision") in {"accepted", "added"}
+    ]
+    out["label_attributes"] = prune_label_attributes(
+        verification.get("label_attributes"),
+        accepted_labels,
+        default_source="human",
+    )
     return out
 
 
@@ -166,6 +179,7 @@ def save_label_mode(
     notes: Optional[str] = None,
     label_extents: Optional[Dict[str, dict]] = None,
     bbox_annotations: Optional[List[Dict]] = None,
+    label_attributes: Optional[List[Dict]] = None,
 ) -> None:
     """Save labels for an item to a labels.json file."""
     if not output_file:
@@ -181,6 +195,7 @@ def save_label_mode(
         notes=notes,
         label_extents=label_extents,
         bbox_annotations=bbox_annotations,
+        label_attributes=label_attributes,
     )
 
 

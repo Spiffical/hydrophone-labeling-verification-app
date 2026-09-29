@@ -20,6 +20,7 @@ from app.callbacks.modal.bbox_callbacks import register_modal_bbox_callbacks
 from app.callbacks.modal.label_callbacks import register_modal_label_callbacks
 from app.callbacks.modal.lifecycle_callbacks import register_modal_lifecycle_callbacks
 from app.callbacks.modal.view_callbacks import register_modal_view_callbacks
+from app.callbacks.modal.attribute_callbacks import register_modal_label_attribute_callbacks
 from app.callbacks.ui.app_config_callbacks import register_app_config_callbacks
 from app.callbacks.ui.display_range_callbacks import register_display_range_callbacks
 from app.callbacks.ui.profile_callbacks import register_ui_callbacks
@@ -216,6 +217,12 @@ def register_all_callback_sections(app, *, config, deps):
     )
 
     register_modal_audio_callbacks(app)
+    register_modal_label_attribute_callbacks(
+        app,
+        require_complete_profile=d["require_complete_profile"],
+        profile_actor=d["profile_actor"],
+        config=config,
+    )
     register_loading_overlay_callbacks(app)
 
     register_filter_state_callbacks(

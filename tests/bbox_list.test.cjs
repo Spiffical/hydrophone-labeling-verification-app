@@ -225,3 +225,12 @@ test('on a long clip shown in pages, box handles stay beside their box on its pa
   }
   assert.equal(out.layout.meta.handle_page_seconds, 300);
 });
+
+test('a reviewer tag is recorded as a human box tag, even over a model tag', () => {
+  const { model } = load();
+  const modelTagged = box('20Hz', { tag_source: 'model', tag_scope: 'time_freq_box' });
+  const [retagged] = model.applyTag([modelTagged], [0], '40Hz').boxes;
+  assert.deepEqual([retagged.tag, retagged.tag_source, retagged.tag_scope], ['40Hz', 'human', 'time_freq_box']);
+  const [cleared] = model.applyTag([retagged], [0], null).boxes;
+  assert.deepEqual([cleared.tag, cleared.tag_source, cleared.tag_scope], [undefined, undefined, undefined]);
+});

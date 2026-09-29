@@ -33,8 +33,11 @@ def build_modal_item_actions(item, mode, thresholds, active_box_label=None):
     explicit_review = has_explicit_review(annotations) or bool(verified_labels or rejected_labels)
     has_pending_edits = has_pending_label_edits(annotations)
     note_text = annotations.get("notes", "") if isinstance(annotations.get("notes"), str) else ""
+    item_id = (item.get("item_id") or "").strip()
 
     accepted_rows = build_accepted_rows(
+        item=item,
+        item_id=item_id,
         active_labels=active_labels,
         active_box_label=active_box_label,
         mode=mode,
@@ -42,6 +45,8 @@ def build_modal_item_actions(item, mode, thresholds, active_box_label=None):
     verify_rows = []
     if mode == "verify":
         verify_rows = build_verify_rows(
+            item=item,
+            item_id=item_id,
             predicted_labels=predicted_labels,
             verified_labels=verified_labels,
             active_labels=active_labels,

@@ -77,6 +77,8 @@ def test_save_label_mode_persists_bbox_tag(tmp_path):
         "threshold_used": None,
         "annotation_extent": _fin_whale_box()["annotation_extent"],
         "tag": "30Hz",
+        "tag_source": "human",
+        "tag_scope": "time_freq_box",
     }
 
 
@@ -106,6 +108,8 @@ def test_save_verify_predictions_persists_and_reloads_bbox_tag(tmp_path):
                     "threshold_used": 0.5,
                     "annotation_extent": box["annotation_extent"],
                     "tag": box["tag"],
+                    "tag_source": "human",
+                    "tag_scope": "time_freq_box",
                 }
             ],
         },
@@ -116,7 +120,9 @@ def test_save_verify_predictions_persists_and_reloads_bbox_tag(tmp_path):
     assert decision["tag"] == "20Hz"
 
     reloaded = convert_unified_v2_to_internal(saved)
-    assert reloaded["items"][0]["annotations"]["box_annotations"] == [box]
+    assert reloaded["items"][0]["annotations"]["box_annotations"] == [
+        dict(box, tag_source="human", tag_scope="time_freq_box")
+    ]
 
 
 def test_unified_manual_queue_propagates_declared_review_filter_classes():
@@ -141,3 +147,47 @@ def test_unified_manual_queue_propagates_declared_review_filter_classes():
     )
 
     assert converted["items"][0]["metadata"]["review_filter_classes"] == classes
+
+
+def test_save_verify_predictions_keeps_human_label_attributes(tmp_path):
+    predictions_path = tmp_path / "predictions.json"
+    predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.1",
+                "items": [{"item_id": "clip-1", "model_outputs": [], "verifications": []}],
+            }
+        )
+    )
+
+    save_verify_predictions(
+        str(predictions_path),
+        "clip-1",
+        {
+            "verified_at": "2026-08-11T12:00:00Z",
+            "verified_by": "Reviewer <reviewer@example.com>",
+            "verification_status": "verified",
+            "label_decisions": [
+                {"label": FIN_WHALE, "decision": "accepted", "threshold_used": 0.5}
+            ],
+            "label_attributes": [
+                {
+                    "taxonomy_label": FIN_WHALE,
+                    "attribute_type": "call_type",
+                    "value": "20Hz",
+                    "display": "20 Hz",
+                    "scope": "clip",
+                    "source": "human",
+                }
+            ],
+        },
+    )
+
+    saved = json.loads(predictions_path.read_text())
+    attribute = saved["items"][0]["verifications"][0]["label_attributes"][0]
+    assert attribute["taxonomy_label"] == FIN_WHALE
+    assert attribute["value"] == "20Hz"
+    assert attribute["source"] == "human"
+
+    reloaded = convert_unified_v2_to_internal(saved)
+    assert reloaded["items"][0]["annotations"]["label_attributes"][0]["value"] == "20Hz"

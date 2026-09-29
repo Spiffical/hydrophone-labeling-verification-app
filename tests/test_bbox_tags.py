@@ -9,4 +9,5 @@ def test_default_bbox_tag_config_loads_fin_whale_options():
     tags = load_bbox_tag_options(repo_root, config.get("bounding_box_tags"))
 
     assert tags["active_set"] == "fin_whale"
-    assert [option["value"] for option in tags["options"]] == ["20Hz", "30Hz", "40Hz"]
+    values = [option["value"] for option in tags["options"]]
+    assert values == ["20Hz", "30Hz", "40Hz"]

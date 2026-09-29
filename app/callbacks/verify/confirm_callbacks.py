@@ -15,6 +15,7 @@ from app.services.verify_modal_cache import (
 )
 from app.services.annotations import extract_box_annotation_list_map_from_boxes
 from app.utils.persistence import save_verify_predictions
+from app.services.label_attributes import normalize_label_attributes, prune_label_attributes
 
 
 def _attach_box_metadata(entry, *, box_annotations, label_extents, model_extent_map):
@@ -28,6 +29,8 @@ def _attach_box_metadata(entry, *, box_annotations, label_extents, model_extent_
         entry["annotation_extent"] = extent
     if isinstance(first_box, dict) and first_box.get("tag"):
         entry["tag"] = first_box["tag"]
+        entry["tag_source"] = first_box.get("tag_source") or "human"
+        entry["tag_scope"] = "time_freq_box"
     return entry
 
 
@@ -209,6 +212,8 @@ def register_verify_confirm_callbacks(
                 extra_box = box_annotations[idx] if idx < len(box_annotations) else None
                 if isinstance(extra_box, dict) and extra_box.get("tag"):
                     extra_entry["tag"] = extra_box["tag"]
+                    extra_entry["tag_source"] = extra_box.get("tag_source") or "human"
+                    extra_entry["tag_scope"] = "time_freq_box"
                 label_decisions.append(extra_entry)
         for label in sorted(rejected_labels - labels_set):
             entry = {
@@ -230,6 +235,11 @@ def register_verify_confirm_callbacks(
             "label_decisions": label_decisions,
             "verification_status": "verified",
             "notes": note_text,
+            "label_attributes": prune_label_attributes(
+                annotations.get("label_attributes"),
+                labels_to_confirm,
+                default_source="human",
+            ),
         }
 
         updated = _update_item_labels(
@@ -245,6 +255,11 @@ def register_verify_confirm_callbacks(
                 for annotations_for_label in box_annotation_lists.values()
                 for annotation in annotations_for_label
             ],
+            label_attributes=prune_label_attributes(
+                annotations.get("label_attributes"),
+                labels_to_confirm,
+                default_source="human",
+            ),
         )
         updated_item = next(
             (
@@ -452,6 +467,8 @@ def register_verify_confirm_callbacks(
                 extra_box = box_annotations[idx] if idx < len(box_annotations) else None
                 if isinstance(extra_box, dict) and extra_box.get("tag"):
                     extra_entry["tag"] = extra_box["tag"]
+                    extra_entry["tag_source"] = extra_box.get("tag_source") or "human"
+                    extra_entry["tag_scope"] = "time_freq_box"
                 label_decisions.append(extra_entry)
         for label in sorted(rejected_labels - labels_set):
             entry = {
@@ -473,6 +490,11 @@ def register_verify_confirm_callbacks(
             "label_decisions": label_decisions,
             "verification_status": "verified",
             "notes": note_text,
+            "label_attributes": prune_label_attributes(
+                annotations.get("label_attributes"),
+                labels_to_confirm,
+                default_source="human",
+            ),
         }
 
         updated_item = _update_item_labels(
@@ -488,6 +510,11 @@ def register_verify_confirm_callbacks(
                 for annotations_for_label in box_annotation_lists.values()
                 for annotation in annotations_for_label
             ],
+            label_attributes=prune_label_attributes(
+                annotations.get("label_attributes"),
+                labels_to_confirm,
+                default_source="human",
+            ),
         )
         updated_item = next(
             (

@@ -2,6 +2,7 @@ import os
 from dash import html
 import dash_bootstrap_components as dbc
 from app.components.audio_player import create_audio_player
+from app.components.label_attributes import render_label_attribute_chips
 from app.components.note_editor import create_note_editor
 from app.services.verification import (
     get_item_rejected_labels,
@@ -41,7 +42,7 @@ def _has_pending_label_edits(annotations_data):
     return bool(annotations_data.get("pending_save") or annotations_data.get("needs_reverify"))
 
 
-def _render_label_badges_with_delete(item_id, labels):
+def _render_label_badges_with_delete(item_id, labels, item=None):
     labels = _ordered_unique_labels(labels or [])
     if not labels:
         return html.Div("No labels", className="text-muted small")
@@ -71,6 +72,7 @@ def _render_label_badges_with_delete(item_id, labels):
                         className="verify-label-row-header",
                     ),
                     html.Span(label, className="verify-label-text verify-label-text--multiline"),
+                    render_label_attribute_chips(item or {}, label),
                 ],
                 id={"type": "label-label-badge", "target": target},
                 className="verify-label-badge verify-label-badge--human-added verify-label-badge--row",
@@ -79,7 +81,7 @@ def _render_label_badges_with_delete(item_id, labels):
     return html.Div(badges, className="verify-badge-list")
 
 
-def _render_label_badges_readonly(labels):
+def _render_label_badges_readonly(labels, item=None):
     labels = _ordered_unique_labels(labels or [])
     if not labels:
         return html.Div("No labels", className="text-muted small")
@@ -90,6 +92,7 @@ def _render_label_badges_readonly(labels):
             html.Div(
                 [
                     html.Span(label, className="verify-label-text"),
+                    render_label_attribute_chips(item or {}, label),
                 ],
                 className="verify-label-badge verify-label-badge--human-added",
             )
@@ -160,6 +163,7 @@ def _verify_badge_models(
 
 def _render_verify_badges(
     item_id,
+    item,
     predicted_labels,
     accepted_labels,
     rejected_labels,
@@ -261,6 +265,12 @@ def _render_verify_badges(
                         className="verify-label-row-header",
                     ),
                     html.Span(label, className="verify-label-text verify-label-text--multiline"),
+                    render_label_attribute_chips(
+                        item,
+                        label,
+                        include_model=is_model,
+                        include_human=label in set(accepted_labels or []),
+                    ),
                 ],
                 id={"type": "verify-label-badge", "target": target},
                 className=(
@@ -296,12 +306,20 @@ def create_verify_label_block_children(item_id, item, predicted_labels=None):
         html.Small("Predictions / labels", className="text-muted mb-1 d-block"),
         _render_verify_badges(
             item_id,
+            item,
             predicted,
             annotations,
             rejected,
             assume_verified=assume_verified,
             prediction_sources=_prediction_sources_by_label(predictions),
         ),
+    ]
+
+
+def create_label_label_block_children(item_id, item, labels):
+    return [
+        html.Small("Labels", className="text-muted mb-1 d-block"),
+        _render_label_badges_with_delete(item_id, labels, item=item),
     ]
 
 
@@ -424,15 +442,17 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         )
     elif mode == "label":
         label_display = annotations if explicit_label_state else annotations or predicted
-        badges.append(html.Div([
-            html.Small("Labels", className="text-muted mb-1 d-block"),
-            _render_label_badges_with_delete(item_id, label_display),
-        ]))
+        badges.append(
+            html.Div(
+                create_label_label_block_children(item_id, item, label_display),
+                id={"type": "label-label-block", "item_id": item_id},
+            )
+        )
     else:
         label_display = annotations if explicit_label_state else annotations or predicted
         badges.append(html.Div([
             html.Small("Labels", className="text-muted mb-1 d-block"),
-            _render_label_badges_readonly(label_display),
+            _render_label_badges_readonly(label_display, item=item),
         ]))
 
     actions = []

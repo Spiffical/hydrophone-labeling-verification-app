@@ -427,6 +427,8 @@ def test_extract_box_annotations_from_boxes_preserves_tag():
             "label": "Bio > Fin whale",
             "annotation_extent": _extent(),
             "tag": "30Hz",
+            "tag_source": "human",
+            "tag_scope": "time_freq_box",
         }
     ]
 
@@ -505,8 +507,10 @@ def test_bbox_species_edit_rejects_original_label_in_verify_mode():
     assert annotations["box_annotations"] == [
         {
             "label": new_label,
-            "annotation_extent": _extent(),
-            "tag": "20Hz",
+                "annotation_extent": _extent(),
+                "tag": "20Hz",
+                "tag_source": "human",
+                "tag_scope": "time_freq_box",
         }
     ]
 

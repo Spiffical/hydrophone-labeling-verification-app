@@ -28,6 +28,7 @@ from app.services.verify_filter_tree import (
     predicted_labels_match_filter,
 )
 from app.utils.persistence import save_label_mode, save_verify_predictions
+from app.services.label_attributes import normalize_label_attributes
 
 
 def item_action_key(item):
@@ -225,6 +226,10 @@ def persist_modal_item_before_exit(
             user_name=profile_name,
             label_extents=label_extents or None,
             bbox_annotations=bbox_annotations,
+            label_attributes=normalize_label_attributes(
+                annotations_obj.get("label_attributes"),
+                default_source="human",
+            ),
         )
         updated = update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
 
@@ -241,6 +246,10 @@ def persist_modal_item_before_exit(
             notes=note_text,
             label_extents=label_extents or None,
             bbox_annotations=bbox_annotations or None,
+            label_attributes=normalize_label_attributes(
+                annotations_obj.get("label_attributes"),
+                default_source="human",
+            ),
         )
         updated = update_item_labels(
             updated or {},
@@ -362,6 +371,8 @@ def persist_modal_item_before_exit(
                 entry["annotation_extent"] = extent
             if isinstance(first_box, dict) and first_box.get("tag"):
                 entry["tag"] = first_box["tag"]
+                entry["tag_source"] = first_box.get("tag_source") or "human"
+                entry["tag_scope"] = "time_freq_box"
             label_decisions.append(entry)
             for idx, extra_extent in enumerate(label_extents[1:], start=1):
                 if not isinstance(extra_extent, dict):
@@ -375,6 +386,8 @@ def persist_modal_item_before_exit(
                 extra_box = box_annotations[idx] if idx < len(box_annotations) else None
                 if isinstance(extra_box, dict) and extra_box.get("tag"):
                     extra_entry["tag"] = extra_box["tag"]
+                    extra_entry["tag_source"] = extra_box.get("tag_source") or "human"
+                    extra_entry["tag_scope"] = "time_freq_box"
                 label_decisions.append(extra_entry)
 
         for label in sorted(rejected_labels - labels_set):
@@ -396,6 +409,10 @@ def persist_modal_item_before_exit(
             "label_decisions": label_decisions,
             "verification_status": "verified",
             "notes": note_text,
+            "label_attributes": normalize_label_attributes(
+                annotations_obj.get("label_attributes"),
+                default_source="human",
+            ),
         }
         scope_date = active_item.get("date") or (active_item.get("metadata") or {}).get("date")
         scope_device = (
@@ -424,6 +441,10 @@ def persist_modal_item_before_exit(
             is_reverification=True,
             label_extents=box_extent_map or None,
             bbox_annotations=extract_box_annotations_from_boxes(modal_boxes) if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id else None,
+            label_attributes=normalize_label_attributes(
+                annotations_obj.get("label_attributes"),
+                default_source="human",
+            ),
         )
         for item in (updated or {}).get("items", []):
             if not isinstance(item, dict) or item.get("item_id") != item_id:

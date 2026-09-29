@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from filelock import FileLock
 
+from app.services.label_attributes import normalize_label_attributes, prune_label_attributes
+
 # Create a FileLock instance at module level
 _lock_file = os.path.join(tempfile.gettempdir(), 'hydrophone_labels_lock.lock')
 _file_lock = FileLock(_lock_file)
@@ -110,6 +112,7 @@ def save_labels(
     metadata: Optional[dict] = None,
     label_extents: Optional[Dict[str, dict]] = None,
     bbox_annotations: Optional[List[Dict]] = None,
+    label_attributes: Optional[List[Dict]] = None,
 ) -> bool:
     """
     Save or update labels for a specific file using unified verifications format.
@@ -237,9 +240,16 @@ def save_labels(
             tag = annotation.get("tag")
             if isinstance(tag, str) and tag.strip():
                 entry["tag"] = tag.strip()
+                entry["tag_source"] = "model" if annotation.get("tag_source") == "model" else "human"
+                entry["tag_scope"] = "time_freq_box"
             box_entries_by_label.setdefault(label.strip(), []).append(entry)
 
-        if label_list or note_text:
+        cleaned_label_attributes = prune_label_attributes(
+            normalize_label_attributes(label_attributes, default_source="human"),
+            label_list,
+            default_source="human",
+        )
+        if label_list or note_text or cleaned_label_attributes:
             label_decisions = []
             for lbl in label_list:
                 entry = {"label": lbl, "decision": "added", "threshold_used": None}
@@ -249,6 +259,8 @@ def save_labels(
                     entry["annotation_extent"] = first_box["annotation_extent"]
                     if first_box.get("tag"):
                         entry["tag"] = first_box["tag"]
+                        entry["tag_source"] = first_box.get("tag_source") or "human"
+                        entry["tag_scope"] = "time_freq_box"
                 else:
                     extent = extent_map.get(lbl)
                     if isinstance(extent, dict):
@@ -259,6 +271,8 @@ def save_labels(
                     extra_entry["annotation_extent"] = extra_box["annotation_extent"]
                     if extra_box.get("tag"):
                         extra_entry["tag"] = extra_box["tag"]
+                        extra_entry["tag_source"] = extra_box.get("tag_source") or "human"
+                        extra_entry["tag_scope"] = "time_freq_box"
                     label_decisions.append(extra_entry)
 
             new_verification = {
@@ -269,6 +283,7 @@ def save_labels(
                 "label_decisions": label_decisions,
                 "label_source": "expert",
                 "notes": note_text,
+                "label_attributes": cleaned_label_attributes,
             }
             verifications.append(new_verification)
             existing_item["verifications"] = verifications

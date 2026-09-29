@@ -71,7 +71,13 @@ def test_load_label_mode_rehydrates_tagged_box_annotations(tmp_path):
     assert annotations["labels"] == [label]
     assert annotations["label_extents"] == {label: extent}
     assert annotations["box_annotations"] == [
-        {"label": label, "annotation_extent": extent, "tag": "20Hz"}
+        {
+            "label": label,
+            "annotation_extent": extent,
+            "tag": "20Hz",
+            "tag_source": "human",
+            "tag_scope": "time_freq_box",
+        }
     ]
 
 

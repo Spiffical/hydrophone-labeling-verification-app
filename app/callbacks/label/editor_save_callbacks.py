@@ -282,6 +282,7 @@ def register_label_save_callbacks(
             notes=note_text,
             label_extents=label_extents or None,
             bbox_annotations=bbox_annotations or None,
+            label_attributes=annotations_obj.get("label_attributes") or None,
         )
 
         updated = _update_item_labels(
@@ -293,6 +294,7 @@ def register_label_save_callbacks(
             is_reverification=True,
             label_extents=label_extents or None,
             bbox_annotations=bbox_annotations,
+            label_attributes=annotations_obj.get("label_attributes") or [],
         )
         updated = _update_item_notes(updated or {}, item_id, note_text, user_name=profile_name)
 

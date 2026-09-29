@@ -311,8 +311,12 @@ def register_modal_bbox_editor_callbacks(
         next_tag = clean_box_tag(tag)
         if next_tag:
             previous["tag"] = next_tag
+            previous["tag_source"] = "human"
+            previous["tag_scope"] = "time_freq_box"
         else:
             previous.pop("tag", None)
+            previous.pop("tag_source", None)
+            previous.pop("tag_scope", None)
         if label_changed or extent_changed:
             previous["source"] = "manual"
             previous["decision"] = "added"

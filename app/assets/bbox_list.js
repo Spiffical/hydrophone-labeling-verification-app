@@ -93,10 +93,15 @@
         return;
       }
       const updated = Object.assign({}, box);
+      // A reviewer's tag is a human tag on this box, even over a model tag.
       if (clean) {
         updated.tag = clean;
+        updated.tag_source = 'human';
+        updated.tag_scope = 'time_freq_box';
       } else {
         delete updated.tag;
+        delete updated.tag_source;
+        delete updated.tag_scope;
       }
       next[index] = updated;
       changed += 1;
@@ -415,6 +420,7 @@
   function rowSignature(box, multiLabel) {
     return JSON.stringify([
       cleanTag(box && box.tag),
+      box && box.tag_source,
       box && box.label,
       box && box.annotation_extent,
       box && box.source,
@@ -523,6 +529,14 @@
           'data-tag': option.value,
           title: option.value === tag ? 'Remove tag' : 'Tag box ' + number + ' as ' + option.label,
         });
+      }));
+    }
+    // Tags a model suggested are marked until a reviewer sets their own.
+    if (tag && box && box.tag_source === 'model') {
+      cells.push(el('i', {
+        className: 'bi bi-robot modal-bbox-row__model-tag',
+        title: 'Machine box tag',
+        'aria-label': 'Machine box tag',
       }));
     }
     cells.push(tagCell);

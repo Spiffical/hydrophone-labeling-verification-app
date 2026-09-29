@@ -484,6 +484,19 @@ def register_label_editor_modal_callbacks(
             )
         elif mode == "label":
             cfg = cfg or {}
+            staged_item = next(
+                (
+                    item
+                    for item in (updated or {}).get("items", [])
+                    if isinstance(item, dict) and item.get("item_id") == active_item_id
+                ),
+                None,
+            )
+            staged_annotations = (
+                staged_item.get("annotations")
+                if isinstance(staged_item, dict) and isinstance(staged_item.get("annotations"), dict)
+                else {}
+            )
             labels_file = (
                 label_output_path
                 or (
@@ -503,6 +516,7 @@ def register_label_editor_modal_callbacks(
                 notes=(note_text or ""),
                 label_extents=label_extents or None,
                 bbox_annotations=bbox_annotations or None,
+                label_attributes=staged_annotations.get("label_attributes") or None,
             )
             updated = _update_item_labels(
                 updated or {},
@@ -513,6 +527,7 @@ def register_label_editor_modal_callbacks(
                 is_reverification=True,
                 label_extents=label_extents or None,
                 bbox_annotations=bbox_annotations,
+                label_attributes=staged_annotations.get("label_attributes") or [],
             )
 
         dirty_update = no_update

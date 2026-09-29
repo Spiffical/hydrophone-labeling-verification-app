@@ -13,6 +13,7 @@ from app.utils.format_converters import (
     convert_whale_predictions_to_unified,
 )
 from app.services.annotations import clean_box_annotation
+from app.services.label_attributes import normalize_label_attributes
 from app.utils.unified_format_converter import is_unified_v2_format, convert_unified_v2_to_internal
 
 
@@ -666,6 +667,8 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                                 "label": label,
                                 "annotation_extent": extent,
                                 "tag": ld.get("tag"),
+                                "tag_source": ld.get("tag_source"),
+                                "tag_scope": ld.get("tag_scope"),
                             }
                         )
                         if cleaned_box:
@@ -679,6 +682,10 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "rejected_labels": rejected_labels,
                     "label_extents": label_extents,
                     "box_annotations": box_annotations,
+                    "label_attributes": normalize_label_attributes(
+                        latest.get("label_attributes"),
+                        default_source="human",
+                    ),
                 }
             else:
                 # Fallback to legacy annotations
@@ -693,6 +700,10 @@ def _extract_labels_map(labels_json: dict) -> Dict[str, dict]:
                     "label_extents": annotations.get("label_extents", {}) or {},
                     "box_annotations": _clean_box_annotations(
                         annotations.get("box_annotations", []) or []
+                    ),
+                    "label_attributes": normalize_label_attributes(
+                        annotations.get("label_attributes"),
+                        default_source="human",
                     ),
                 }
             for key in {item_id, _normalize_item_key(item_id)}:

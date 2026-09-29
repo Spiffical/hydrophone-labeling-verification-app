@@ -378,6 +378,12 @@
     min-width: 0;
 }
 
+.modal-bbox-row__model-tag {
+    flex: 0 0 auto;
+    color: #6640a1;
+    font-size: 12px;
+}
+
 .modal-bbox-row__select-tag {
     max-width: 220px;
 }

@@ -215,6 +215,10 @@ def review_states_match(left_item, right_item):
             "rejected_labels": sorted(set(annotations.get("rejected_labels") or [])),
             "label_extents": annotations.get("label_extents") or {},
             "box_annotations": boxes,
+            "label_attributes": sorted(
+                annotations.get("label_attributes") or [],
+                key=lambda entry: json.dumps(entry, sort_keys=True, ensure_ascii=True),
+            ),
             "notes": annotations.get("notes") or "",
             "verified": bool(annotations.get("verified")),
             "review_started": bool(

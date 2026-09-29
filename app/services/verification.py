@@ -7,6 +7,7 @@ from app.services.annotations import (
     clean_annotation_extent,
     ordered_unique_labels,
 )
+from app.services.label_attributes import prune_label_attributes
 
 
 def parse_verify_target(target):
@@ -94,6 +95,7 @@ def update_item_labels(
     is_reverification=False,
     label_extents=None,
     bbox_annotations=None,
+    label_attributes=None,
 ):
     if not data or not item_id:
         return data
@@ -115,6 +117,18 @@ def update_item_labels(
                 annotations["label_extents"] = label_extents
             if isinstance(bbox_annotations, list):
                 annotations["box_annotations"] = bbox_annotations
+            if isinstance(label_attributes, list):
+                annotations["label_attributes"] = prune_label_attributes(
+                    label_attributes,
+                    normalized_labels,
+                    default_source="human",
+                )
+            elif "label_attributes" in annotations:
+                annotations["label_attributes"] = prune_label_attributes(
+                    annotations.get("label_attributes"),
+                    normalized_labels,
+                    default_source="human",
+                )
             annotations["annotated_at"] = datetime.now().isoformat()
             annotations["has_manual_review"] = True
 
@@ -139,7 +153,15 @@ def update_item_labels(
             break
 
     summary = data.get("summary", {})
-    summary["annotated"] = sum(1 for item in items if item and (item.get("annotations") or {}).get("labels"))
+    summary["annotated"] = sum(
+        1
+        for item in items
+        if item
+        and (
+            (item.get("annotations") or {}).get("labels")
+            or (item.get("annotations") or {}).get("label_attributes")
+        )
+    )
     summary["verified"] = sum(1 for item in items if item and (item.get("annotations") or {}).get("verified"))
     data["summary"] = summary
     return data

@@ -306,6 +306,8 @@ def build_modal_boxes_from_item(item):
                 {
                     "label": cleaned["label"],
                     "tag": cleaned.get("tag"),
+                    "tag_source": cleaned.get("tag_source"),
+                    "tag_scope": cleaned.get("tag_scope"),
                     "annotation_extent": extent,
                     "source": "label",
                     "decision": "added",
@@ -345,6 +347,8 @@ def build_modal_boxes_from_item(item):
                 {
                     "label": label,
                     "tag": clean_box_tag(decision.get("tag")),
+                    "tag_source": decision.get("tag_source") or "human",
+                    "tag_scope": "time_freq_box",
                     "annotation_extent": extent,
                     "source": "verification",
                     "decision": decision.get("decision", "accepted"),
@@ -369,6 +373,8 @@ def build_modal_boxes_from_item(item):
                 {
                     "label": label,
                     "tag": clean_box_tag(output.get("tag")),
+                    "tag_source": output.get("tag_source") or "model",
+                    "tag_scope": "time_freq_box",
                     "annotation_extent": extent,
                     "source": "model",
                     "decision": "accepted",

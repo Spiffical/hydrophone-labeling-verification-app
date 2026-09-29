@@ -10,6 +10,7 @@ from app.services.annotations import (
     ordered_unique_labels,
 )
 from app.utils.persistence import save_verify_predictions
+from app.services.label_attributes import normalize_label_attributes
 
 
 def _safe_float(value, default=None):
@@ -143,6 +144,7 @@ def _has_pending_verify_changes(item):
     return bool(annotations.get("has_manual_review")) and bool(
         annotations.get("labels")
         or annotations.get("rejected_labels")
+        or annotations.get("label_attributes")
         or annotations.get("notes")
         or annotations.get("annotated_at")
         or annotations.get("annotated_by")
@@ -219,6 +221,8 @@ def _build_verification_payload(item, thresholds, profile_name):
             entry["annotation_extent"] = extent
         if isinstance(first_box, dict) and first_box.get("tag"):
             entry["tag"] = first_box["tag"]
+            entry["tag_source"] = first_box.get("tag_source") or "human"
+            entry["tag_scope"] = "time_freq_box"
         label_decisions.append(entry)
         for idx, extra_extent in enumerate(label_extents[1:], start=1):
             if not isinstance(extra_extent, dict):
@@ -232,6 +236,8 @@ def _build_verification_payload(item, thresholds, profile_name):
             extra_box = box_annotations[idx] if idx < len(box_annotations) else None
             if isinstance(extra_box, dict) and extra_box.get("tag"):
                 extra_entry["tag"] = extra_box["tag"]
+                extra_entry["tag_source"] = extra_box.get("tag_source") or "human"
+                extra_entry["tag_scope"] = "time_freq_box"
             label_decisions.append(extra_entry)
 
     for label in rejected_labels:
@@ -254,6 +260,10 @@ def _build_verification_payload(item, thresholds, profile_name):
         "label_decisions": label_decisions,
         "verification_status": "verified",
         "notes": annotations.get("notes", "") if isinstance(annotations.get("notes"), str) else "",
+        "label_attributes": normalize_label_attributes(
+            annotations.get("label_attributes"),
+            default_source="human",
+        ),
     }
     return verification, current_labels, rejected_labels, verified_at
 
@@ -376,7 +386,11 @@ def save_all_pending_verify_changes(verify_data, thresholds, profile):
     summary["annotated"] = sum(
         1
         for item in items
-        if isinstance(item, dict) and ((item.get("annotations") or {}).get("labels") or [])
+        if isinstance(item, dict)
+        and (
+            ((item.get("annotations") or {}).get("labels") or [])
+            or ((item.get("annotations") or {}).get("label_attributes") or [])
+        )
     )
     summary["verified"] = sum(
         1

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from app.services.annotations import clean_box_annotation
+from app.services.label_attributes import normalize_label_attributes, prune_label_attributes
 from taxonomy.hierarchical_labels import canonicalize_prediction_label
 
 
@@ -24,7 +25,7 @@ def _build_summary(items: List[dict]) -> dict:
             annotated += 1
             if verifications[-1].get("label_decisions"):
                 verified += 1
-        elif annotations.get("labels"):
+        elif annotations.get("labels") or annotations.get("label_attributes"):
             annotated += 1
             if annotations.get("verified"):
                 verified += 1
@@ -141,6 +142,10 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
         predictions = {
             "model_id": model.get("model_id"),
             "model_outputs": model_outputs,
+            "label_attributes": normalize_label_attributes(
+                item_data.get("label_attributes"),
+                default_source="model",
+            ),
             "task_type": task_type,
         }
 
@@ -185,6 +190,8 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                                 "label": label,
                                 "annotation_extent": extent,
                                 "tag": ld.get("tag"),
+                                "tag_source": ld.get("tag_source"),
+                                "tag_scope": ld.get("tag_scope"),
                             }
                         )
                         if box:
@@ -199,6 +206,11 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
             annotations = {
                 "labels": accepted + added,
                 "rejected_labels": rejected,
+                "label_attributes": prune_label_attributes(
+                    latest_verification.get("label_attributes"),
+                    accepted + added,
+                    default_source="human",
+                ),
                 "annotated_by": latest_verification.get("verified_by"),
                 "annotated_at": latest_verification.get("verified_at"),
                 "verified": True,
@@ -228,7 +240,7 @@ def convert_unified_v2_to_internal(predictions_json: dict, base_path: str = None
                             "spectrogram_png_path", "spectrogram_mat_path",
                             "audio_path", "source_audio", "paths",
                             "audio_start_time", "audio_end_time",
-                            "audio_timestamp", "model_outputs", "verifications"]}
+                            "audio_timestamp", "model_outputs", "label_attributes", "tag_outputs", "verifications"]}
             },
             "verifications": verifications,
         })

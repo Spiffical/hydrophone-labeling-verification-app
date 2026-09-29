@@ -359,6 +359,8 @@
     const box = { label: label, annotation_extent: extent, source: 'manual', decision: 'added' };
     if (tag) {
       box.tag = tag;
+      box.tag_source = 'human';
+      box.tag_scope = 'time_freq_box';
     }
     return box;
   }

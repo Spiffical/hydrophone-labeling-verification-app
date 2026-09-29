@@ -332,6 +332,7 @@ PREDICTION_LABEL_ALIASES = {
     "ship": "Anthropophony > Vessel",
     "sonar": "Anthropophony > Sonar",
     "unknown biological": "Biophony > Unknown biophony",
+    "other or uncertain whale": "Biophony > Marine mammal > Cetacean",
     "other anthropogenic": "Anthropophony > Unknown anthropophony",
 }
 

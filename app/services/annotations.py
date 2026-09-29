@@ -68,6 +68,8 @@ def clean_box_annotation(entry):
     tag = clean_box_tag(entry.get("tag"))
     if tag:
         cleaned["tag"] = tag
+        cleaned["tag_source"] = "human" if entry.get("tag_source") != "model" else "model"
+        cleaned["tag_scope"] = "time_freq_box"
     return cleaned
 
 

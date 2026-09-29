@@ -20,6 +20,7 @@ from app.callbacks.verify.badge_helpers import (
     update_boxes_and_extents_for_action,
 )
 from app.callbacks.verify.ui_update_helpers import build_verify_card_ui_updates
+from app.services.label_attributes import prune_label_attributes
 from app.services.verify_modal_cache import (
     get_verify_modal_baseline_item,
     get_verify_modal_item,
@@ -251,6 +252,11 @@ def register_verify_badge_callbacks(
             next_bbox_store=next_bbox_store,
         )
         annotations_update["labels"] = updated_labels
+        annotations_update["label_attributes"] = prune_label_attributes(
+            annotations_update.get("label_attributes"),
+            updated_labels,
+            default_source="human",
+        )
         annotations_update["label_extents"] = label_extents
         if box_annotations:
             annotations_update["box_annotations"] = box_annotations
@@ -475,6 +481,11 @@ def register_verify_badge_callbacks(
             next_bbox_store=next_bbox_store,
         )
         annotations_update["labels"] = updated_labels
+        annotations_update["label_attributes"] = prune_label_attributes(
+            annotations_update.get("label_attributes"),
+            updated_labels,
+            default_source="human",
+        )
         annotations_update["label_extents"] = label_extents
         if box_annotations:
             annotations_update["box_annotations"] = box_annotations

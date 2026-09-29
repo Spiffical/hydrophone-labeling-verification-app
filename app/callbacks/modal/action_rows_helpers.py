@@ -3,6 +3,7 @@
 from dash import html
 import dash_bootstrap_components as dbc
 
+from app.components.label_attributes import build_label_attribute_control
 from app.services.modal_boxes import parse_active_box_target
 
 
@@ -25,7 +26,7 @@ def build_bbox_control(label, *, active_label, mode):
     )
 
 
-def build_accepted_rows(*, active_labels, active_box_label, mode):
+def build_accepted_rows(*, item, item_id, active_labels, active_box_label, mode):
     accepted_rows = []
     active_label, _ = parse_active_box_target(active_box_label)
     for label in active_labels:
@@ -46,6 +47,13 @@ def build_accepted_rows(*, active_labels, active_box_label, mode):
                     html.Div(
                         [
                             html.Span(label, className="modal-label-text"),
+                            build_label_attribute_control(
+                                item,
+                                label,
+                                item_id=item_id,
+                                editable=(mode != "explore"),
+                                include_model=True,
+                            ),
                             delete_button if delete_button else None,
                         ],
                         className="modal-label-pill",
@@ -60,6 +68,8 @@ def build_accepted_rows(*, active_labels, active_box_label, mode):
 
 def build_verify_rows(
     *,
+    item,
+    item_id,
     predicted_labels,
     verified_labels,
     active_labels,
@@ -192,6 +202,13 @@ def build_verify_rows(
                                 className="verify-label-row-header",
                             ),
                             html.Span(label, className="verify-label-text verify-label-text--multiline"),
+                            build_label_attribute_control(
+                                item,
+                                label,
+                                item_id=item_id,
+                                editable=(label in accepted_set and mode != "explore"),
+                                include_model=is_model,
+                            ),
                         ],
                         id={"type": "modal-verify-label-badge", "target": label},
                         className=f"verify-label-badge verify-label-badge--{state} verify-label-badge--row",
