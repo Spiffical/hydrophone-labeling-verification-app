@@ -1628,6 +1628,10 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
             overlayMarker.style.left = `${markerPx - 1}px`;
             overlayMarker.style.top = `${yOffset}px`;
             overlayMarker.style.height = `${yLength}px`;
+            // Hidden while the playhead is off the part of the clip on screen.
+            const xLength = xAxisFull && isFinite(xAxisFull._length) ? xAxisFull._length : null;
+            overlayMarker.style.display = xLength !== null
+                && (markerPx < xOffset - 1 || markerPx > xOffset + xLength + 1) ? 'none' : '';
         }
     } catch (e) {
         // Silently fail if there's an issue

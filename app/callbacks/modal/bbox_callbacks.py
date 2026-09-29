@@ -9,6 +9,7 @@ from app.callbacks.modal.bbox_editor_callbacks import (
 from app.callbacks.modal.bbox_inline_delete_callbacks import (
     register_modal_bbox_inline_delete_callbacks,
 )
+from app.callbacks.modal.bbox_list_callbacks import register_modal_bbox_list_callbacks
 from app.callbacks.modal.bbox_sync_callbacks import register_modal_bbox_sync_callbacks
 
 
@@ -39,6 +40,7 @@ def register_modal_bbox_callbacks(
     _BBOX_EDIT_TRACE_NAME,
 ):
     register_modal_bbox_graph_callbacks(app)
+    register_modal_bbox_list_callbacks(app)
 
     register_modal_bbox_inline_delete_callbacks(
         app,

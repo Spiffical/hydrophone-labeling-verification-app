@@ -92,8 +92,8 @@ def test_readonly_shortcuts_are_disabled_and_ignore_clicks():
 
 
 def test_favorites_render_in_search_and_selected_state_is_independent():
-    tree = selector.filter_tree([], [AMBIENT], 1, {PROFILE["email"]: [UNKNOWN]}, PROFILE,
-                                "unknown sound of interest", [], {"filename": "clip"}, False)
+    tree, _expanded = selector.filter_tree([], [AMBIENT], 1, {PROFILE["email"]: [UNKNOWN]}, PROFILE,
+                                           "unknown sound of interest", [], {"filename": "clip"}, False)
     star = next(c for c in walk(tree) if getattr(c, "id", {}) == {
         "type": "favorite-label-toggle", "filename": "clip", "path": UNKNOWN})
     assert star.children == "★"

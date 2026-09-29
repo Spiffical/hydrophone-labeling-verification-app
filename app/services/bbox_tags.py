@@ -72,6 +72,8 @@ def load_bbox_tag_options(repo_root: str, section: Any) -> Dict[str, Any]:
         "active_set": active_set,
         "options_file": options_file,
         "options": options,
+        # Bulk tagging suits expert reviewers; volunteer deployments can switch it off.
+        "bulk_tagging": cfg.get("bulk_tagging", True) is not False,
     }
 
 
@@ -81,6 +83,14 @@ def get_bbox_tag_options(config: Any) -> List[Dict[str, str]]:
     if not isinstance(section, dict):
         return list(DEFAULT_BBOX_TAG_OPTIONS)
     return normalize_bbox_tag_options(section.get("options")) or list(DEFAULT_BBOX_TAG_OPTIONS)
+
+
+def get_bbox_bulk_tagging(config: Any) -> bool:
+    """Return whether the box list offers multi-select tagging."""
+    section = (config or {}).get("bounding_box_tags") if isinstance(config, dict) else None
+    if not isinstance(section, dict):
+        return True
+    return section.get("bulk_tagging", True) is not False
 
 
 def option_values(options: Iterable[Dict[str, str]]) -> set:

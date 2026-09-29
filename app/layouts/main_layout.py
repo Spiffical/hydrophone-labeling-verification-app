@@ -304,6 +304,8 @@ def create_main_layout(config: dict) -> html.Div:
             create_data_config_modal(),
             create_predictions_warning(),
 
+            # The body scrolls at a fixed height (styles.css), so Save stays put
+            # while the tree, search results and chosen labels change size.
             dbc.Modal([
                 dbc.ModalHeader(dbc.ModalTitle("Add/Edit Label(s)")),
                 dbc.ModalBody(html.Div(id="label-editor-body")),
@@ -311,7 +313,8 @@ def create_main_layout(config: dict) -> html.Div:
                     dbc.Button("Cancel", id="label-editor-cancel", color="secondary"),
                     dbc.Button("Save Labels", id="label-editor-save", color="primary"),
                 ]),
-            ], id="label-editor-modal", is_open=False, size="lg"),
+            ], id="label-editor-modal", is_open=False, size="lg", scrollable=True,
+               className="label-editor-modal"),
 
             dbc.Modal([
                 dbc.ModalHeader(dbc.ModalTitle("Profile")),

@@ -13,6 +13,7 @@ from app.defaults import (
     DEFAULT_AUDIO_STALE_WHILE_REVALIDATE,
     DEFAULT_CACHE_MAX_SIZE,
     DEFAULT_ITEMS_PER_PAGE,
+    DEFAULT_MODAL_PAGE_SECONDS,
 )
 from app.services.bbox_tags import load_bbox_tag_options
 from app.services.spectrogram_grid import normalize_spectrogram_grid
@@ -307,6 +308,7 @@ def get_config() -> Dict[str, Any]:
                 "modal_render_mode",
                 "full_resolution_image",
             ),
+            "modal_page_seconds": display_cfg.get("modal_page_seconds", DEFAULT_MODAL_PAGE_SECONDS),
         },
         "cache": {
             "max_size": cache_max_size,

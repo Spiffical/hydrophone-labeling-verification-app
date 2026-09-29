@@ -21,6 +21,40 @@
             'input, textarea, select, [role="slider"], [role="spinbutton"], [role="combobox"], [contenteditable="true"]'
         ))) return;
 
+        if (/^[0-9]$/.test(event.key)) {
+            // 1-9 choose the tag for new boxes, 0 clears it (bbox_list.js).
+            const boxPanel = window.bboxPanel;
+            if (boxPanel && boxPanel.handleTagKey(event.key)) event.preventDefault();
+            return;
+        }
+
+        const pageSteps = { '[': -1, ']': 1, PageUp: -1, PageDown: 1 };
+        if (pageSteps[event.key]) {
+            // Pages of a long clip (modal_paging.js).
+            const paging = window.modalPaging;
+            if (paging && paging.step(pageSteps[event.key])) event.preventDefault();
+            return;
+        }
+
+        if (event.key === 'Escape' || event.key.toLowerCase() === 'b') {
+            // B toggles draw mode and Esc stops it (bbox_draw_mode.js).
+            const draw = window.bboxDrawMode;
+            if (!draw || (event.key === 'Escape' && !draw.isOn())) return;
+            if (event.key === 'Escape') draw.disable(); else draw.toggle();
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            // A focused button or link keeps Enter for itself.
+            if (target && target.closest && target.closest('button, a, summary, [role="button"]')) return;
+            const workbench = window.modalWorkbench;
+            if (!workbench) return;
+            event.preventDefault();
+            workbench.saveAndNext();
+            return;
+        }
+
         const ids = { ArrowLeft: 'modal-nav-prev', ArrowRight: 'modal-nav-next' };
         const button = event.key.toLowerCase() === 'e'
             ? modal.querySelector('button[id*="modal-action-edit"]')

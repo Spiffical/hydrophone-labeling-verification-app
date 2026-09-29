@@ -145,18 +145,35 @@ def _has_selected_descendant(path_tuple, selected_paths):
     )
 
 
-def build_tree_children(filename, selected_paths, expanded_paths=None, search_value=None, read_only=False, favorites=None):
+def search_expanded_paths(search_value, selected_paths):
+    """Branches a search opens to show its matches (and the chosen labels)."""
+    normalized_search = (search_value or "").strip().lower()
+    if len(normalized_search) < 3:
+        return set()
+    return filter_hierarchy_by_search(HIERARCHICAL_LABELS, normalized_search, selected_paths)[1]
+
+
+def build_tree_children(
+    filename,
+    selected_paths,
+    expanded_paths=None,
+    search_value=None,
+    read_only=False,
+    favorites=None,
+    open_matches=True,
+):
     expanded_path_set = set(expanded_paths or [])
 
     hierarchy = HIERARCHICAL_LABELS
     normalized_search = (search_value or "").strip().lower()
     if len(normalized_search) >= 3:
-        hierarchy, search_expanded_paths = filter_hierarchy_by_search(
+        hierarchy, matched_paths = filter_hierarchy_by_search(
             HIERARCHICAL_LABELS,
             normalized_search,
             selected_paths,
         )
-        expanded_path_set.update(search_expanded_paths)
+        if open_matches:
+            expanded_path_set.update(matched_paths)
 
     return create_tree_structure(
         hierarchy,
@@ -209,21 +226,15 @@ def create_tree_structure(
         else:
             node_content.append(html.Span(style={"width": "16px", "display": "inline-block"}))
 
+        # The name is the checkbox's label, so clicking it ticks the box too.
         node_content.append(dbc.Checkbox(
             id={"type": "hierarchical-checkbox", "filename": filename, "path": path_string},
             value=is_selected,
             disabled=read_only,
-            style={"margin-right": "8px", "margin-top": "2px"},
-        ))
-
-        node_content.append(html.Span(
-            key,
-            style={
-                "font-size": "0.9em",
-                "color": "#495057" if not is_selected else "#0d6efd",
-                "font-weight": "500" if is_selected else "400",
-                "cursor": "pointer",
-            },
+            label=key,
+            class_name="hierarchical-label-check",
+            label_class_name="hierarchical-label-name" + (" is-selected" if is_selected else ""),
+            style={"margin-right": "8px", "margin-bottom": "0"},
         ))
 
         starred = path_string in (favorites or [])
@@ -467,8 +478,17 @@ def reset_search_timer(_search_value):
     return 0, False
 
 
+def _triggered_id():
+    try:
+        context = dash.callback_context
+        return context.triggered_id if context.triggered else None
+    except dash.exceptions.MissingCallbackContextException:
+        return None
+
+
 @callback(
     Output({"type": "hierarchical-tree", "filename": MATCH}, "children"),
+    Output({"type": "tree-expanded-store", "filename": MATCH}, "data", allow_duplicate=True),
     Input({"type": "tree-expanded-store", "filename": MATCH}, "data"),
     Input({"type": "selected-labels-store", "filename": MATCH}, "data"),
     Input({"type": "search-debounce-timer", "filename": MATCH}, "n_intervals"),
@@ -478,19 +498,30 @@ def reset_search_timer(_search_value):
     State({"type": "selected-labels-store", "filename": MATCH}, "data"),
     State({"type": "label-search", "filename": MATCH}, "id"),
     State({"type": "label-selector-readonly", "filename": MATCH}, "data"),
+    prevent_initial_call="initial_duplicate",
 )
 def filter_tree(expanded_paths, selected_labels, timer_intervals, favorites_store, profile, search_value, _selected_state, search_id, read_only):
     _ = timer_intervals, _selected_state
     filename = search_id["filename"]
     selected_paths = _normalize_selected_paths(selected_labels)
-    return build_tree_children(
+    # A search opens its matches once, when it is applied (and when the editor
+    # opens); ticking a label or collapsing a branch keeps the tree as it is.
+    trigger = _triggered_id()
+    search_applied = trigger is None or (
+        isinstance(trigger, dict) and trigger.get("type") == "search-debounce-timer"
+    )
+    expanded = set(expanded_paths or [])
+    opened = search_expanded_paths(search_value, selected_paths) if search_applied else set()
+    children = build_tree_children(
         filename,
         selected_paths,
-        expanded_paths=expanded_paths,
+        expanded_paths=expanded | opened,
         search_value=search_value,
         favorites=favorite_labels(favorites_store, profile),
         read_only=bool(read_only),
+        open_matches=False,
     )
+    return children, (sorted(expanded | opened) if opened - expanded else dash.no_update)
 
 
 def filter_hierarchy_by_search(hierarchy, search_term, selected_paths, current_path=None):

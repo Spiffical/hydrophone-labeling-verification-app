@@ -82,7 +82,10 @@ def _build_editor_body(item, mode, thresholds, _filter_predictions, create_hiera
                 id={"type": "note-editor-text", "filename": item_id},
                 value=existing_note,
                 placeholder="Add a note for this spectrogram...",
-                style={"width": "100%", "minHeight": "140px", "marginTop": "8px"},
+                # Themed text and background; without them the dark theme wrote
+                # light text on the browser's white field.
+                className="note-editor-textarea",
+                style={"minHeight": "140px", "marginTop": "8px"},
             ),
         ],
         open=bool(existing_note),
@@ -537,9 +540,7 @@ def register_label_editor_modal_callbacks(
                     updated_item,
                     mode,
                     thresholds or {"__global__": 0.5},
-                    boxes=snapshot_boxes,
                     active_box_label=active_box_label,
-                    config=cfg,
                 )
                 if mode == "verify":
                     dirty_update = {"dirty": False, "item_id": active_item_id}

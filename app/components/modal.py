@@ -1,7 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.services.bbox_tags import get_bbox_tag_options
+from app.services.bbox_tags import get_bbox_bulk_tagging, get_bbox_tag_options
 from taxonomy.hierarchical_labels import get_all_paths, path_to_string
 
 
@@ -12,12 +12,332 @@ def _classification_options():
     ]
 
 
+def _help_menu(tag_options):
+    """Keyboard shortcuts and drawing tips, behind a small toolbar button."""
+    tips = [("B", "Draw boxes: every drag adds one, until B or Esc")]
+    # Number keys only cover the first nine tags (see bbox_list.js).
+    count = min(len(tag_options), 9)
+    if count:
+        keys = "1" if count == 1 else f"1–{count}"
+        tips.append((keys, "Tag new boxes · 0 no tag"))
+    tips += [
+        ("Enter", "Save and go to the next clip"),
+        ("← / →", "Previous / next clip"),
+        ("[ / ]", "Previous / next page of a long clip"),
+        ("E", "Edit labels"),
+    ]
+    return html.Details(
+        [
+            html.Summary(
+                html.I(className="bi bi-keyboard", **{"aria-hidden": "true"}),
+                title="Shortcuts and tips",
+                **{"aria-label": "Shortcuts and tips"},
+            ),
+            html.Div(
+                [
+                    html.Div([html.Kbd(keys), html.Span(text)], className="modal-help-row")
+                    for keys, text in tips
+                ]
+                + [
+                    html.P(
+                        "Click + next to a label to draw one box for it. Hover a box for its "
+                        "details; its × deletes it and ✎ edits it. Click a box's time in the "
+                        "list to show it.",
+                        className="modal-help-note",
+                    )
+                ],
+                className="modal-help-panel",
+            ),
+        ],
+        className="modal-help",
+    )
+
+
 def create_spectrogram_modal(config=None):
     """
     Create a large modal for zoomed-in spectrogram view with Plotly interactivity.
     """
     tag_options = get_bbox_tag_options(config)
     classification_options = _classification_options()
+
+    display_settings = html.Details([
+        html.Summary(
+            [
+                html.Span("Display settings", className="display-range-title"),
+                html.Span(
+                    [
+                        html.Span("Show controls", className="display-range-summary-closed"),
+                        html.Span("Hide controls", className="display-range-summary-open"),
+                    ],
+                    className="display-range-summary-hint",
+                ),
+            ],
+            className="display-range-summary",
+        ),
+        html.Div([
+        dbc.Row([
+            dbc.Col([
+                html.Label("Colormap", className="small fw-semibold text-muted mb-2"),
+                dcc.RadioItems(
+                    id='modal-colormap-toggle',
+                    options=[
+                        {'label': ' Viridis', 'value': 'default'},
+                        {'label': ' O3.0', 'value': 'hydrophone'},
+                    ],
+                    value='default',
+                    className="custom-radio-group",
+                    labelStyle={
+                        'display': 'inline-flex',
+                        'align-items': 'center',
+                        'margin-right': '20px',
+                        'cursor': 'pointer'
+                    },
+                    inputStyle={'margin-right': '6px'}
+                )
+            ], width=6),
+            dbc.Col([
+                html.Label("Y-Axis Scale", className="small fw-semibold text-muted mb-2"),
+                dcc.RadioItems(
+                    id='modal-y-axis-toggle',
+                    options=[
+                        {'label': ' Linear', 'value': 'linear'},
+                        {'label': ' Logarithmic', 'value': 'log'},
+                    ],
+                    value='linear',
+                    className="custom-radio-group",
+                    labelStyle={
+                        'display': 'inline-flex',
+                        'align-items': 'center',
+                        'margin-right': '20px',
+                        'cursor': 'pointer'
+                    },
+                    inputStyle={'margin-right': '6px'}
+                )
+            ], width=6),
+        ]),
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Label("Frequency window (Hz)", className="display-range-label"),
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Using page range",
+                                            id="modal-yaxis-readout",
+                                            className="display-range-readout",
+                                        ),
+                                        dbc.Button(
+                                            "Use page range",
+                                            id="modal-yaxis-reset-btn",
+                                            color="secondary",
+                                            outline=True,
+                                            size="sm",
+                                            n_clicks=0,
+                                            className="display-range-reset",
+                                        ),
+                                    ],
+                                    className="display-range-actions",
+                                ),
+                            ],
+                            className="display-range-group-header",
+                        ),
+                        html.Div(
+                            [
+                                dcc.Input(
+                                    id="modal-yaxis-manual-min-input",
+                                    type="number",
+                                    debounce=True,
+                                    inputMode="decimal",
+                                    step="any",
+                                    className="display-range-manual-input",
+                                ),
+                                html.Div(
+                                    dcc.RangeSlider(
+                                        id="modal-yaxis-slider",
+                                        min=0.0,
+                                        max=2.0,
+                                        value=[0.0, 2.0],
+                                        marks={0.0: "1 Hz", 1.0: "10 Hz", 2.0: "100 Hz"},
+                                        step=0.005,
+                                        allowCross=False,
+                                        updatemode="mouseup",
+                                        className="control-slider display-range-slider",
+                                    ),
+                                    className="display-range-slider-shell",
+                                ),
+                                dcc.Input(
+                                    id="modal-yaxis-manual-max-input",
+                                    type="number",
+                                    debounce=True,
+                                    inputMode="decimal",
+                                    step="any",
+                                    className="display-range-manual-input",
+                                ),
+                            ],
+                            className="display-range-slider-row",
+                        ),
+                        dbc.FormText(
+                            "Log-scaled slider. Reset returns to the current page range.",
+                            id="modal-yaxis-hint",
+                        ),
+                        dcc.Input(id="modal-yaxis-min-input", type="hidden"),
+                        dcc.Input(id="modal-yaxis-max-input", type="hidden"),
+                    ],
+                    md=6,
+                    xs=12,
+                    className="display-range-group",
+                ),
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Label("Contrast (dB/Hz)", className="display-range-label"),
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Auto contrast",
+                                            id="modal-colorbar-readout",
+                                            className="display-range-readout",
+                                        ),
+                                        dbc.Button(
+                                            "Auto contrast",
+                                            id="modal-colorbar-reset-btn",
+                                            color="secondary",
+                                            outline=True,
+                                            size="sm",
+                                            n_clicks=0,
+                                            className="display-range-reset",
+                                        ),
+                                    ],
+                                    className="display-range-actions",
+                                ),
+                            ],
+                            className="display-range-group-header",
+                        ),
+                        html.Div(
+                            [
+                                dcc.Input(
+                                    id="modal-colorbar-manual-min-input",
+                                    type="number",
+                                    debounce=True,
+                                    inputMode="decimal",
+                                    step="any",
+                                    className="display-range-manual-input",
+                                ),
+                                html.Div(
+                                    dcc.RangeSlider(
+                                        id="modal-colorbar-slider",
+                                        min=-120.0,
+                                        max=0.0,
+                                        value=[-90.0, -10.0],
+                                        marks={-120.0: "-120", -80.0: "-80", -40.0: "-40", 0.0: "0"},
+                                        step=0.1,
+                                        allowCross=False,
+                                        updatemode="mouseup",
+                                        className="control-slider display-range-slider",
+                                    ),
+                                    className="display-range-slider-shell",
+                                ),
+                                dcc.Input(
+                                    id="modal-colorbar-manual-max-input",
+                                    type="number",
+                                    debounce=True,
+                                    inputMode="decimal",
+                                    step="any",
+                                    className="display-range-manual-input",
+                                ),
+                            ],
+                            className="display-range-slider-row",
+                        ),
+                        dbc.FormText(
+                            "Reset returns to automatic contrast for the current spectrogram.",
+                            id="modal-colorbar-hint",
+                        ),
+                        dcc.Input(id="modal-colorbar-min-input", type="hidden"),
+                        dcc.Input(id="modal-colorbar-max-input", type="hidden"),
+                    ],
+                    md=6,
+                    xs=12,
+                    className="display-range-group",
+                ),
+            ],
+            className="g-3 mt-1",
+        ),
+        dcc.Store(
+            id="modal-display-range-defaults-store",
+            data={
+                "yaxis": [0.0, 2.0],
+                "yaxis_readout": "Using page range",
+                "colorbar": [-90.0, -10.0],
+                "colorbar_readout": "Auto contrast",
+            },
+        ),
+        dcc.Store(id="modal-display-meta-store", data={}),
+        ], className="display-range-content modal-display-settings-content"),
+    ], className="modal-controls-card display-settings-details")
+
+    plot_section = html.Section(
+        [
+            html.Div(
+                [
+                    html.Span(
+                        id="modal-active-range-title",
+                        className="spectrogram-range-title",
+                    ),
+                    # Pages of long clips (rendered by modal_paging.js).
+                    html.Div(id="modal-page-bar", className="modal-page-bar", hidden=True),
+                    html.Span(
+                        id="modal-active-range-readout",
+                        className="spectrogram-range-frequency",
+                    ),
+                ],
+                className="spectrogram-range-header",
+            ),
+            dbc.Card([
+                dbc.CardBody([
+                    dcc.Graph(
+                        id='modal-image-graph',
+                        style={'height': '500px'},
+                        # CSS shrinks this on short screens; refit the plot to it.
+                        responsive=True,
+                        config={
+                            'displayModeBar': True,
+                            'displaylogo': False,
+                            # Kept in the DOM for instant programmatic bbox activation.
+                            'modeBarButtonsToAdd': ['drawrect'],
+                            'modeBarButtonsToRemove': [
+                                'lasso2d',
+                                'select2d',
+                                'drawline',
+                                'drawopenpath',
+                                'drawclosedpath',
+                                'drawcircle',
+                                'eraseshape',
+                            ],
+                            # Keep shape editing enabled, but disable text/title editing.
+                            'editable': False,
+                            'edits': {
+                                'shapePosition': True,
+                                'annotationText': False,
+                                'annotationPosition': False,
+                                'titleText': False,
+                            },
+                        }
+                    )
+                ], className="p-0")
+            ], className="spectrogram-zoom-card"),
+            # Where the page on screen sits in a long clip, with its boxes.
+            html.Div(id="modal-page-overview", className="modal-page-overview", hidden=True),
+        ],
+        id="modal-active-range-section",
+        className=(
+            "spectrogram-range-section spectrogram-range-section--visible "
+            "spectrogram-range-accent-0 spectrogram-modal-plot-section"
+        ),
+    )
 
     main_modal = dbc.Modal(
         [
@@ -49,6 +369,18 @@ def create_spectrogram_modal(config=None):
                             ],
                             className="modal-nav-controls",
                         ),
+                        # Handled in modal_workbench.js: saves if needed, then moves on.
+                        dbc.Button(
+                            [
+                                html.Span("Save and next"),
+                                html.I(className="bi bi-arrow-return-left ms-1", **{"aria-hidden": "true"}),
+                            ],
+                            id="modal-save-next",
+                            color="primary",
+                            size="sm",
+                            className="modal-save-next-btn",
+                            title="Save and go to the next clip (Enter)",
+                        ),
                         dbc.Button(
                             "×",
                             id="close-modal-header",
@@ -64,308 +396,59 @@ def create_spectrogram_modal(config=None):
                 close_button=False,
             ),
             dbc.ModalBody([
-                # Control panel for modal settings
-                html.Details([
-                    html.Summary(
-                        [
-                            html.Span("Display settings", className="display-range-title"),
-                            html.Span(
-                                [
-                                    html.Span("Show controls", className="display-range-summary-closed"),
-                                    html.Span("Hide controls", className="display-range-summary-open"),
-                                ],
-                                className="display-range-summary-hint",
-                            ),
-                        ],
-                        className="display-range-summary",
-                    ),
-                    html.Div([
-                    dbc.Row([
-                        dbc.Col([
-                            html.Label("Colormap", className="small fw-semibold text-muted mb-2"),
-                            dcc.RadioItems(
-                                id='modal-colormap-toggle',
-                                options=[
-                                    {'label': ' Viridis', 'value': 'default'},
-                                    {'label': ' O3.0', 'value': 'hydrophone'},
-                                ],
-                                value='default',
-                                className="custom-radio-group",
-                                labelStyle={
-                                    'display': 'inline-flex',
-                                    'align-items': 'center',
-                                    'margin-right': '20px',
-                                    'cursor': 'pointer'
-                                },
-                                inputStyle={'margin-right': '6px'}
-                            )
-                        ], width=6),
-                        dbc.Col([
-                            html.Label("Y-Axis Scale", className="small fw-semibold text-muted mb-2"),
-                            dcc.RadioItems(
-                                id='modal-y-axis-toggle',
-                                options=[
-                                    {'label': ' Linear', 'value': 'linear'},
-                                    {'label': ' Logarithmic', 'value': 'log'},
-                                ],
-                                value='linear',
-                                className="custom-radio-group",
-                                labelStyle={
-                                    'display': 'inline-flex',
-                                    'align-items': 'center',
-                                    'margin-right': '20px',
-                                    'cursor': 'pointer'
-                                },
-                                inputStyle={'margin-right': '6px'}
-                            )
-                        ], width=6),
-                    ]),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [
-                                    html.Div(
-                                        [
-                                            html.Label("Frequency window (Hz)", className="display-range-label"),
-                                            html.Div(
-                                                [
-                                                    html.Span(
-                                                        "Using page range",
-                                                        id="modal-yaxis-readout",
-                                                        className="display-range-readout",
-                                                    ),
-                                                    dbc.Button(
-                                                        "Use page range",
-                                                        id="modal-yaxis-reset-btn",
-                                                        color="secondary",
-                                                        outline=True,
-                                                        size="sm",
-                                                        n_clicks=0,
-                                                        className="display-range-reset",
-                                                    ),
-                                                ],
-                                                className="display-range-actions",
-                                            ),
-                                        ],
-                                        className="display-range-group-header",
-                                    ),
-                                    html.Div(
-                                        [
-                                            dcc.Input(
-                                                id="modal-yaxis-manual-min-input",
-                                                type="number",
-                                                debounce=True,
-                                                inputMode="decimal",
-                                                step="any",
-                                                className="display-range-manual-input",
-                                            ),
-                                            html.Div(
-                                                dcc.RangeSlider(
-                                                    id="modal-yaxis-slider",
-                                                    min=0.0,
-                                                    max=2.0,
-                                                    value=[0.0, 2.0],
-                                                    marks={0.0: "1 Hz", 1.0: "10 Hz", 2.0: "100 Hz"},
-                                                    step=0.005,
-                                                    allowCross=False,
-                                                    updatemode="mouseup",
-                                                    className="control-slider display-range-slider",
-                                                ),
-                                                className="display-range-slider-shell",
-                                            ),
-                                            dcc.Input(
-                                                id="modal-yaxis-manual-max-input",
-                                                type="number",
-                                                debounce=True,
-                                                inputMode="decimal",
-                                                step="any",
-                                                className="display-range-manual-input",
-                                            ),
-                                        ],
-                                        className="display-range-slider-row",
-                                    ),
-                                    dbc.FormText(
-                                        "Log-scaled slider. Reset returns to the current page range.",
-                                        id="modal-yaxis-hint",
-                                    ),
-                                    dcc.Input(id="modal-yaxis-min-input", type="hidden"),
-                                    dcc.Input(id="modal-yaxis-max-input", type="hidden"),
-                                ],
-                                md=6,
-                                xs=12,
-                                className="display-range-group",
-                            ),
-                            dbc.Col(
-                                [
-                                    html.Div(
-                                        [
-                                            html.Label("Contrast (dB/Hz)", className="display-range-label"),
-                                            html.Div(
-                                                [
-                                                    html.Span(
-                                                        "Auto contrast",
-                                                        id="modal-colorbar-readout",
-                                                        className="display-range-readout",
-                                                    ),
-                                                    dbc.Button(
-                                                        "Auto contrast",
-                                                        id="modal-colorbar-reset-btn",
-                                                        color="secondary",
-                                                        outline=True,
-                                                        size="sm",
-                                                        n_clicks=0,
-                                                        className="display-range-reset",
-                                                    ),
-                                                ],
-                                                className="display-range-actions",
-                                            ),
-                                        ],
-                                        className="display-range-group-header",
-                                    ),
-                                    html.Div(
-                                        [
-                                            dcc.Input(
-                                                id="modal-colorbar-manual-min-input",
-                                                type="number",
-                                                debounce=True,
-                                                inputMode="decimal",
-                                                step="any",
-                                                className="display-range-manual-input",
-                                            ),
-                                            html.Div(
-                                                dcc.RangeSlider(
-                                                    id="modal-colorbar-slider",
-                                                    min=-120.0,
-                                                    max=0.0,
-                                                    value=[-90.0, -10.0],
-                                                    marks={-120.0: "-120", -80.0: "-80", -40.0: "-40", 0.0: "0"},
-                                                    step=0.1,
-                                                    allowCross=False,
-                                                    updatemode="mouseup",
-                                                    className="control-slider display-range-slider",
-                                                ),
-                                                className="display-range-slider-shell",
-                                            ),
-                                            dcc.Input(
-                                                id="modal-colorbar-manual-max-input",
-                                                type="number",
-                                                debounce=True,
-                                                inputMode="decimal",
-                                                step="any",
-                                                className="display-range-manual-input",
-                                            ),
-                                        ],
-                                        className="display-range-slider-row",
-                                    ),
-                                    dbc.FormText(
-                                        "Reset returns to automatic contrast for the current spectrogram.",
-                                        id="modal-colorbar-hint",
-                                    ),
-                                    dcc.Input(id="modal-colorbar-min-input", type="hidden"),
-                                    dcc.Input(id="modal-colorbar-max-input", type="hidden"),
-                                ],
-                                md=6,
-                                xs=12,
-                                className="display-range-group",
-                            ),
-                        ],
-                        className="g-3 mt-1",
-                    ),
-                    dcc.Store(
-                        id="modal-display-range-defaults-store",
-                        data={
-                            "yaxis": [0.0, 2.0],
-                            "yaxis_readout": "Using page range",
-                            "colorbar": [-90.0, -10.0],
-                            "colorbar_readout": "Auto contrast",
-                        },
-                    ),
-                    dcc.Store(id="modal-display-meta-store", data={}),
-                    ], className="display-range-content modal-display-settings-content"),
-                ], className="modal-controls-card display-settings-details mb-4"),
-
                 html.Div(
-                    id="modal-visible-ranges-above",
-                    className="spectrogram-modal-range-stack",
-                ),
-
-                html.Section(
                     [
                         html.Div(
                             [
-                                html.Span(
-                                    id="modal-active-range-title",
-                                    className="spectrogram-range-title",
+                                display_settings,
+                                # Draw toggle, tag for new boxes and box count (bbox_list.js).
+                                html.Div(id="modal-bbox-toolbar", className="modal-bbox-toolbar"),
+                                _help_menu(tag_options),
+                            ],
+                            className="modal-workbench-toolbar",
+                        ),
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            id="modal-visible-ranges-above",
+                                            className="spectrogram-modal-range-stack",
+                                        ),
+                                        plot_section,
+                                        html.Div(
+                                            id="modal-visible-ranges-below",
+                                            className="spectrogram-modal-range-stack",
+                                        ),
+                                        html.Div(
+                                            id='modal-audio-player',
+                                            className="modal-audio-section",
+                                        ),
+                                    ],
+                                    className="modal-workbench-plot",
                                 ),
-                                html.Span(
-                                    id="modal-active-range-readout",
-                                    className="spectrogram-range-frequency",
+                                html.Aside(
+                                    [
+                                        html.Div(
+                                            id="modal-item-actions",
+                                            className="modal-item-actions",
+                                        ),
+                                        # Box list lives outside modal-item-actions: that panel is
+                                        # rebuilt on many events, which reset the list's scroll.
+                                        html.Section(
+                                            id="modal-bbox-panel",
+                                            className="modal-bbox-panel",
+                                            **{"aria-label": "Bounding boxes"},
+                                        ),
+                                    ],
+                                    className="modal-workbench-side",
                                 ),
                             ],
-                            className="spectrogram-range-header",
-                        ),
-                        dbc.Card([
-                            dbc.CardBody([
-                                dcc.Graph(
-                                    id='modal-image-graph',
-                                    style={'height': '500px'},
-                                    config={
-                                        'displayModeBar': True,
-                                        'displaylogo': False,
-                                        # Kept in the DOM for instant programmatic bbox activation.
-                                        'modeBarButtonsToAdd': ['drawrect'],
-                                        'modeBarButtonsToRemove': [
-                                            'lasso2d',
-                                            'select2d',
-                                            'drawline',
-                                            'drawopenpath',
-                                            'drawclosedpath',
-                                            'drawcircle',
-                                            'eraseshape',
-                                        ],
-                                        # Keep shape editing enabled, but disable text/title editing.
-                                        'editable': False,
-                                        'edits': {
-                                            'shapePosition': True,
-                                            'annotationText': False,
-                                            'annotationPosition': False,
-                                            'titleText': False,
-                                        },
-                                    }
-                                )
-                            ], className="p-0")
-                        ], className="spectrogram-zoom-card"),
-                    ],
-                    id="modal-active-range-section",
-                    className=(
-                        "spectrogram-range-section spectrogram-range-section--visible "
-                        "spectrogram-range-accent-0 spectrogram-modal-plot-section"
-                    ),
-                ),
-
-                html.Div(
-                    id="modal-visible-ranges-below",
-                    className="spectrogram-modal-range-stack",
-                ),
-
-                html.Div(
-                    "Use the BBox + button to draw a box for a label. Click + again to add another box for the same label. Delete boxes from the red × on each box.",
-                    className="modal-bbox-hint mb-2",
-                ),
-
-                # Bottom split layout: labels/actions + audio controls
-                html.Div(
-                    [
-                        html.Div(
-                            id="modal-item-actions",
-                            className="modal-item-actions modal-bottom-pane",
-                        ),
-                        html.Div(
-                            id='modal-audio-player',
-                            className="modal-audio-section modal-bottom-pane",
+                            className="modal-workbench-main",
                         ),
                     ],
-                    className="modal-bottom-layout",
+                    # One screen: the plot fills the height beside a scrolling sidebar.
+                    className="modal-workbench",
                 ),
 
                 # Current filename store
@@ -376,6 +459,18 @@ def create_spectrogram_modal(config=None):
                 dcc.Store(id='modal-bbox-store', data={"item_id": None, "boxes": []}),
                 dcc.Store(id='modal-bbox-interaction-store', data=None),
                 dcc.Store(id='modal-active-box-label', data=None),
+                # Tag given to newly drawn boxes; kept for the browser session.
+                dcc.Store(id='modal-bbox-active-tag-store', data=None, storage_type='session'),
+                dcc.Store(id='modal-bbox-command-store', data=None),
+                dcc.Store(id='modal-bbox-edit-request-store', data=None),
+                dcc.Store(
+                    id='modal-bbox-list-config-store',
+                    data={
+                        "tag_options": tag_options,
+                        "bulk_tagging": get_bbox_bulk_tagging(config),
+                    },
+                ),
+                dcc.Store(id='modal-bbox-list-render-sink', data=None),
                 dcc.Store(id='modal-unsaved-store', data={"dirty": False}),
                 dcc.Store(id='modal-snapshot-store', data=None),
                 dcc.Store(id='modal-pending-action-store', data=None),
@@ -391,17 +486,18 @@ def create_spectrogram_modal(config=None):
                     max_intervals=-1,
                 ),
                 dcc.Store(id='modal-image-prefetch-store', data=None, storage_type='memory'),
-            ], className="p-4"),
+            ], className="modal-workbench-body"),
 
+            # Hidden by the one-screen layout (the header has ×); kept because
+            # the close callback listens to this button.
             dbc.ModalFooter([
-                html.Small("← / → Previous / next · E Edit labels", className="text-muted me-auto"),
                 dbc.Button(
                     "Close",
                     id='close-modal',
                     color="secondary",
                     className="px-4"
                 )
-            ]),
+            ], className="modal-workbench-footer"),
             html.Div(
                 html.Div("Updating spectrogram...", className="modal-busy-indicator"),
                 id="modal-busy-overlay",

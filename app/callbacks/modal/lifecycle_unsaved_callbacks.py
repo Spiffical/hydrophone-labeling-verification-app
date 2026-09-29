@@ -145,9 +145,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                             updated_item,
                             "verify",
                             thresholds or {"__global__": 0.5},
-                            boxes=(bbox_store or {}).get("boxes") if isinstance(bbox_store, dict) else [],
                             active_box_label=active_box_label,
-                            config=cfg,
                         )
                         direct_ui_updates = build_verify_card_ui_updates(
                             current_item_id,
@@ -227,9 +225,7 @@ def register_modal_lifecycle_unsaved_callbacks(
                 snap_item,
                 snap_mode,
                 thresholds or {"__global__": 0.5},
-                boxes=restored_bbox_store["boxes"],
                 active_box_label=active_box_label,
-                config=cfg,
             )
             dirty_update = {"dirty": False, "item_id": snap_item_id}
 

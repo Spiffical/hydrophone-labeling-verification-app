@@ -301,7 +301,6 @@ def register_verify_badge_callbacks(
                 active_item,
                 "verify",
                 thresholds,
-                boxes=(next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
                 active_box_label=active_box_label,
             )
         direct_ui_updates = build_verify_card_ui_updates(
@@ -513,7 +512,6 @@ def register_verify_badge_callbacks(
             active_item,
             "verify",
             thresholds,
-            boxes=(next_bbox_store or {}).get("boxes") if isinstance(next_bbox_store, dict) else [],
             active_box_label=active_box_label,
         )
         _verify_badge_debug(

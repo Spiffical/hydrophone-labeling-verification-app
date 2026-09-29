@@ -3046,6 +3046,49 @@ body.theme-dark #app-config-modal .control-dropdown [class*="indicator"] svg,
     border-color: var(--accent);
 }
 
+/* Empty checkboxes: Bootstrap's very light grey border is hard to see on
+   white. The boxes stay white in both themes, so use one darker grey. */
+.form-check:not(.form-switch) > .form-check-input[type="checkbox"]:not(:checked):not(:indeterminate):not(:focus) {
+    border: 1.5px solid #5f6b7a;
+}
+
+/* ============================================
+   LABEL EDITOR
+   ============================================ */
+/* A fixed-height body that scrolls, so Save stays in place while the tree,
+   search results and chosen labels change size. */
+.label-editor-modal .modal-body {
+    height: min(64vh, 640px);
+    overflow-y: auto;
+}
+
+.hierarchical-label-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 0;
+    padding-left: 0;
+}
+
+.hierarchical-label-check .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+/* The label name ticks its box when clicked. The tree panel is light in both
+   themes, so the colours are fixed. */
+.hierarchical-label-name {
+    color: #495057;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.hierarchical-label-name.is-selected {
+    color: #0d6efd;
+    font-weight: 500;
+}
+
 /* ============================================
    TEXT UTILITIES
    ============================================ */
@@ -4001,7 +4044,7 @@ body.theme-dark .multi-folder-item .folder-path,
 
 .modal-transport-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
 }
@@ -4433,10 +4476,6 @@ body.theme-dark .modal-audio-container .rc-tooltip-arrow-inner,
 }
 
 @media (max-width: 1320px) {
-    .modal-bottom-layout {
-        grid-template-columns: 1fr;
-    }
-
     .modal-controls-main-row {
         grid-template-columns: 1fr;
     }
@@ -4656,21 +4695,6 @@ body.theme-dark .dash-range-slider-input,
     box-shadow: var(--shadow);
 }
 
-.modal-bottom-layout {
-    display: grid;
-    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 2.28fr);
-    gap: 14px;
-    align-items: stretch;
-    width: 100%;
-    min-width: 0;
-}
-
-.modal-bottom-pane {
-    min-width: 0;
-    display: flex;
-    align-items: stretch;
-}
-
 .modal-item-actions,
 .modal-audio-section {
     width: 100%;
@@ -4690,26 +4714,9 @@ body.theme-dark .dash-range-slider-input,
     gap: 10px;
 }
 
-.modal-bbox-hint {
-    color: var(--muted);
-    font-size: 12px;
-}
-
 #modal-image-graph .scatterlayer .trace .points path,
 #modal-image-graph .scatterlayer .trace text {
     cursor: pointer !important;
-}
-
-#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace {
-    opacity: 0 !important;
-    pointer-events: none;
-    transition: opacity 120ms ease;
-}
-
-#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace.modal-bbox-edit-trace--visible,
-#modal-image-graph .scatterlayer .trace.modal-bbox-edit-trace:hover {
-    opacity: 1 !important;
-    pointer-events: auto;
 }
 
 #modal-image-graph .js-plotly-plot.modal-bbox-draw-active .draglayer .nsewdrag,
@@ -4719,81 +4726,6 @@ body.theme-dark .dash-range-slider-input,
 
 #modal-image-graph .modebar-btn[data-attr="dragmode"][data-val="drawrect"] {
     display: none !important;
-}
-
-.modal-bbox-panel {
-    display: flex;
-    min-height: 0;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.modal-bbox-list {
-    max-height: 160px;
-    overflow-y: auto;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 8px;
-}
-
-.modal-bbox-empty {
-    color: var(--muted);
-    font-size: 12px;
-    padding: 6px 4px;
-}
-
-.modal-bbox-row {
-    display: grid;
-    grid-template-columns: minmax(72px, 1fr) minmax(84px, 104px) 28px;
-    gap: 8px;
-    align-items: center;
-    border-bottom: 1px solid var(--border-subtle);
-    padding: 6px 4px;
-}
-
-.modal-bbox-row:last-child {
-    border-bottom: none;
-}
-
-.modal-bbox-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text);
-    overflow-wrap: break-word;
-    word-break: normal;
-}
-
-.modal-bbox-summary {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.modal-bbox-index {
-    color: var(--accent-blue);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.modal-bbox-bounds {
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    line-height: 1.25;
-}
-
-.modal-bbox-tag-dropdown {
-    min-width: 0;
-    font-size: 12px;
-}
-
-.modal-bbox-tag-dropdown .Select-control,
-.modal-bbox-tag-dropdown .Select__control {
-    min-height: 30px !important;
 }
 
 .label-attribute-control {
@@ -4884,24 +4816,10 @@ body.theme-dark .dash-range-slider-input,
     margin: 0;
 }
 
-.modal-bbox-panel {
-    margin-top: 14px;
-}
-
 body.theme-dark .label-attribute-checklist,
 .theme-dark .label-attribute-checklist {
     background: #171b21;
     border-color: #3a424d;
-}
-
-.modal-bbox-edit-btn {
-    width: 28px;
-    min-width: 28px;
-    height: 28px;
-    padding: 0 !important;
-    display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
 }
 
 .modal-bbox-editor-meta {
@@ -5269,23 +5187,11 @@ body.theme-dark .modal-item-actions-card,
     border-color: #30363d !important;
 }
 
-body.theme-dark .modal-bbox-list,
-.theme-dark .modal-bbox-list {
-    background: #21262d !important;
-    border-color: #30363d !important;
-}
-
-body.theme-dark .modal-bbox-label,
-.theme-dark .modal-bbox-label,
 body.theme-dark .modal-label-pill,
 .theme-dark .modal-label-pill {
     color: #e6edf3 !important;
 }
 
-body.theme-dark .modal-bbox-index,
-.theme-dark .modal-bbox-index,
-body.theme-dark .modal-bbox-bounds,
-.theme-dark .modal-bbox-bounds,
 body.theme-dark .modal-bbox-editor-meta,
 .theme-dark .modal-bbox-editor-meta {
     color: #9da7b3 !important;
@@ -5321,11 +5227,6 @@ body.theme-dark .modal-label-inline-delete:focus,
 .theme-dark .modal-label-inline-delete:focus {
     color: #ff7b72 !important;
     background: rgba(248, 81, 73, 0.16) !important;
-}
-
-body.theme-dark .modal-bbox-hint,
-.theme-dark .modal-bbox-hint {
-    color: #9da7b3 !important;
 }
 
 body.theme-dark .modal-status-note,
@@ -5488,10 +5389,6 @@ body.theme-dark .display-range-label,
 }
 
 @media (max-width: 992px) {
-    .modal-bottom-layout {
-        grid-template-columns: 1fr;
-    }
-
     .modal-side-controls {
         display: flex;
         flex-direction: column;
@@ -5499,11 +5396,6 @@ body.theme-dark .display-range-label,
 
     .eq-bands-grid {
         grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-
-    .modal-bbox-row {
-        grid-template-columns: 1fr;
-        gap: 6px;
     }
 }
 

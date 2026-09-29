@@ -569,8 +569,13 @@ def register_modal_lifecycle_navigation_callbacks(
         )
         figure_meta = dict(fig.layout.meta or {})
         modal_raster_tiles = figure_meta.get("raster_tiles")
+        # Full-resolution tiles are too heavy to prefetch for neighbours; the
+        # screen-sized page tiles of long clips are not.
         uses_tiled_modal_raster = (
-            isinstance(modal_raster_tiles, list) and len(modal_raster_tiles) > 1
+            isinstance(modal_raster_tiles, list)
+            and len(modal_raster_tiles) > 1
+            and modal_image_width is None
+            and modal_image_height is None
         )
         figure_meta.update(
             {
@@ -718,9 +723,7 @@ def register_modal_lifecycle_navigation_callbacks(
             source_item,
             mode,
             thresholds or {"__global__": 0.5},
-            boxes=modal_boxes,
             active_box_label=default_box_label,
-            config=cfg,
         )
 
         if not page_item_ids:

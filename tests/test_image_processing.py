@@ -20,6 +20,7 @@ from app.utils.image_processing import (
     generate_image_cached,
 )
 from app.utils.image_utils import image_file_to_base64
+from app.components.modal import create_spectrogram_modal
 
 
 def test_load_spectrogram_cached(mock_root):
@@ -145,7 +146,7 @@ def test_modal_image_figure_uses_one_viewport_sized_raster():
     source = {
         "psd": np.arange(63, dtype=float).reshape(9, 7),
         "freq": np.linspace(0.0, 800.0, 9),
-        "time": np.linspace(0.0, 300.0, 7),
+        "time": np.linspace(0.0, 100.0, 7),
     }
 
     with patch.object(image_processing, "MODAL_RASTER_TILE_MAX_DIMENSION", 4):
@@ -168,6 +169,62 @@ def test_modal_image_figure_uses_one_viewport_sized_raster():
             "column_end": 7,
         }
     ]
+
+
+def _long_clip(seconds=1394.0, columns=1395):
+    return {
+        "psd": np.zeros((4, columns), dtype=float),
+        "freq": np.linspace(5.0, 100.0, 4),
+        "time": np.linspace(0.0, seconds, columns),
+    }
+
+
+def test_long_clips_open_on_their_first_page_with_page_sized_tiles():
+    fig = image_processing.create_spectrogram_figure(
+        _long_clip(),
+        "default",
+        cfg={"display": {}},
+        image_source="/modal-image/test-token?mw=1152&mh=512",
+        image_target_width=1152,
+        image_target_height=512,
+    )
+
+    assert list(fig.layout.xaxis.range) == [0.0, 300.0]
+    assert fig.layout.meta["page_seconds"] == 300.0
+    assert fig.layout.meta["page_seconds_options"] == [300.0, 120.0]
+    # One screen-sized tile per 120 s keeps both page lengths sharp.
+    tiles = fig.layout.images
+    assert len(tiles) == 12
+    assert all(tile.sizex <= 121.0 for tile in tiles)
+    assert tiles[0].x == 0.0 and tiles[-1].x + tiles[-1].sizex == 1394.0
+    assert "tile_c0=" in tiles[1].source and "mw=1152" in tiles[1].source
+    assert len(fig.layout.meta["raster_tiles"]) == 12
+
+
+def test_modal_pages_can_be_turned_off_or_resized_per_dashboard():
+    off = image_processing.create_spectrogram_figure(
+        _long_clip(), "default", cfg={"display": {"modal_page_seconds": 0}},
+        image_source="/modal-image/test-token?mw=1152&mh=512",
+        image_target_width=1152, image_target_height=512,
+    )
+    assert list(off.layout.xaxis.range) == [0.0, 1394.0]
+    assert len(off.layout.images) == 1
+    assert off.layout.meta["page_seconds"] is None
+
+    minute = image_processing.create_spectrogram_figure(
+        _long_clip(), "default", cfg={"display": {"modal_page_seconds": 60}},
+    )
+    assert list(minute.layout.xaxis.range) == [0.0, 60.0]
+    assert minute.layout.meta["page_seconds_options"] == [60.0]
+
+
+def test_clips_a_little_over_a_page_are_shown_whole():
+    fig = image_processing.create_spectrogram_figure(
+        _long_clip(seconds=320.0, columns=321), "default", cfg={"display": {}},
+        image_source="/modal-image/test-token?mw=1152&mh=512",
+        image_target_width=1152, image_target_height=512,
+    )
+    assert list(fig.layout.xaxis.range) == [0.0, 320.0]
 
 
 def test_item_figures_use_recording_specific_ui_revisions():
@@ -240,6 +297,35 @@ def test_create_image_file_figure_embeds_existing_spectrogram_image(mock_root):
     assert fig.layout.meta["render_source"] == "image_file"
     assert fig.layout.meta["x_to_seconds"] == 1.0
     assert fig.layout.meta["y_to_hz"] == 1.0
+
+
+def test_modal_figures_fill_the_graph_container_height(mock_root):
+    # CSS shrinks #modal-image-graph on short screens; a fixed 500px figure
+    # height then overflowed it and cut off the time axis.
+    source = {
+        "psd": np.arange(35, dtype=float).reshape(5, 7),
+        "freq": np.linspace(0.0, 200.0, 5),
+        "time": np.linspace(0.0, 300.0, 7),
+    }
+    image_path = next((Path(mock_root) / "verify" / "dashboard" / "2026-01-07" / "ICLISTENHF0001" / "images").glob("*.png"))
+
+    assert image_processing.create_spectrogram_figure(source, "default", image_source="/modal-image/t").layout.height is None
+    assert create_image_file_figure(str(image_path), x_max_seconds=300.0).layout.height is None
+
+    graph = next(
+        node for node in _walk_components(create_spectrogram_modal())
+        if getattr(node, "id", None) == "modal-image-graph"
+    )
+    assert graph.responsive is True
+
+
+def _walk_components(node):
+    yield node
+    children = getattr(node, "children", None)
+    if not isinstance(children, (list, tuple)):
+        children = [children] if children is not None else []
+    for child in children:
+        yield from _walk_components(child)
 
 
 def test_create_item_spectrogram_figure_falls_back_to_image_file_duration(mock_root):

@@ -49,6 +49,43 @@ def modal_box_edit_revision(boxes, bump=None):
     return f"bbox-{token}"
 
 
+# Clips up to this much longer than a page are still shown whole.
+MODAL_PAGE_TOLERANCE = 1.1
+
+
+def modal_page_windows(x_min, x_max, page_length):
+    """Split [x_min, x_max] into page windows of ``page_length`` plot units.
+
+    Every page has the same width so boxes keep one zoom level; the last page
+    ends at x_max and overlaps the one before it. Mirrored by modal_pages.js.
+    """
+    span = x_max - x_min
+    length = safe_float(page_length, None)
+    if not length or length <= 0 or span <= length * MODAL_PAGE_TOLERANCE:
+        return [(x_min, x_max)]
+    count = int(-(-span // length))
+    windows = []
+    for index in range(count):
+        start = x_min + index * length
+        end = start + length
+        if end > x_max:
+            start, end = x_max - length, x_max
+        windows.append((start, end))
+    return windows
+
+
+def modal_page_window_for_rect(rect, windows):
+    """The page a box belongs to: the first that holds all of it, else the one holding its start."""
+    x0, x1 = rect["x0"], rect["x1"]
+    for start, end in windows:
+        if start <= x0 and x1 <= end:
+            return start, end
+    for start, end in windows:
+        if start <= x0 < end:
+            return start, end
+    return windows[-1]
+
+
 def parse_active_box_target(active_box_label):
     if isinstance(active_box_label, dict):
         label = (active_box_label.get("label") or "").strip()
@@ -87,13 +124,17 @@ def axis_meta_from_figure(fig):
     if y_max <= y_min:
         y_max = y_min + 1.0
 
+    x_to_seconds = safe_float(meta.get("x_to_seconds"), 1.0) or 1.0
+    page_seconds = safe_float(meta.get("page_seconds"), None)
     return {
-        "x_to_seconds": safe_float(meta.get("x_to_seconds"), 1.0) or 1.0,
+        "x_to_seconds": x_to_seconds,
         "y_to_hz": safe_float(meta.get("y_to_hz"), 1.0) or 1.0,
         "x_min": x_min,
         "x_max": x_max,
         "y_min": y_min,
         "y_max": y_max,
+        # Long clips are shown a page at a time (modal_paging.js); in plot units.
+        "page_length": page_seconds / x_to_seconds if page_seconds and page_seconds > 0 else None,
     }
 
 

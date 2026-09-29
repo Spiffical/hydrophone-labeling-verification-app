@@ -298,6 +298,12 @@ def register_modal_view_callbacks(
             active_layout.get("xaxis", {}) if isinstance(active_layout, dict) else {}
         )
         x_range = active_xaxis.get("range") if isinstance(active_xaxis, dict) else None
+        # These panels stretch the whole clip's image across the plot, so label
+        # the whole clip even when the main plot shows one page of a long clip.
+        active_meta = active_layout.get("meta", {}) if isinstance(active_layout, dict) else {}
+        clip_range = [active_meta.get("x_min"), active_meta.get("x_max")] if isinstance(active_meta, dict) else []
+        if all(isinstance(value, (int, float)) for value in clip_range) and clip_range[1] > clip_range[0]:
+            x_range = clip_range
         if not isinstance(x_range, (list, tuple)) or len(x_range) != 2:
             x_range = [0.0, 1.0]
         x_min, x_max = float(x_range[0]), float(x_range[1])
@@ -1065,37 +1071,30 @@ def register_modal_view_callbacks(
             return no_update, no_update, None, None
         raise PreventUpdate
 
+    # Box edits reach this panel through modal-item-store (the bbox sync
+    # callback); the box list itself is rendered separately by bbox_list.js.
     @app.callback(
         Output("modal-item-actions", "children", allow_duplicate=True),
         Input("modal-item-store", "data"),
         Input("mode-tabs", "data"),
         Input("verify-thresholds-store", "data"),
-        Input("modal-bbox-store", "data"),
         Input("modal-active-box-label", "data"),
-        State("config-store", "data"),
         prevent_initial_call=True,
     )
     def refresh_modal_item_actions(
         modal_item,
         mode,
         thresholds,
-        bbox_store,
         active_box_label,
-        cfg,
     ):
         if not isinstance(modal_item, dict):
             raise PreventUpdate
         item_id = (modal_item.get("item_id") or "").strip()
         if not item_id:
             raise PreventUpdate
-        boxes = []
-        if isinstance(bbox_store, dict) and bbox_store.get("item_id") == item_id:
-            boxes = bbox_store.get("boxes") or []
         return _build_modal_item_actions(
             modal_item,
             mode,
             thresholds or {"__global__": 0.5},
-            boxes=boxes,
             active_box_label=active_box_label,
-            config=cfg,
         )

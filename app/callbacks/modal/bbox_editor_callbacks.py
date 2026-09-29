@@ -1,9 +1,9 @@
-"""Modal bbox tag and editor callbacks."""
+"""Modal bbox editor callbacks."""
 
 from copy import deepcopy
 from datetime import datetime
 
-from dash import ALL, ClientsideFunction, Input, Output, State, ctx, no_update
+from dash import ClientsideFunction, Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from app.callbacks.modal.figure_helpers import patch_modal_boxes
@@ -199,68 +199,7 @@ def register_modal_bbox_editor_callbacks(
     _ordered_unique_labels,
     _profile_actor,
 ):
-    @app.callback(
-        Output("modal-bbox-store", "data", allow_duplicate=True),
-        Output("modal-image-graph", "figure", allow_duplicate=True),
-        Output("modal-unsaved-store", "data", allow_duplicate=True),
-        Input({"type": "modal-bbox-tag-dropdown", "index": ALL}, "value"),
-        State({"type": "modal-bbox-tag-dropdown", "index": ALL}, "id"),
-        State("modal-bbox-store", "data"),
-        State("modal-figure-context-store", "data"),
-        State("current-filename", "data"),
-        State("mode-tabs", "data"),
-        State("user-profile-store", "data"),
-        prevent_initial_call=True,
-    )
-    def update_modal_box_tag_from_list(
-        tag_values,
-        tag_ids,
-        bbox_store,
-        figure,
-        current_item_id,
-        mode,
-        profile,
-    ):
-        if mode == "explore" or not current_item_id:
-            raise PreventUpdate
-        triggered = ctx.triggered_id
-        if not isinstance(triggered, dict) or triggered.get("type") != "modal-bbox-tag-dropdown":
-            raise PreventUpdate
-        _require_complete_profile(profile, "update_modal_box_tag_from_list")
-        box_index = _coerce_int(triggered.get("index"))
-        if box_index is None:
-            raise PreventUpdate
-
-        selected_value = None
-        for idx, tag_id in enumerate(tag_ids or []):
-            if isinstance(tag_id, dict) and _coerce_int(tag_id.get("index")) == box_index:
-                selected_value = (tag_values or [None])[idx]
-                break
-
-        store = deepcopy(bbox_store) if isinstance(bbox_store, dict) else {}
-        if store.get("item_id") != current_item_id:
-            raise PreventUpdate
-        boxes = deepcopy(store.get("boxes") or [])
-        if box_index < 0 or box_index >= len(boxes) or not isinstance(boxes[box_index], dict):
-            raise PreventUpdate
-
-        next_tag = clean_box_tag(selected_value)
-        current_tag = clean_box_tag(boxes[box_index].get("tag"))
-        if next_tag == current_tag:
-            raise PreventUpdate
-        if next_tag:
-            boxes[box_index]["tag"] = next_tag
-        else:
-            boxes[box_index].pop("tag", None)
-
-        store["boxes"] = boxes
-        updated_fig = patch_modal_boxes(
-            figure,
-            boxes,
-            apply_boxes=_apply_modal_boxes_to_figure,
-        )
-        return store, updated_fig, {"dirty": True, "item_id": current_item_id}
-
+    # Tag changes from the box list are applied in the browser (bbox_list.js).
     app.clientside_callback(
         ClientsideFunction(namespace="bboxInteractions", function_name="openEditor"),
         Output("bbox-editor-modal", "is_open", allow_duplicate=True),
@@ -274,7 +213,7 @@ def register_modal_bbox_editor_callbacks(
         Output("bbox-editor-meta", "children", allow_duplicate=True),
         Output("bbox-editor-validation", "children", allow_duplicate=True),
         Input("modal-image-graph", "clickData"),
-        Input({"type": "modal-bbox-edit-btn", "index": ALL}, "n_clicks"),
+        Input("modal-bbox-edit-request-store", "data"),
         State("modal-bbox-store", "data"),
         State("modal-image-graph", "figure"),
         State("current-filename", "data"),
@@ -320,7 +259,6 @@ def register_modal_bbox_editor_callbacks(
         State("modal-item-store", "data"),
         State("verify-thresholds-store", "data"),
         State("modal-active-box-label", "data"),
-        State("config-store", "data"),
         State("current-filename", "data"),
         State("mode-tabs", "data"),
         State("user-profile-store", "data"),
@@ -340,7 +278,6 @@ def register_modal_bbox_editor_callbacks(
         modal_item,
         thresholds,
         active_box_label,
-        config,
         current_item_id,
         mode,
         profile,
@@ -407,9 +344,7 @@ def register_modal_bbox_editor_callbacks(
                 updated_item,
                 mode,
                 thresholds or {"__global__": 0.5},
-                boxes=boxes,
                 active_box_label=active_box_label,
-                config=config,
             )
         else:
             updated_item = no_update

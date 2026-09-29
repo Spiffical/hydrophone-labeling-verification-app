@@ -350,8 +350,12 @@ def test_apply_modal_boxes_to_figure_preserves_marker_and_adds_delete_handle():
     assert len(delete_traces) == 1
     assert delete_traces[0]["customdata"] == [0]
     assert delete_traces[0]["text"] == ["\u00d7"]
-    assert delete_traces[0]["hovertemplate"] == "Delete box<extra></extra>"
-    assert updated["layout"]["annotations"][0]["text"] == "Box 1: Fin whale"
+    # Box details are shown in the app's own hover tooltip, so the plot carries
+    # no per-box text and the handles no Plotly hover labels.
+    assert delete_traces[0]["hoverinfo"] == "none"
+    assert "hovertemplate" not in delete_traces[0]
+    assert updated["layout"]["annotations"] == []
+    assert shapes[1]["name"] == "bbox-0"
 
     edit_traces = [
         trace for trace in updated["data"] if trace.get("name") == BBOX_EDIT_TRACE_NAME
@@ -359,8 +363,9 @@ def test_apply_modal_boxes_to_figure_preserves_marker_and_adds_delete_handle():
     assert len(edit_traces) == 1
     assert edit_traces[0]["customdata"] == [0]
     assert edit_traces[0]["text"] == ["\u270e"]
-    assert "Edit box" in edit_traces[0]["hovertemplate"][0]
-    assert edit_traces[0]["x"][0] > updated["layout"]["annotations"][0]["x"]
+    assert edit_traces[0]["hoverinfo"] == "none"
+    assert "hovertemplate" not in edit_traces[0]
+    assert edit_traces[0]["x"][0] > shapes[1]["x1"]
     assert edit_traces[0]["marker"]["size"] == 22
 
 
@@ -398,18 +403,22 @@ def test_apply_modal_boxes_to_figure_clears_stale_bbox_overlays():
     assert cleared["layout"]["editrevision"] != with_box["layout"]["editrevision"]
 
 
-def test_apply_modal_boxes_to_figure_displays_bbox_tag():
+def test_apply_modal_boxes_to_figure_drops_box_titles_but_keeps_source_label():
+    source_label = {"name": "__spectrogram_source__", "text": "Source: generated from audio"}
     updated = apply_modal_boxes_to_figure(
         {
             "data": [{"type": "heatmap", "z": [[1]]}],
-            "layout": {"xaxis": {"range": [0, 10]}, "yaxis": {"range": [0, 100]}},
+            "layout": {
+                "xaxis": {"range": [0, 10]},
+                "yaxis": {"range": [0, 100]},
+                "annotations": [source_label, {"text": "Box 1: Fin whale \u00b7 20Hz"}],
+            },
         },
         [_box(label="Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale", tag="20Hz")],
     )
 
-    assert updated["layout"]["annotations"][0]["text"] == "Box 1: Fin whale \u00b7 20Hz"
-    edit_trace = next(trace for trace in updated["data"] if trace.get("name") == BBOX_EDIT_TRACE_NAME)
-    assert "Tag: 20Hz" in edit_trace["hovertemplate"][0]
+    # Stale per-box titles from older figures are dropped; the source label stays.
+    assert updated["layout"]["annotations"] == [source_label]
 
 
 def test_extract_box_annotations_from_boxes_preserves_tag():

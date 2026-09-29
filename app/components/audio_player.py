@@ -458,7 +458,18 @@ def create_modal_audio_player(
                     value='0',
                     className='custom-time-slider native-time-slider modal-time-slider',
                 ),
-            ], className="modal-transport-track")
+            ], className="modal-transport-track"),
+            # Shows or hides the controls row below (modal_workbench.js).
+            html.Button(
+                [
+                    html.I(className="fas fa-sliders", **{"aria-hidden": "true"}),
+                    html.Span("Audio tools"),
+                ],
+                type="button",
+                className="modal-audio-tools-toggle",
+                title="Playback speed, amplification and equalizer",
+                **{"aria-expanded": "false"},
+            ),
         ], className="modal-transport-row"),
 
         # Controls row: left stacked speed/gain, right wide EQ

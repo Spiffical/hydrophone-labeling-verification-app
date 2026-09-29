@@ -171,6 +171,9 @@
     if (!ranges || !window.Plotly || typeof window.Plotly.relayout !== 'function') return false;
     if (graph._hydrophoneAxisResetPending) return true;
     const itemId = graph.layout.meta.modal_item_id;
+    // Long clips reset to the page on screen, not the whole clip (modal_paging.js).
+    const pageRange = window.modalPaging && window.modalPaging.homeRange();
+    if (pageRange) ranges.x = pageRange;
     graph._hydrophoneAxisResetPending = true;
     restoreFullRaster(graph);
     window.requestAnimationFrame(function () {
@@ -180,12 +183,16 @@
           graph._hydrophoneAxisResetPending = false;
           return;
         }
-        Promise.resolve(window.Plotly.relayout(graph, {
+        const update = {
           'xaxis.autorange': false,
           'xaxis.range': ranges.x,
           'yaxis.autorange': false,
           'yaxis.range': ranges.y,
-        })).finally(function () {
+        };
+        // A page reset must survive Dash re-plotting the figure, like paging.
+        Promise.resolve(pageRange && window.modalPaging
+          ? window.modalPaging.relayout(graph, update)
+          : window.Plotly.relayout(graph, update)).finally(function () {
           window.requestAnimationFrame(function () {
             graph._hydrophoneAxisResetPending = false;
           });
@@ -342,9 +349,18 @@
     return false;
   }
 
+  // Zoom refinement swaps images[0] for a sharper crop, so it only applies to
+  // single-image figures; long clips come as page-sized tiles instead.
+  function hasSingleRaster(graph) {
+    const images = graph && graph.layout && graph.layout.images;
+    return Array.isArray(images) && images.length === 1;
+  }
+
   function restoreFullRaster(graph) {
     const state = graph && graph._hydrophoneZoomRasterState;
-    if (!state || !state.fullImage) return;
+    const meta = graph && graph.layout && graph.layout.meta;
+    if (!state || !state.fullImage || !hasSingleRaster(graph)
+        || !meta || state.itemId !== String(meta.modal_item_id || '')) return;
     clearZoomRasterWork(state);
     applyZoomRaster(graph, state.fullImage.source, state.fullImage);
   }
@@ -352,7 +368,7 @@
   function refineZoomRaster(graph) {
     const state = graph && graph._hydrophoneZoomRasterState;
     const meta = graph && graph.layout && graph.layout.meta;
-    if (!state || !meta || state.itemId !== String(meta.modal_item_id || '')) return;
+    if (!state || !meta || state.itemId !== String(meta.modal_item_id || '') || !hasSingleRaster(graph)) return;
     const crop = visibleRasterCrop(graph);
     if (!crop) {
       if (axisRangesAreCanonical(graph)) restoreFullRaster(graph);
@@ -439,6 +455,13 @@
       state = { itemId: '', generation: 0, timer: null, controller: null, cache: new Map() };
       graph._hydrophoneZoomRasterState = state;
     }
+    if (!hasSingleRaster(graph)) {
+      // Tiled: forget the previous clip's image so nothing is swapped in.
+      clearZoomRasterWork(state);
+      state.itemId = '';
+      state.fullImage = null;
+      return;
+    }
     if (state.itemId !== itemId) {
       clearZoomRasterWork(state);
       state.cache.forEach((entry) => {
@@ -457,7 +480,7 @@
     if (graph._hydrophoneZoomRasterListener) return;
     graph._hydrophoneZoomRasterListener = true;
     graph.on('plotly_relayout', function (updates) {
-      if (!updates) return;
+      if (!updates || !hasSingleRaster(graph)) return;
       if (graph._hydrophoneAxisResetPending) return;
       if (updates['xaxis.autorange'] === true || updates['yaxis.autorange'] === true) {
         restoreFullRaster(graph);

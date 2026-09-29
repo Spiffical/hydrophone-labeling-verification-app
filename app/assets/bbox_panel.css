@@ -1,0 +1,490 @@
+/* Spectrogram modal: "tag new boxes" toolbar and the box list (bbox_list.js). */
+
+.modal-bbox-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    min-width: 0;
+}
+
+.modal-bbox-toolbar[hidden] {
+    display: none;
+}
+
+.modal-bbox-toolbar__label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-toolbar__chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.modal-bbox-toolbar__summary {
+    border: 0;
+    background: none;
+    padding: 2px 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+}
+
+.modal-bbox-toolbar__summary:hover {
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.modal-bbox-toolbar__untagged {
+    color: var(--warning);
+    font-weight: 700;
+}
+
+.modal-bbox-toolbar__done {
+    color: var(--success);
+}
+
+/* Tag chips (toolbar, rows, bulk bar) */
+.modal-bbox-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 24px;
+    padding: 1px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.modal-bbox-tag:hover:not(:disabled):not(.is-static) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.modal-bbox-tag.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+}
+
+.modal-bbox-tag.is-active:hover:not(:disabled) {
+    color: #ffffff;
+    background: var(--accent-hover);
+}
+
+.modal-bbox-tag:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.modal-bbox-tag.is-static {
+    cursor: default;
+}
+
+.modal-bbox-tag.is-empty {
+    color: var(--muted);
+    font-style: italic;
+    font-weight: 500;
+}
+
+.modal-bbox-tag:focus-visible,
+.modal-bbox-row__edit:focus-visible,
+.modal-bbox-toolbar__summary:focus-visible,
+.modal-bbox-summary__untagged:focus-visible,
+.modal-bbox-bulk__link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.modal-bbox-tag kbd {
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+    box-shadow: none;
+}
+
+.modal-bbox-tag.is-active kbd {
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+
+/* The dark theme's accent is light blue, so active chips need dark text. */
+.theme-dark .modal-bbox-tag.is-active,
+.theme-dark .modal-bbox-tag.is-active:hover:not(:disabled),
+.theme-dark .modal-bbox-tag.is-active kbd {
+    color: #0d1117;
+}
+
+.theme-dark .modal-bbox-tag.is-active kbd {
+    background: rgba(13, 17, 23, 0.16);
+}
+
+/* Box list panel */
+.modal-bbox-panel {
+    margin-top: 14px;
+    padding: 10px 12px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.modal-bbox-panel__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin-bottom: 8px;
+}
+
+.modal-bbox-panel__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.modal-bbox-count {
+    min-width: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-align: center;
+}
+
+.modal-bbox-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.modal-bbox-summary b {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-bbox-summary__untagged {
+    padding: 1px 8px;
+    border: 1px solid var(--warning);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    color: var(--warning);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-summary__untagged b {
+    color: inherit;
+}
+
+.modal-bbox-summary__untagged.is-active {
+    background: var(--warning);
+    color: #ffffff;
+}
+
+.modal-bbox-summary__untagged.is-zero {
+    border-color: var(--border);
+    background: none;
+    color: var(--success);
+}
+
+.modal-bbox-summary__untagged:disabled {
+    cursor: default;
+}
+
+.modal-bbox-expand {
+    margin-left: auto;
+    font-size: 12px !important;
+}
+
+.modal-bbox-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.modal-bbox-bulk[hidden],
+.modal-bbox-note[hidden] {
+    display: none;
+}
+
+.modal-bbox-bulk__all {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    cursor: pointer;
+}
+
+.modal-bbox-bulk__link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-bulk__link:disabled {
+    color: var(--muted);
+    cursor: default;
+}
+
+.modal-bbox-bulk__count {
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-bbox-bulk__apply {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.modal-bbox-bulk__apply-label {
+    margin-right: 2px;
+}
+
+.modal-bbox-note {
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.modal-bbox-list {
+    position: relative; /* rows' offsetTop is measured against the list */
+    max-height: 264px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+.modal-bbox-list.is-expanded {
+    max-height: min(72vh, 760px);
+}
+
+.modal-bbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    padding: 3px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 12px;
+    color: var(--text);
+}
+
+.modal-bbox-row:last-child {
+    border-bottom: none;
+}
+
+.modal-bbox-row.is-untagged {
+    background: color-mix(in srgb, var(--warning) 7%, transparent);
+    box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.modal-bbox-row.is-selected {
+    background: var(--accent-subtle);
+}
+
+.modal-bbox-row__select.form-check-input {
+    flex: 0 0 auto;
+    margin: 0;
+    border: 1.5px solid var(--text-secondary);
+    cursor: pointer;
+}
+
+.modal-bbox-bulk__all .form-check-input {
+    margin: 0;
+    border: 1.5px solid var(--text-secondary);
+}
+
+.modal-bbox-row__num {
+    flex: 0 0 38px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Swatch in the same colour as the box on the spectrogram. */
+.modal-bbox-row__num::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--bbox-row-color, var(--muted));
+}
+
+.modal-bbox-row__label {
+    flex: 1 1 120px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.modal-bbox-row__time {
+    flex: 0 0 128px;
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-bbox-row__freq {
+    flex: 0 0 96px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-bbox-row__tags {
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+
+.modal-bbox-row__select-tag {
+    max-width: 220px;
+}
+
+.modal-bbox-row__edit {
+    flex: 0 0 auto;
+    margin-left: auto;
+    width: 28px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-secondary);
+}
+
+.modal-bbox-row__edit:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.modal-bbox-empty {
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+/* Hover linking between the spectrogram and the list (bbox_hover_affordances.js). */
+.modal-bbox-row.is-hovered {
+    background: var(--accent-subtle);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+#modal-image-graph .shapelayer path.modal-bbox-shape--hovered {
+    stroke-width: 4px !important;
+    stroke-opacity: 1 !important;
+}
+
+/* The × and ✎ handles appear only for the hovered box. */
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace .point,
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace .textpoint {
+    opacity: 0 !important;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+}
+
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace .point.is-visible,
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace .textpoint.is-visible {
+    opacity: 1 !important;
+}
+
+/* A shown ✎ takes the click (bbox_hover_affordances.js opens the editor). The
+   × must not: Plotly has to see the press to report the click that deletes. */
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace--edit .point.is-visible,
+#modal-image-graph .scatterlayer .trace.modal-bbox-handle-trace--edit .textpoint.is-visible {
+    pointer-events: auto;
+}
+
+#modal-image-graph .js-plotly-plot.modal-bbox-over-delete .draglayer .nsewdrag {
+    cursor: pointer !important;
+}
+
+.modal-bbox-tooltip {
+    position: fixed;
+    z-index: 1080; /* above Bootstrap modals */
+    max-width: min(360px, calc(100vw - 12px));
+    padding: 5px 9px;
+    border-radius: var(--radius-sm);
+    background: rgba(26, 31, 36, 0.94);
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 1.35;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+}
+
+.modal-bbox-tooltip[hidden] {
+    display: none;
+}
+
+.modal-bbox-tooltip__title {
+    font-weight: 700;
+}
+
+.modal-bbox-tooltip__tag.is-untagged {
+    color: #fbbf24;
+}
+
+.modal-bbox-tooltip__detail {
+    color: rgba(255, 255, 255, 0.78);
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+    .modal-bbox-row {
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+
+    .modal-bbox-row__tags {
+        order: 5;
+        flex: 1 1 100%;
+    }
+
+    .modal-bbox-row__time {
+        flex-basis: auto;
+    }
+}

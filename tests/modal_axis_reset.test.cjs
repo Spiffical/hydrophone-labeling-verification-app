@@ -27,7 +27,7 @@ async function setup(logarithmic = false) {
     }
     const ready = sandbox.window.dash_clientside.modalLifecycle.finishLoading(graph);
     await flush(); await ready;
-    return { graph, handlers, clicks, resets, flush };
+    return { graph, handlers, clicks, resets, flush, window: sandbox.window };
 }
 
 test('Home uses current spectrogram bounds instead of Plotly initial ranges, including log units', async () => {
@@ -64,4 +64,19 @@ test('pending Home reset cannot apply an earlier recording range after navigatio
     await s.flush();
     assert.equal(s.resets.length, 0);
     assert.equal(s.graph._hydrophoneAxisResetPending, false);
+});
+
+test('on a long clip, Home returns to the page on screen as a GUI edit', async () => {
+    const s = await setup();
+    const guiResets = [];
+    s.window.modalPaging = {
+        homeRange: () => [2, 3],
+        relayout(graph, updates) { guiResets.push(updates); return Promise.resolve(); },
+    };
+    const event = { target: { closest: () => ({}) }, preventDefault() {}, stopImmediatePropagation() {} };
+    s.clicks.click.handler(event);
+    await s.flush();
+    assert.equal(s.resets.length, 0, 'not a plain relayout, which Dash re-plots would undo');
+    assert.deepEqual(Array.from(guiResets[0]['xaxis.range']), [2, 3]);
+    assert.deepEqual(Array.from(guiResets[0]['yaxis.range']), [.01, 20]);
 });

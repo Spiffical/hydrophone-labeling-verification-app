@@ -22,5 +22,7 @@ def register_modal_bbox_graph_callbacks(app):
         State("mode-tabs", "data"),
         State("user-profile-store", "data"),
         State("modal-bbox-interaction-store", "data"),
+        State("modal-bbox-active-tag-store", "data"),
+        State("modal-bbox-list-config-store", "data"),
         prevent_initial_call=True,
     )

@@ -1,4 +1,4 @@
-"""Modal figure overlay helpers (box shapes, labels, delete handles)."""
+"""Modal figure overlay helpers (box shapes, edit and delete handles)."""
 
 from copy import deepcopy
 
@@ -8,8 +8,9 @@ from app.services.modal_boxes import (
     axis_meta_from_figure,
     box_style,
     extent_to_shape,
-    leaf_label_text,
     modal_box_edit_revision,
+    modal_page_window_for_rect,
+    modal_page_windows,
 )
 
 
@@ -34,39 +35,6 @@ def patch_modal_boxes(figure_context, boxes, *, apply_boxes=None, **kwargs):
         if trace.get("name") in overlay_names:
             patch["data"].append(trace)
     return patch
-
-
-def _format_hover_number(value, suffix):
-    try:
-        return f"{float(value):.3g}{suffix}"
-    except (TypeError, ValueError):
-        return "n/a"
-
-
-def _box_hover_text(box, rect):
-    extent = box.get("annotation_extent") if isinstance(box.get("annotation_extent"), dict) else {}
-    time_start = extent.get("time_start_sec")
-    time_end = extent.get("time_end_sec")
-    freq_min = extent.get("freq_min_hz")
-    freq_max = extent.get("freq_max_hz")
-    if time_start is None:
-        time_start = rect.get("x0")
-    if time_end is None:
-        time_end = rect.get("x1")
-    if freq_min is None:
-        freq_min = rect.get("y0")
-    if freq_max is None:
-        freq_max = rect.get("y1")
-    label = box.get("label") or "Unlabeled"
-    tag = box.get("tag") or "No tag"
-    return (
-        f"Edit box<br>"
-        f"Classification: {label}<br>"
-        f"Tag: {tag}<br>"
-        f"Time: {_format_hover_number(time_start, 's')} - {_format_hover_number(time_end, 's')}<br>"
-        f"Frequency: {_format_hover_number(freq_min, 'Hz')} - {_format_hover_number(freq_max, 'Hz')}"
-        "<extra></extra>"
-    )
 
 
 def apply_modal_boxes_to_figure(
@@ -129,7 +97,6 @@ def apply_modal_boxes_to_figure(
     edit_x = []
     edit_y = []
     edit_indices = []
-    edit_hover = []
 
     prepared_boxes = []
     for box_idx, box in enumerate(boxes or []):
@@ -160,16 +127,22 @@ def apply_modal_boxes_to_figure(
     x_max = axis_meta.get("x_max", 1.0)
     y_min = axis_meta.get("y_min", 0.0)
     y_max = axis_meta.get("y_max", 1.0)
+    # On long clips shown a page at a time, handles sit near their box at page
+    # zoom and stay on the box's page. Mirrors applyBoxesToFigure in bbox_clientside.js.
+    page_windows = modal_page_windows(x_min, x_max, axis_meta.get("page_length"))
+    if len(page_windows) > 1:
+        x_span = page_windows[0][1] - page_windows[0][0]
     edge_pad_x = max(1e-6, 0.012 * x_span)
     edge_pad_y = max(1e-6, 0.014 * y_span)
-    x_bound_min = x_min + edge_pad_x
-    x_bound_max = x_max - edge_pad_x
     y_bound_min = y_min + edge_pad_y
     y_bound_max = y_max - edge_pad_y
-    if x_bound_max <= x_bound_min:
-        x_bound_min, x_bound_max = x_min, x_max
     if y_bound_max <= y_bound_min:
         y_bound_min, y_bound_max = y_min, y_max
+
+    def _x_bounds(rect):
+        page_start, page_end = modal_page_window_for_rect(rect, page_windows)
+        lower, upper = page_start + edge_pad_x, page_end - edge_pad_x
+        return (lower, upper) if upper > lower else (page_start, page_end)
 
     def _point_in_rect(x_val, y_val, rect, pad_x=0.0, pad_y=0.0):
         return (
@@ -178,6 +151,7 @@ def apply_modal_boxes_to_figure(
         )
 
     def _choose_delete_handle(rect, box_index):
+        x_bound_min, x_bound_max = _x_bounds(rect)
         candidates = [
             (rect["x1"] + 0.012 * x_span, rect["y1"] + 0.012 * y_span),
             (rect["x0"] - 0.012 * x_span, rect["y1"] + 0.012 * y_span),
@@ -219,6 +193,7 @@ def apply_modal_boxes_to_figure(
         return base_x, max(y_bound_min, min(y_bound_max, base_y - stagger))
 
     def _choose_edit_handle(rect):
+        x_bound_min, x_bound_max = _x_bounds(rect)
         mid_y = rect["y0"] + ((rect["y1"] - rect["y0"]) / 2.0)
         candidates = [
             (rect["x1"] + 0.018 * x_span, mid_y),
@@ -253,9 +228,12 @@ def apply_modal_boxes_to_figure(
         style = entry["style"]
         rect = entry["rect"]
 
+        # Box details are shown on hover (bbox_hover_affordances.js) rather than
+        # as text on the plot; the name maps the shape back to its box.
         shape_list.append(
             {
                 "type": "rect",
+                "name": f"bbox-{box_idx}",
                 "x0": rect["x0"],
                 "x1": rect["x1"],
                 "y0": rect["y0"],
@@ -264,31 +242,6 @@ def apply_modal_boxes_to_figure(
                 "fillcolor": style["fillcolor"],
                 "editable": True,
                 "layer": "above",
-            }
-        )
-
-        x_label = rect["x0"] + (0.004 * x_span)
-        y_label = rect["y1"] - (0.004 * y_span)
-        x_label = max(x_min, min(x_max, x_label))
-        y_label = max(y_min, min(y_max, y_label))
-        label_text = leaf_label_text(box.get("label"))
-        annotation_text = f"Box {box_idx + 1}: {label_text}"
-        if box.get("tag"):
-            annotation_text = f"{annotation_text} · {box.get('tag')}"
-        annotations.append(
-            {
-                "x": x_label,
-                "y": y_label,
-                "xref": "x",
-                "yref": "y",
-                "xanchor": "left",
-                "yanchor": "top",
-                "showarrow": False,
-                "editable": False,
-                "text": annotation_text,
-                "font": {"size": 11, "color": style["line_color"]},
-                "bgcolor": "rgba(255,255,255,0.78)",
-                "borderpad": 2,
             }
         )
 
@@ -302,7 +255,6 @@ def apply_modal_boxes_to_figure(
         edit_x.append(x_edit)
         edit_y.append(y_edit)
         edit_indices.append(box_idx)
-        edit_hover.append(_box_hover_text(box, rect))
 
     layout["shapes"] = shape_list
     layout["annotations"] = annotations
@@ -356,7 +308,9 @@ def apply_modal_boxes_to_figure(
                     },
                     "textfont": {"color": "#ffffff"},
                 },
-                "hovertemplate": edit_hover,
+                # Clicks still register, but no Plotly hover label: box details
+                # show in the hover tooltip from bbox_hover_affordances.js.
+                "hoverinfo": "none",
                 "cliponaxis": True,
             }
         )
@@ -398,7 +352,7 @@ def apply_modal_boxes_to_figure(
                     },
                     "textfont": {"color": "#ffffff"},
                 },
-                "hovertemplate": "Delete box<extra></extra>",
+                "hoverinfo": "none",
                 "cliponaxis": True,
             }
         )

@@ -538,7 +538,6 @@ def register_verify_confirm_callbacks(
             updated_item,
             "verify",
             thresholds,
-            boxes=snapshot_boxes,
             active_box_label=active_box_label,
         )
 

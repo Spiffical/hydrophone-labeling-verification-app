@@ -28,7 +28,8 @@ except Exception:  # pragma: no cover - defensive fallback for broken installs
     torch = None
 
 from app.utils.colmap_hyd import colmap_hyd_py
-from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.services.modal_boxes import MODAL_PAGE_TOLERANCE, modal_page_windows
+from app.defaults import DEFAULT_CACHE_MAX_SIZE, DEFAULT_MODAL_PAGE_SECONDS
 from app.services.spectrogram_presets import (
     get_item_spectrogram_recommendation,
     get_spectrogram_presets,
@@ -51,6 +52,9 @@ MODAL_TRANSPORT_FLOAT32 = "float32"
 MODAL_TRANSPORT_UINT16 = "uint16"
 MODAL_RASTER_TILE_MAX_DIMENSION = 4096
 MODAL_RASTER_TILE_OVERLAP_CELLS = 128
+# Long clips open a page at a time (display.modal_page_seconds); reviewers can
+# also pick a closer page, and the modal image is tiled finely enough for it.
+MODAL_PAGE_SECONDS_CLOSE = 120.0
 DEFAULT_SPECTROGRAM_RENDER_SETTINGS: Dict[str, Any] = {
     "source": SPECTROGRAM_SOURCE_EXISTING,
     "win_dur_s": 1.0,
@@ -226,6 +230,31 @@ def is_modal_prefetch_enabled(cfg: Optional[Dict[str, Any]]) -> bool:
     if configured is None:
         return True
     return str(configured).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def get_modal_page_seconds(cfg: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Seconds of a long clip the modal shows at once; None shows whole clips."""
+    display_cfg = (cfg or {}).get("display") if isinstance(cfg, dict) else None
+    if not isinstance(display_cfg, dict):
+        display_cfg = {}
+    value = display_cfg.get("modal_page_seconds", DEFAULT_MODAL_PAGE_SECONDS)
+    if value is None or value is False:
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_MODAL_PAGE_SECONDS
+    return seconds if seconds > 0 else None
+
+
+def modal_page_seconds_options(page_seconds: Optional[float]) -> list:
+    """Page lengths a reviewer can pick: the dashboard's, plus a closer view."""
+    if not page_seconds:
+        return []
+    options = {float(page_seconds)}
+    if page_seconds > MODAL_PAGE_SECONDS_CLOSE:
+        options.add(MODAL_PAGE_SECONDS_CLOSE)
+    return sorted(options, reverse=True)
 
 
 def get_spectrogram_render_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -2205,7 +2234,8 @@ def create_image_file_figure(
             zeroline=False,
         ),
         margin=dict(l=40, r=20, t=20, b=40),
-        height=500,
+        # No fixed height: the plot fills #modal-image-graph, whose CSS height
+        # shrinks on short screens (a fixed 500px cut off the time axis).
         dragmode="pan",
         clickmode="event+select",
         template="plotly_white",
@@ -2286,6 +2316,28 @@ def _modal_raster_axis_edges(values: np.ndarray, start: int, end: int) -> Tuple[
     return lower, upper
 
 
+def _modal_page_tile_columns(time_plot: np.ndarray, columns: int, tile_x_span: Any) -> list:
+    """Column ranges covering ``tile_x_span`` plot units each (one range when short)."""
+    span = _optional_float(tile_x_span)
+    times = np.asarray(time_plot, dtype=np.float64)
+    if not span or span <= 0 or columns < 2 or times.size != columns:
+        return [(0, columns)]
+    total = float(times[-1] - times[0])
+    if total <= span * MODAL_PAGE_TOLERANCE:
+        return [(0, columns)]
+    starts = [
+        int(np.searchsorted(times, times[0] + index * span, side="left"))
+        for index in range(int(np.ceil(total / span)))
+    ]
+    bounds = [start for start in starts if start < columns] + [columns]
+    # A column of overlap hides seams between neighbouring tiles.
+    return [
+        (max(0, bounds[index] - 1), bounds[index + 1])
+        for index in range(len(bounds) - 1)
+        if bounds[index + 1] > bounds[index]
+    ]
+
+
 def _modal_raster_tiles(
     image_source: str,
     time_plot: np.ndarray,
@@ -2295,24 +2347,39 @@ def _modal_raster_tiles(
     zmax: float,
     target_width: Any = None,
     target_height: Any = None,
+    tile_x_span: Any = None,
 ) -> list:
     rows, columns = matrix_shape
     bounded_width = _bounded_modal_pixel_dimension(target_width)
     bounded_height = _bounded_modal_pixel_dimension(target_height)
     if bounded_width is not None or bounded_height is not None:
-        return [
-            {
-                "source": image_source,
-                "row_start": 0,
-                "row_end": rows,
-                "column_start": 0,
-                "column_end": columns,
-                "x_left": _modal_raster_axis_edges(time_plot, 0, columns)[0],
-                "x_right": _modal_raster_axis_edges(time_plot, 0, columns)[1],
-                "y_bottom": _modal_raster_axis_edges(freq_plot, 0, rows)[0],
-                "y_top": _modal_raster_axis_edges(freq_plot, 0, rows)[1],
-            }
-        ]
+        # Capped to the browser's size: one image, or on long clips one per
+        # page-sized stretch of time so a page is as sharp as a short clip.
+        column_ranges = _modal_page_tile_columns(time_plot, columns, tile_x_span)
+        y_bottom, y_top = _modal_raster_axis_edges(freq_plot, 0, rows)
+        tiles = []
+        for column_start, column_end in column_ranges:
+            x_left, x_right = _modal_raster_axis_edges(time_plot, column_start, column_end)
+            tiles.append(
+                {
+                    "source": (
+                        image_source
+                        if len(column_ranges) == 1
+                        else _modal_raster_tile_url(
+                            image_source, 0, rows, column_start, column_end, zmin, zmax
+                        )
+                    ),
+                    "row_start": 0,
+                    "row_end": rows,
+                    "column_start": column_start,
+                    "column_end": column_end,
+                    "x_left": x_left,
+                    "x_right": x_right,
+                    "y_bottom": y_bottom,
+                    "y_top": y_top,
+                }
+            )
+        return tiles
     tile_size = max(1, int(MODAL_RASTER_TILE_MAX_DIMENSION))
     tiled = rows > tile_size or columns > tile_size
     overlap = min(
@@ -2454,6 +2521,17 @@ def create_spectrogram_figure(
     image_y_min = float(np.min(freq_plot)) if len(freq_plot) else 0.0
     image_y_max = float(np.max(freq_plot)) if len(freq_plot) else 1.0
 
+    # Long clips open on their first page (modal_paging.js moves between pages).
+    page_seconds = get_modal_page_seconds(cfg)
+    page_seconds_options = modal_page_seconds_options(page_seconds)
+    page_windows = modal_page_windows(
+        x_min, x_max, page_seconds / x_to_seconds if page_seconds else None
+    )
+    initial_x_range = list(page_windows[0]) if len(page_windows) > 1 else [x_min, x_max]
+    tile_x_span = (
+        min(page_seconds_options) / x_to_seconds if page_seconds_options else None
+    )
+
     fig = go.Figure()
     raster_tiles = []
     if image_source:
@@ -2482,6 +2560,7 @@ def create_spectrogram_figure(
             zmax,
             target_width=image_target_width,
             target_height=image_target_height,
+            tile_x_span=tile_x_span,
         )
         for tile in raster_tiles:
             fig.add_layout_image(
@@ -2558,11 +2637,11 @@ def create_spectrogram_figure(
             title=x_label,
             showgrid=False,
             tickformat=".2f",
-            range=[x_min, x_max] if image_source else None,
+            range=initial_x_range if image_source or len(page_windows) > 1 else None,
         ),
         yaxis=dict(title=y_axis_title, showgrid=False, type=y_axis_type, range=y_axis_range),
         margin=dict(l=40, r=20, t=20, b=40),
-        height=500,
+        # No fixed height: the plot fills #modal-image-graph (see create_image_file_figure).
         dragmode="pan",
         clickmode="event+select",
         template="plotly_white",
@@ -2618,6 +2697,8 @@ def create_spectrogram_figure(
             ] if image_source else None,
             "render_source": render_source,
             "render_reason": render_reason,
+            "page_seconds": page_seconds,
+            "page_seconds_options": page_seconds_options,
         },
         uirevision=render_signature,
     )

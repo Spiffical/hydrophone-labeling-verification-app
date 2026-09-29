@@ -28,6 +28,9 @@ display:
   items_per_page: 25
   y_axis_scale: linear   # linear or log
   colormap: default      # default = Viridis; hydrophone = O3.0
+  # Long clips open this many seconds at a time in the spectrogram modal, with a
+  # closer 120 s option; 0 shows whole clips.
+  modal_page_seconds: 300
 
 cache:
   max_size: 75
@@ -55,3 +58,4 @@ spectrogram_render:
 bounding_box_tags:
   options_file: config/bounding_box_tags.yaml
   active_set: fin_whale
+  bulk_tagging: true        # select several boxes and tag them at once (expert reviewers)

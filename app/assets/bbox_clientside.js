@@ -1,6 +1,9 @@
 (function () {
   const DELETE_TRACE = '__bbox_delete_handle__';
   const EDIT_TRACE = '__bbox_edit_handle__';
+  // Draw mode (toolbar "Draw" or B; switched by bbox_draw_mode.js): while on,
+  // every drag adds a box instead of only the one after each + click.
+  const drawMode = window.bboxDraw = window.bboxDraw || { sticky: false, label: null };
 
   function dashContext() {
     return (window.dash_clientside || {}).callback_context || null;
@@ -342,6 +345,24 @@
     return JSON.stringify(normalizedBoxes(left)) === JSON.stringify(normalizedBoxes(right));
   }
 
+  function newBoxTag(activeTag, listConfig) {
+    const tag = String(activeTag || '').trim();
+    if (!tag) {
+      return null;
+    }
+    const options = listConfig && Array.isArray(listConfig.tag_options) ? listConfig.tag_options : [];
+    // Ignore a remembered tag that this dashboard does not offer.
+    return options.some(function (option) { return option && option.value === tag; }) ? tag : null;
+  }
+
+  function newBox(label, extent, tag) {
+    const box = { label: label, annotation_extent: extent, source: 'manual', decision: 'added' };
+    if (tag) {
+      box.tag = tag;
+    }
+    return box;
+  }
+
   function parseActiveTarget(activeTarget) {
     if (activeTarget && typeof activeTarget === 'object') {
       return {
@@ -452,26 +473,41 @@
     return { lineColor: rgba(0.95), lineDash: 'solid', fillColor: rgba(0.18) };
   }
 
-  function leafLabel(label) {
-    const parts = String(label || '').split('>').map(function (part) { return part.trim(); }).filter(Boolean);
-    return parts.length ? parts[parts.length - 1] : 'Unlabeled';
+  // The × and ✎ handles are only shown for the hovered box
+  // (bbox_hover_affordances.js). Plotly reports clicks by position, so ignore
+  // clicks on the invisible handles of other boxes.
+  function handleIsShown(boxIndex) {
+    const hover = window.bboxHover;
+    return !hover || hover.activeBox === boxIndex;
   }
 
-  function hoverNumber(value, suffix) {
-    const number = safeNumber(value, null);
-    return number === null ? 'n/a' : Number(number.toPrecision(3)) + suffix;
+  function pageWindowsForFigure(figure, axisMeta) {
+    const pages = window.modalPages;
+    const meta = figure && figure.layout && figure.layout.meta;
+    if (!pages || !meta) {
+      return [[axisMeta.x_min, axisMeta.x_max]];
+    }
+    const seconds = pages.selectedSeconds(meta);
+    return pages.windows(axisMeta.x_min, axisMeta.x_max, seconds ? seconds / axisMeta.x_to_seconds : null);
   }
 
-  function boxHoverText(box, rect) {
-    const extent = box && typeof box.annotation_extent === 'object' ? box.annotation_extent : {};
-    return 'Edit box<br>' +
-      'Classification: ' + ((box && box.label) || 'Unlabeled') + '<br>' +
-      'Tag: ' + ((box && box.tag) || 'No tag') + '<br>' +
-      'Time: ' + hoverNumber(extent.time_start_sec !== undefined ? extent.time_start_sec : rect.x0, 's') +
-      ' - ' + hoverNumber(extent.time_end_sec !== undefined ? extent.time_end_sec : rect.x1, 's') + '<br>' +
-      'Frequency: ' + hoverNumber(extent.freq_min_hz !== undefined ? extent.freq_min_hz : rect.y0, 'Hz') +
-      ' - ' + hoverNumber(extent.freq_max_hz !== undefined ? extent.freq_max_hz : rect.y1, 'Hz') +
-      '<extra></extra>';
+  function pageWindowForRange(x0, x1, pages) {
+    return window.modalPages ? window.modalPages.windowForRange(x0, x1, pages) : pages[0];
+  }
+
+  // The x range on screen, if the graph shows this figure's clip.
+  function liveXRange(figure) {
+    const graph = graphElement();
+    const meta = figure && figure.layout && figure.layout.meta;
+    const liveMeta = graph && graph.layout && graph.layout.meta;
+    const range = graph && graph._fullLayout && graph._fullLayout.xaxis && graph._fullLayout.xaxis.range;
+    if (!meta || !liveMeta || !meta.modal_item_id || liveMeta.modal_item_id !== meta.modal_item_id ||
+        !Array.isArray(range) || range.length !== 2) {
+      return null;
+    }
+    const lower = Number(range[0]);
+    const upper = Number(range[1]);
+    return Number.isFinite(lower) && Number.isFinite(upper) && upper > lower ? [lower, upper] : null;
   }
 
   function applyBoxesToFigure(figure, boxes) {
@@ -481,7 +517,10 @@
     const nextFigure = Object.assign({}, figure);
     const layout = Object.assign({}, figure.layout || {});
     const axisMeta = axisMetaFromFigure(figure);
-    const xSpan = Math.max(1e-9, axisMeta.x_max - axisMeta.x_min);
+    // On long clips shown a page at a time, handles sit near their box at page
+    // zoom and stay on the box's page. Mirrors apply_modal_boxes_to_figure.
+    const pages = pageWindowsForFigure(figure, axisMeta);
+    const xSpan = Math.max(1e-9, pages.length > 1 ? pages[0][1] - pages[0][0] : axisMeta.x_max - axisMeta.x_min);
     const ySpan = Math.max(1e-9, axisMeta.y_max - axisMeta.y_min);
     const existingShapes = Array.isArray(layout.shapes) ? layout.shapes : [];
     let markerShape = existingShapes.find(function (shape) {
@@ -508,14 +547,14 @@
     const placedHandles = [];
     const edgePadX = Math.max(1e-6, 0.012 * xSpan);
     const edgePadY = Math.max(1e-6, 0.014 * ySpan);
-    let xBoundMin = axisMeta.x_min + edgePadX;
-    let xBoundMax = axisMeta.x_max - edgePadX;
     let yBoundMin = axisMeta.y_min + edgePadY;
     let yBoundMax = axisMeta.y_max - edgePadY;
-    if (xBoundMax <= xBoundMin) {
-      xBoundMin = axisMeta.x_min;
-      xBoundMax = axisMeta.x_max;
-    }
+    const xBoundsFor = function (rect) {
+      const page = pages.length > 1
+        ? pageWindowForRange(rect.x0, rect.x1, pages)
+        : [axisMeta.x_min, axisMeta.x_max];
+      return page[1] - edgePadX > page[0] + edgePadX ? [page[0] + edgePadX, page[1] - edgePadX] : page;
+    };
     if (yBoundMax <= yBoundMin) {
       yBoundMin = axisMeta.y_min;
       yBoundMax = axisMeta.y_max;
@@ -530,6 +569,9 @@
         });
     };
     const chooseDeleteHandle = function (rect, boxIndex) {
+      const xBounds = xBoundsFor(rect);
+      const xBoundMin = xBounds[0];
+      const xBoundMax = xBounds[1];
       const candidates = [
         [rect.x1 + 0.012 * xSpan, rect.y1 + 0.012 * ySpan],
         [rect.x0 - 0.012 * xSpan, rect.y1 + 0.012 * ySpan],
@@ -562,6 +604,9 @@
       ];
     };
     const chooseEditHandle = function (rect) {
+      const xBounds = xBoundsFor(rect);
+      const xBoundMin = xBounds[0];
+      const xBoundMax = xBounds[1];
       const midY = rect.y0 + (rect.y1 - rect.y0) / 2;
       const candidates = [
         [rect.x1 + 0.018 * xSpan, midY],
@@ -585,32 +630,26 @@
     };
 
     const shapes = [markerShape];
-    const annotations = [];
+    // Keep the spectrogram source label; box details show on hover instead of
+    // as text on the plot (bbox_hover_affordances.js).
+    const annotations = (Array.isArray(layout.annotations) ? layout.annotations : []).filter(function (annotation) {
+      return annotation && (
+        annotation.name === '__spectrogram_source__' || String(annotation.text || '').indexOf('Source:') === 0
+      );
+    });
     const deleteX = [];
     const deleteY = [];
     const deleteIndices = [];
     const editX = [];
     const editY = [];
     const editIndices = [];
-    const editHover = [];
     prepared.forEach(function (entry) {
       const rect = entry.rect;
       const style = entry.style;
       shapes.push({
-        type: 'rect', x0: rect.x0, x1: rect.x1, y0: rect.y0, y1: rect.y1,
+        type: 'rect', name: 'bbox-' + entry.boxIndex, x0: rect.x0, x1: rect.x1, y0: rect.y0, y1: rect.y1,
         line: { color: style.lineColor, width: 2, dash: style.lineDash },
         fillcolor: style.fillColor, editable: true, layer: 'above',
-      });
-      let annotationText = 'Box ' + (entry.boxIndex + 1) + ': ' + leafLabel(entry.box.label);
-      if (entry.box.tag) {
-        annotationText += ' · ' + entry.box.tag;
-      }
-      annotations.push({
-        x: clamp(rect.x0 + 0.004 * xSpan, axisMeta.x_min, axisMeta.x_max),
-        y: clamp(rect.y1 - 0.004 * ySpan, axisMeta.y_min, axisMeta.y_max),
-        xref: 'x', yref: 'y', xanchor: 'left', yanchor: 'top', showarrow: false,
-        editable: false, text: annotationText, font: { size: 11, color: style.lineColor },
-        bgcolor: 'rgba(255,255,255,0.78)', borderpad: 2,
       });
       const deleteHandle = chooseDeleteHandle(rect, entry.boxIndex);
       placedHandles.push(deleteHandle);
@@ -621,12 +660,22 @@
       editX.push(editHandle[0]);
       editY.push(editHandle[1]);
       editIndices.push(entry.boxIndex);
-      editHover.push(boxHoverText(entry.box, rect));
     });
 
     layout.shapes = shapes;
     layout.annotations = annotations;
-    layout.dragmode = 'pan';
+    layout.dragmode = drawMode.sticky ? 'drawrect' : 'pan';
+    // Keep the page (or zoom) on screen: Plotly only keeps ranges set by the
+    // mouse across figure updates, not ones set by the pager.
+    const liveRange = liveXRange(figure);
+    if (liveRange) {
+      layout.xaxis = Object.assign({}, layout.xaxis, { range: liveRange, autorange: false });
+    }
+    if (layout.meta && window.modalPages) {
+      layout.meta = Object.assign({}, layout.meta, {
+        handle_page_seconds: window.modalPages.selectedSeconds(layout.meta),
+      });
+    }
     layout.editrevision = 'bbox-client-' + Date.now();
     const data = (Array.isArray(figure.data) ? figure.data : []).filter(function (trace) {
       return !trace || (trace.name !== DELETE_TRACE && trace.name !== EDIT_TRACE);
@@ -647,7 +696,9 @@
           marker: { opacity: 0.95, color: 'rgba(13, 110, 253, 0.94)', line: { color: '#ffffff', width: 1 } },
           textfont: { color: '#ffffff' },
         },
-        hovertemplate: editHover,
+        // Clicks still register, but no Plotly hover label: box details show
+        // in the hover tooltip from bbox_hover_affordances.js.
+        hoverinfo: 'none',
         cliponaxis: true,
       });
     }
@@ -667,17 +718,21 @@
           marker: { opacity: 1, color: 'rgba(220, 53, 69, 0.98)', line: { color: '#ffffff', width: 1 } },
           textfont: { color: '#ffffff' },
         },
-        hovertemplate: 'Delete box<extra></extra>',
+        hoverinfo: 'none',
         cliponaxis: true,
       });
     }
     nextFigure.data = data;
     nextFigure.layout = layout;
-    setPanModeImmediately();
+    if (drawMode.sticky) {
+      setDrawModeImmediately();
+    } else {
+      setPanModeImmediately();
+    }
     return nextFigure;
   }
 
-  function updateBoxesFromRelayout(relayoutData, boxes, activeTarget, axisMeta) {
+  function updateBoxesFromRelayout(relayoutData, boxes, activeTarget, axisMeta, tagForNewBoxes) {
     if (!relayoutData || typeof relayoutData !== 'object') {
       return null;
     }
@@ -703,7 +758,7 @@
       });
       const extent = shapeToExtent(newShape, axisMeta);
       if (extent && extent.type !== 'clip') {
-        boxes.push({ label: target.label, annotation_extent: extent, source: 'manual', decision: 'added' });
+        boxes.push(newBox(target.label, extent, tagForNewBoxes));
         updated = true;
         clearActive = true;
       }
@@ -753,7 +808,7 @@
         }
         const extent = shapeToExtent(Object.assign({ type: 'rect' }, updates), axisMeta);
         if (extent && extent.type !== 'clip') {
-          boxes.push({ label: target.label, annotation_extent: extent, source: 'manual', decision: 'added' });
+          boxes.push(newBox(target.label, extent, tagForNewBoxes));
           updated = true;
           clearActive = true;
         }
@@ -804,6 +859,15 @@
         return applyBoxesToFigure(figure, boxes);
       },
 
+      // Shared with the box list (bbox_list.js).
+      boxColor: function (box) {
+        return boxStyle(box).lineColor;
+      },
+      profileIsComplete: profileIsComplete,
+      setPanMode: function () {
+        return setPanModeImmediately();
+      },
+
       activateDraw: function (
         _addBoxClicks,
         profile,
@@ -830,6 +894,7 @@
         if (!label) {
           return noUpdates(2);
         }
+        drawMode.label = label;
         setDrawModeImmediately();
         const store = bboxStore && typeof bboxStore === 'object' ? bboxStore : {};
         return [
@@ -854,7 +919,9 @@
         currentItemId,
         mode,
         profile,
-        interactionStore
+        interactionStore,
+        activeTag,
+        listConfig
       ) {
         const noChange = noUpdates(5);
         if (
@@ -874,7 +941,8 @@
           relayoutData,
           boxes,
           activeBoxLabel,
-          axisMetaFromFigure(figure)
+          axisMetaFromFigure(figure),
+          newBoxTag(activeTag, listConfig)
         );
         if (!result) {
           return noChange;
@@ -894,7 +962,8 @@
         return [
           nextStore,
           applyBoxesToFigure(figure, result.boxes),
-          result.clearActive ? null : noUpdate(),
+          // In draw mode the label stays active for the next drag.
+          result.clearActive && !drawMode.sticky ? null : noUpdate(),
           result.updated ? { dirty: true, item_id: currentItemId } : noUpdate(),
           nextInteraction,
         ];
@@ -919,6 +988,7 @@
         const boxes = Array.isArray(store.boxes) ? store.boxes.slice() : [];
         if (
           boxIndex === null ||
+          !handleIsShown(boxIndex) ||
           store.item_id !== currentItemId ||
           boxIndex < 0 ||
           boxIndex >= boxes.length
@@ -959,7 +1029,7 @@
 
       openEditor: function (
         graphClickData,
-        _editClicks,
+        editRequest,
         bboxStore,
         figure,
         currentItemId,
@@ -975,13 +1045,16 @@
         let boxIndex = null;
         if (triggeredId === 'modal-image-graph') {
           boxIndex = boxIndexFromGraphClick(graphClickData, figure, EDIT_TRACE);
+          if (boxIndex !== null && !handleIsShown(boxIndex)) {
+            boxIndex = null;
+          }
         } else if (
-          triggeredId &&
-          typeof triggeredId === 'object' &&
-          triggeredId.type === 'modal-bbox-edit-btn' &&
-          Number(triggeredValue(context) || 0) > 0
+          triggeredId === 'modal-bbox-edit-request-store' &&
+          editRequest &&
+          editRequest.item_id === currentItemId
         ) {
-          boxIndex = coerceIndex(triggeredId.index);
+          // Sent by the pencil button on a box-list row (bbox_list.js).
+          boxIndex = coerceIndex(editRequest.index);
         }
         const store = bboxStore && typeof bboxStore === 'object' ? bboxStore : {};
         const boxes = Array.isArray(store.boxes) ? store.boxes : [];

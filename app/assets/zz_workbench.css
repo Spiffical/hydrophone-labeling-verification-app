@@ -1,0 +1,599 @@
+/* One-screen spectrogram modal: a slim header and toolbar, the plot filling the
+   height, and a sidebar for labels and boxes. Loads after zz_spectrogram_modal.css. */
+
+.spectrogram-zoom-modal .modal-dialog {
+    max-width: min(1680px, calc(100% - 24px));
+    height: calc(100vh - 24px);
+    height: calc(100dvh - 24px);
+}
+
+.spectrogram-zoom-modal .modal-content {
+    height: 100%;
+}
+
+.spectrogram-zoom-modal .modal-header {
+    padding: 8px 14px;
+}
+
+.spectrogram-zoom-modal .modal-header-row {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.spectrogram-zoom-modal .modal-title-text {
+    font-size: 15px;
+    max-height: none;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.modal-save-next-btn {
+    white-space: nowrap;
+}
+
+.spectrogram-zoom-modal .modal-workbench-footer {
+    display: none;
+}
+
+.spectrogram-zoom-modal .modal-body.modal-workbench-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.modal-workbench {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Toolbar: display settings, drawing, tags and help in one row. */
+.modal-workbench-toolbar {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-workbench-toolbar > .display-settings-details {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+}
+
+.modal-workbench-toolbar > .display-settings-details > summary {
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+}
+
+.modal-workbench-toolbar .display-range-summary-hint {
+    display: none;
+}
+
+/* Opens over the plot instead of pushing it down. */
+.modal-workbench-toolbar > .display-settings-details[open] > .display-range-content {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 12px;
+    z-index: 30;
+    width: min(760px, calc(100% - 24px));
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-help {
+    position: relative;
+    margin-left: auto;
+}
+
+.modal-help > summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    list-style: none;
+}
+
+.modal-help > summary::-webkit-details-marker {
+    display: none;
+}
+
+.modal-help[open] > .modal-help-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    width: 330px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    font-size: 12px;
+    color: var(--text);
+}
+
+.modal-help-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 3px 0;
+}
+
+.modal-help-row kbd {
+    flex: 0 0 52px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 11px;
+    text-align: center;
+    box-shadow: none;
+}
+
+.modal-help-note {
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+}
+
+/* Draw toggle and label (rendered by bbox_list.js). */
+.modal-bbox-draw {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-draw:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.modal-bbox-draw.is-active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.theme-dark .modal-bbox-draw.is-active {
+    color: #0d1117;
+}
+
+.modal-bbox-draw:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.modal-bbox-draw kbd {
+    padding: 0 4px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: 10px;
+    box-shadow: none;
+    opacity: 0.8;
+}
+
+/* Compact selects for the draw label and, with many tags, each row's tag. The
+   app's .form-select rule drops Bootstrap's arrow, so draw one here. */
+.modal-bbox-toolbar .modal-bbox-draw-label.form-select,
+.modal-bbox-row .modal-bbox-row__select-tag.form-select {
+    width: auto;
+    max-width: 200px;
+    height: 26px;
+    padding: 1px 24px 1px 8px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%237c8a9c' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 10px 10px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+.modal-bbox-draw-label-text {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-toolbar__divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+}
+
+/* Pages of long clips: the pager in the plot header and the clip overview
+   under the plot (modal_paging.js). */
+.modal-page-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.modal-page-bar[hidden],
+.modal-page-overview[hidden] {
+    display: none;
+}
+
+.modal-page-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.modal-page-step:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.modal-page-step:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.modal-page-label b {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-page-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-page-bar .modal-page-length.form-select {
+    width: auto;
+    height: 24px;
+    padding: 0 24px 0 8px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%237c8a9c' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 10px 10px;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.modal-page-overview {
+    flex: 0 0 auto;
+    padding-top: 6px;
+}
+
+.modal-page-overview__track {
+    position: relative;
+    height: 16px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.modal-page-overview__edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+}
+
+.modal-page-overview__box {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    min-width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    opacity: 0.75;
+}
+
+.modal-page-overview__box.is-untagged {
+    background: var(--warning);
+    opacity: 1;
+}
+
+.modal-page-overview__view {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border: 2px solid var(--accent);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    pointer-events: none;
+}
+
+/* A box's time in the list shows it on the spectrogram. */
+.modal-bbox-row__time {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.modal-bbox-row__time:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.modal-bbox-row__time:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Main area: plot beside the sidebar. */
+.modal-workbench-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(340px, 28vw, 440px);
+}
+
+.modal-workbench-plot {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    overflow-y: auto;
+}
+
+.modal-workbench-plot > .spectrogram-modal-plot-section {
+    flex: 1 1 auto;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+}
+
+.modal-workbench-plot .spectrogram-zoom-card {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.modal-workbench-plot .spectrogram-zoom-card > .card-body {
+    height: 100%;
+}
+
+.spectrogram-zoom-modal .modal-workbench #modal-image-graph {
+    height: 100% !important;
+    min-height: 240px;
+}
+
+/* Audio: a slim transport under the plot; the controls open with "Audio tools". */
+.modal-workbench-plot > .modal-audio-section {
+    flex: 0 0 auto;
+}
+
+.modal-workbench .modal-audio-container {
+    gap: 8px;
+    padding: 8px 12px;
+    box-shadow: none;
+}
+
+.modal-workbench .modal-audio-header {
+    display: none;
+}
+
+.modal-workbench .modal-controls-main-row {
+    display: none;
+}
+
+body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
+    display: grid;
+}
+
+.modal-audio-tools-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.modal-audio-tools-toggle[aria-expanded="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Sidebar: labels and actions on top, the box list fills the rest. */
+.modal-workbench-side {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+    border-left: 1px solid var(--border-subtle);
+    overflow: hidden;
+}
+
+/* The labels card keeps its height (up to 55%); a long box list must not squeeze it. */
+.modal-workbench-side > .modal-item-actions {
+    flex: 0 0 auto;
+    max-height: 55%;
+    overflow-y: auto;
+}
+
+.modal-workbench-side > .modal-item-actions .modal-item-actions-card {
+    height: auto;
+}
+
+.modal-workbench-side > .modal-bbox-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    margin-top: 0;
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    container-type: inline-size;
+}
+
+.modal-workbench-side .modal-bbox-list {
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: none;
+}
+
+.modal-workbench-side .modal-bbox-expand {
+    display: none;
+}
+
+/* One line per box in the sidebar where it fits: tighter cells, and the
+   frequency range moves to the time's tooltip. */
+.modal-workbench-side .modal-bbox-row {
+    flex-wrap: wrap;
+    gap: 3px 6px;
+    padding: 3px 8px;
+}
+
+.modal-workbench-side .modal-bbox-row__num {
+    flex-basis: 32px;
+    gap: 5px;
+}
+
+/* A box has one tag, so its choices are a joined segmented control. When a
+   row is too narrow (long clips' times), the control moves to a second line
+   as a whole, right-aligned with the edit button. */
+.modal-workbench-side .modal-bbox-row__tags {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    gap: 0;
+    margin-left: auto;
+}
+
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag {
+    position: relative;
+    min-height: 22px;
+    margin-left: -1px;
+    padding: 1px 6px;
+    border-radius: 0;
+}
+
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag:first-child {
+    margin-left: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag:last-child {
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag:only-child {
+    border-radius: var(--radius-sm);
+}
+
+/* Keep the active or hovered segment's border on top of its neighbours. */
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag.is-active,
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag:hover,
+.modal-workbench-side .modal-bbox-row__tags .modal-bbox-tag:focus-visible {
+    z-index: 1;
+}
+
+.modal-workbench-side .modal-bbox-row__edit {
+    width: 24px;
+    height: 24px;
+    margin-left: 0;
+}
+
+.modal-workbench-side .modal-bbox-bulk .modal-bbox-tag {
+    min-height: 22px;
+    padding: 1px 6px;
+}
+
+@container (max-width: 440px) {
+    .modal-bbox-row__freq {
+        display: none;
+    }
+
+    .modal-bbox-row__time {
+        flex: 1 0 auto;
+        white-space: nowrap;
+    }
+}
+
+/* Narrow screens: stack the sidebar under the plot and let the body scroll. */
+@media (max-width: 991.98px) {
+    .spectrogram-zoom-modal .modal-body.modal-workbench-body {
+        display: block;
+        overflow-y: auto;
+    }
+
+    .modal-workbench-main {
+        display: block;
+    }
+
+    .modal-workbench-plot {
+        overflow: visible;
+    }
+
+    .spectrogram-zoom-modal .modal-workbench #modal-image-graph {
+        height: clamp(260px, 55vh, 480px) !important;
+    }
+
+    .modal-workbench-side {
+        overflow: visible;
+        border-left: 0;
+        border-top: 1px solid var(--border-subtle);
+    }
+
+    .modal-workbench-side > .modal-item-actions {
+        max-height: none;
+    }
+
+    .modal-workbench-side .modal-bbox-list {
+        max-height: 50vh;
+    }
+}
