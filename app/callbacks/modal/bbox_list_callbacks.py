@@ -33,3 +33,12 @@ def register_modal_bbox_list_callbacks(app):
         State("user-profile-store", "data"),
         prevent_initial_call=True,
     )
+
+    # The box editor's tag list follows the label chosen in it (tags are per species).
+    app.clientside_callback(
+        ClientsideFunction(namespace="bboxList", function_name="editorTagOptions"),
+        Output("bbox-editor-tag-dropdown", "options"),
+        Input("bbox-editor-label-dropdown", "value"),
+        Input("bbox-editor-tag-dropdown", "value"),
+        State("modal-bbox-list-config-store", "data"),
+    )

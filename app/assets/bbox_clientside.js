@@ -345,13 +345,17 @@
     return JSON.stringify(normalizedBoxes(left)) === JSON.stringify(normalizedBoxes(right));
   }
 
-  function newBoxTag(activeTag, listConfig) {
+  function newBoxTag(activeTag, listConfig, label) {
     const tag = String(activeTag || '').trim();
     if (!tag) {
       return null;
     }
-    const options = listConfig && Array.isArray(listConfig.tag_options) ? listConfig.tag_options : [];
-    // Ignore a remembered tag that this dashboard does not offer.
+    // Tags are per species (bbox_list.js); older configs have one list for all.
+    const model = window.bboxListModel;
+    const options = model && typeof model.tagOptionsFor === 'function'
+      ? model.tagOptionsFor(listConfig, label)
+      : (listConfig && Array.isArray(listConfig.tag_options) ? listConfig.tag_options : []);
+    // Ignore a remembered tag that this box's species does not have.
     return options.some(function (option) { return option && option.value === tag; }) ? tag : null;
   }
 
@@ -944,7 +948,7 @@
           boxes,
           activeBoxLabel,
           axisMetaFromFigure(figure),
-          newBoxTag(activeTag, listConfig)
+          newBoxTag(activeTag, listConfig, parseActiveTarget(activeBoxLabel).label)
         );
         if (!result) {
           return noChange;

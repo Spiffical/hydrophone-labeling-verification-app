@@ -1,11 +1,16 @@
 # Bounding-box tag sets used by the spectrogram modal.
-# The default active set is configured in config/default.yaml.
+# Tags are call types, so each set names the species it belongs to: boxes with
+# that label (or a label under it) are tagged from the set, and boxes of other
+# species have no tags to choose from. The active sets are configured in
+# config/default.yaml (active_set: one name, or a list).
 
 tag_sets:
   fin_whale:
-    - label: 20 Hz
-      value: 20Hz
-    - label: 30 Hz
-      value: 30Hz
-    - label: 40 Hz
-      value: 40Hz
+    label: Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale
+    options:
+      - label: 20 Hz
+        value: 20Hz
+      - label: 30 Hz
+        value: 30Hz
+      - label: 40 Hz
+        value: 40Hz

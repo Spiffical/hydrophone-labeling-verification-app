@@ -129,3 +129,21 @@ test('very small positive frequency windows cannot reintroduce near-zero highpas
     assert.equal(audio.visibleHighpassFilter.frequency.value, 1);
     assert.equal(state.clamped, true);
 });
+
+test('the playback line sits on the sound: x = 0 is the first frame, half a window in', () => {
+    const { sandbox: s, setGraph } = setup();
+    const graph = {
+        layout: {
+            meta: { x_min: 0, x_max: 9.75, x_to_seconds: 1, x_origin_seconds: 0.125 },
+            shapes: [{ x0: 0, x1: 0, line: {} }],
+        },
+        _fullLayout: {},
+    };
+    setGraph(graph);
+    s.updateSpectrogramPlaybackMarker(5, 10);
+    assert.equal(graph.layout.shapes[0].x0, 4.875);
+    // Figures without an origin (existing spectrogram files) are unchanged.
+    delete graph.layout.meta.x_origin_seconds;
+    s.updateSpectrogramPlaybackMarker(5, 10);
+    assert.equal(graph.layout.shapes[0].x0, 5);
+});

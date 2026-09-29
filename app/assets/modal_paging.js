@@ -150,13 +150,19 @@
     return document.getElementById(AUDIO_ID);
   }
 
+  // Seconds into the clip at x = 0: the first frame's centre (image_processing.py).
+  function originSeconds(meta) {
+    const origin = Number(meta.x_origin_seconds);
+    return Number.isFinite(origin) ? origin : 0;
+  }
+
   // Plot position of the audio clock (see updateSpectrogramPlaybackMarker).
   function playheadX(meta, element) {
     const seconds = Number(element && element.currentTime);
     if (!Number.isFinite(seconds)) {
       return null;
     }
-    return Number(meta.x_min) + seconds / (Number(meta.x_to_seconds) || 1);
+    return Number(meta.x_min) + (seconds - originSeconds(meta)) / (Number(meta.x_to_seconds) || 1);
   }
 
   function syncMarker() {
@@ -329,7 +335,12 @@
     pages.slice(1).forEach(function (page) {
       track.appendChild(el('span', 'modal-page-overview__edge', { style: 'left:' + percent(page[0]) + '%' }));
     });
-    const boxes = window.bboxPanel && typeof window.bboxPanel.boxes === 'function' ? window.bboxPanel.boxes() : [];
+    const panel = window.bboxPanel;
+    const boxes = panel && typeof panel.boxes === 'function' ? panel.boxes() : [];
+    // Only boxes of a species with tags are marked untagged (bbox_list.js).
+    const needsTag = panel && typeof panel.needsTag === 'function'
+      ? panel.needsTag
+      : function (box) { return !(typeof box.tag === 'string' && box.tag.trim()); };
     boxes.forEach(function (box) {
       const extent = box && box.annotation_extent;
       const start = Number(extent && extent.time_start_sec);
@@ -338,8 +349,7 @@
         return;
       }
       const left = percent(start / xToSeconds);
-      const tagged = typeof box.tag === 'string' && box.tag.trim();
-      track.appendChild(el('span', 'modal-page-overview__box' + (tagged ? '' : ' is-untagged'), {
+      track.appendChild(el('span', 'modal-page-overview__box' + (needsTag(box) ? ' is-untagged' : ''), {
         style: 'left:' + left + '%;width:' + Math.max(0, percent(end / xToSeconds) - left) + '%',
       }));
     });
@@ -451,8 +461,8 @@
         typeof window.setSliderVisualProgress !== 'function') {
       return;
     }
-    const startSeconds = (range[0] - Number(meta.x_min)) * (Number(meta.x_to_seconds) || 1);
-    window.setSliderVisualProgress(slider, (startSeconds / element.duration) * 100);
+    const startSeconds = (range[0] - Number(meta.x_min)) * (Number(meta.x_to_seconds) || 1) + originSeconds(meta);
+    window.setSliderVisualProgress(slider, (Math.max(0, startSeconds) / element.duration) * 100);
   }, true);
 
   // The graph remounts when the modal opens; keep it bound.

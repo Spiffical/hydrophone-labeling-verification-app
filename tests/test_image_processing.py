@@ -425,3 +425,20 @@ def test_audio_spectrogram_reports_nyquist_limited_high_band(tmp_path):
     assert result["_requested_freq_max_hz"] == 8000.0
     assert result["_frequency_limited_by_nyquist"] is True
     assert float(np.max(result["freq"])) <= 3200.0
+
+
+def test_modal_figure_records_where_its_time_axis_starts_in_the_clip():
+    # The axis starts at the first frame centre, half a 0.25 s window in.
+    source = {
+        "psd": np.zeros((4, 10)),
+        "freq": np.linspace(100.0, 400.0, 4),
+        "time": 0.125 + 0.025 * np.arange(10),
+    }
+    fig = image_processing.create_spectrogram_figure(source, "default", image_source="/modal-image/t")
+    assert fig.layout.meta["x_min"] == 0.0
+    assert fig.layout.meta["x_origin_seconds"] == 0.125
+
+    # Datenum times (existing spectrogram files) have no such origin.
+    datenums = dict(source, time=739000.0 + np.arange(10) / 86400.0)
+    fig = image_processing.create_spectrogram_figure(datenums, "default", image_source="/modal-image/t")
+    assert fig.layout.meta["x_origin_seconds"] is None

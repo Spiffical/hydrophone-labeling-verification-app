@@ -126,11 +126,15 @@
     tooltip.textContent = '';
     const title = document.createElement('div');
     title.className = 'modal-bbox-tooltip__title';
-    title.textContent = details.title + ' · ';
-    const tag = document.createElement('span');
-    tag.className = 'modal-bbox-tooltip__tag' + (details.untagged ? ' is-untagged' : '');
-    tag.textContent = details.tag;
-    title.appendChild(tag);
+    title.textContent = details.title;
+    // Boxes of a species without tags have none to show.
+    if (details.tag) {
+      title.textContent += ' · ';
+      const tag = document.createElement('span');
+      tag.className = 'modal-bbox-tooltip__tag' + (details.untagged ? ' is-untagged' : '');
+      tag.textContent = details.tag;
+      title.appendChild(tag);
+    }
     const detail = document.createElement('div');
     detail.className = 'modal-bbox-tooltip__detail';
     detail.textContent = details.detail;

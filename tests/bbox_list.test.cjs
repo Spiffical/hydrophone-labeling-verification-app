@@ -234,3 +234,237 @@ test('a reviewer tag is recorded as a human box tag, even over a model tag', () 
   const [cleared] = model.applyTag([retagged], [0], null).boxes;
   assert.deepEqual([cleared.tag, cleared.tag_source, cleared.tag_scope], [undefined, undefined, undefined]);
 });
+
+// Just enough DOM for the toolbar and an empty box list to render.
+class FakeElement {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.childNodes = [];
+    this.attributes = {};
+    this.style = { setProperty() {} };
+    this.className = '';
+    this.hidden = false;
+    this.disabled = false;
+    this.scrollTop = 0;
+    this.parentNode = null;
+    this.listeners = {};
+    const self = this;
+    this.classList = {
+      contains: name => self.className.split(/\s+/).includes(name),
+      toggle: (name, on) => {
+        const names = self.className.split(/\s+/).filter(Boolean).filter(n => n !== name);
+        self.className = (on === undefined ? !self.classList.contains(name) : on) ? names.concat(name).join(' ') : names.join(' ');
+      },
+    };
+  }
+  set textContent(value) { this.childNodes = value ? [String(value)] : []; }
+  get textContent() { return this.childNodes.map(c => (typeof c === 'string' ? c : c.textContent)).join(''); }
+  get children() { return this.childNodes.filter(c => typeof c !== 'string'); }
+  get firstChild() { return this.childNodes[0] || null; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; }
+  appendChild(child) { if (typeof child !== 'string') child.parentNode = this; this.childNodes.push(child); return child; }
+  remove() { if (this.parentNode) this.parentNode.childNodes = this.parentNode.childNodes.filter(c => c !== this); }
+  get nextSibling() {
+    const siblings = this.parentNode ? this.parentNode.childNodes : [];
+    return siblings[siblings.indexOf(this) + 1] || null;
+  }
+  insertBefore(child, reference) {
+    if (child.parentNode) child.remove();
+    child.parentNode = this;
+    const at = reference ? this.childNodes.indexOf(reference) : -1;
+    if (at < 0) this.childNodes.push(child); else this.childNodes.splice(at, 0, child);
+    return child;
+  }
+  replaceWith(node) {
+    const siblings = this.parentNode.childNodes;
+    node.parentNode = this.parentNode;
+    siblings[siblings.indexOf(this)] = node;
+  }
+  addEventListener(type, handler) { (this.listeners[type] = this.listeners[type] || []).push(handler); }
+  contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+  closest(selector) {
+    const name = selector.replace(/^\[|\]$/g, '');
+    for (let node = this; node; node = node.parentNode) {
+      if (node.getAttribute(name) !== null) return node;
+    }
+    return null;
+  }
+  querySelector() { return null; }
+  // A click on `target` as the browser delivers it to this element's listeners.
+  click(target) { (this.listeners.click || []).forEach(handler => handler({ target, currentTarget: this })); }
+}
+
+function find(root, predicate) {
+  for (const child of root.children) {
+    if (predicate(child)) return child;
+    const hit = find(child, predicate);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function loadWithToolbar({ drawLabel = 'Bio > Humpback whale' } = {}) {
+  const toolbar = new FakeElement('div');
+  // The panel's inner structure already exists, as after its first render.
+  const panel = new FakeElement('section');
+  panel.setAttribute('data-bbox-ready', '1');
+  const parts = {};
+  ['header', 'bulk', 'note', 'list'].forEach(part => { parts[part] = new FakeElement('div'); });
+  panel.querySelector = selector => parts[selector.replace('.modal-bbox-', '').replace('panel__', '')] || null;
+  let profileClicks = 0;
+  const elements = {
+    'modal-bbox-toolbar': toolbar,
+    'modal-bbox-panel': panel,
+    'profile-btn': { click() { profileClicks += 1; } },
+  };
+  const window = {
+    dash_clientside: { no_update: { noUpdate: true }, set_props() {} },
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame: () => {},
+    bboxDrawMode: {
+      isOn: () => false,
+      labels: () => [drawLabel],
+      label: () => drawLabel,
+      subscribe() {},
+      toggle() {},
+    },
+  };
+  const document = {
+    getElementById: id => elements[id] || null,
+    createElement: tag => new FakeElement(tag),
+    createTextNode: text => String(text),
+    activeElement: null,
+  };
+  for (const file of ['modal_pages.js', 'bbox_clientside.js', 'bbox_list.js']) {
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/assets', file), 'utf8'), { window, document });
+  }
+  return {
+    toolbar,
+    rows: () => parts.list.children.filter(node => node.classList.contains('modal-bbox-row')),
+    header: parts.header,
+    bulk: parts.bulk,
+    window,
+    list: window.dash_clientside.bboxList,
+    profileClicks: () => profileClicks,
+  };
+}
+
+test('without a reviewer name the toolbar keeps Draw, switched off, and offers to add one', () => {
+  // Each dashboard address keeps its own profile, so a reviewer who named
+  // themselves on one dashboard opens the next one without a name.
+  const { toolbar, list, profileClicks } = loadWithToolbar();
+  const store = { item_id: 'clip-1', boxes: [] };
+  const config = { tag_options: OPTIONS };
+  const isDraw = node => node.classList.contains('modal-bbox-draw');
+  const isPrompt = node => node.getAttribute('data-action') === 'open-profile';
+
+  list.render(store, null, 'verify', 'clip-1', { name: '', email: '' }, true, config);
+  assert.equal(toolbar.hidden, false);
+  assert.equal(find(toolbar, isDraw).disabled, true);
+  assert.match(find(toolbar, isPrompt).textContent, /Add your name to draw boxes/);
+  assert.equal(find(toolbar, node => node.getAttribute('role') === 'radiogroup'), null, 'tags come with drawing');
+  toolbar.click(find(toolbar, isPrompt));
+  assert.equal(profileClicks(), 1, 'the prompt opens the profile dialog');
+
+  list.render(store, null, 'verify', 'clip-1', PROFILE, true, config);
+  assert.equal(find(toolbar, isDraw).disabled, false);
+  assert.equal(find(toolbar, isPrompt), null);
+  assert.notEqual(find(toolbar, node => node.getAttribute('role') === 'radiogroup'), null);
+
+  // Explore mode never edits boxes, so there is nothing to offer.
+  list.render(store, null, 'explore', 'clip-1', { name: '', email: '' }, true, config);
+  assert.equal(toolbar.hidden, true);
+});
+
+// Tags are call types, so each set belongs to a species.
+const FIN = 'Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale';
+const HUMPBACK = 'Biophony > Marine mammal > Cetacean > Baleen whale > Humpback whale';
+const SPECIES_CONFIG = { tag_options: OPTIONS, tag_sets: [{ label: FIN, options: OPTIONS }] };
+
+test('tag sets apply to their species and the labels under it', () => {
+  const { model } = load();
+  const sets = model.normalizeTagSets(SPECIES_CONFIG);
+  const values = label => Array.from(model.optionsForLabel(sets, label), option => option.value);
+  assert.deepEqual(values(FIN), ['20Hz', '30Hz', '40Hz']);
+  assert.deepEqual(values(FIN + ' > Song'), ['20Hz', '30Hz', '40Hz']);
+  assert.deepEqual(values('fin whale'), ['20Hz', '30Hz', '40Hz']);
+  assert.deepEqual(values(HUMPBACK), []);
+  assert.deepEqual(values(null), []);
+  // Older configs have one list for every box.
+  assert.deepEqual(Array.from(model.tagOptionsFor({ tag_options: OPTIONS }, HUMPBACK), o => o.value), ['20Hz', '30Hz', '40Hz']);
+
+  // Boxes of a species without tags are never "untagged".
+  const boxes = [box(null, { label: FIN }), box('20Hz', { label: FIN }), box(null, { label: HUMPBACK })];
+  const optionsFor = label => model.optionsForLabel(sets, label);
+  const summary = model.summarize(boxes, optionsFor);
+  assert.deepEqual([summary.total, summary.untagged, summary.taggable], [3, 1, 2]);
+  assert.deepEqual(Array.from(model.untaggedIndices(boxes, optionsFor)), [0]);
+});
+
+test('the toolbar offers fin whale call types only while a fin whale label is drawn', () => {
+  const chips = toolbar => find(toolbar, node => node.getAttribute('role') === 'radiogroup');
+  const store = { item_id: 'clip-1', boxes: [] };
+
+  const humpback = loadWithToolbar({ drawLabel: HUMPBACK });
+  humpback.list.render(store, '20Hz', 'verify', 'clip-1', PROFILE, true, SPECIES_CONFIG);
+  assert.equal(chips(humpback.toolbar), null);
+  assert.equal(humpback.window.bboxPanel.handleTagKey('1'), false, 'number keys have no tags to choose');
+
+  const fin = loadWithToolbar({ drawLabel: FIN });
+  fin.list.render(store, '20Hz', 'verify', 'clip-1', PROFILE, true, SPECIES_CONFIG);
+  const group = chips(fin.toolbar);
+  assert.deepEqual(group.children.map(chip => chip.getAttribute('data-tag')), ['', '20Hz', '30Hz', '40Hz']);
+  assert.equal(find(group, node => node.classList.contains('is-active')).getAttribute('data-tag'), '20Hz');
+  assert.equal(fin.window.bboxPanel.handleTagKey('2'), true);
+});
+
+test('box rows offer tags only for species that have them', () => {
+  const { rows, header, bulk, window, list } = loadWithToolbar({ drawLabel: FIN });
+  const store = {
+    item_id: 'clip-1',
+    boxes: [box(null, { label: FIN }), box(null, { label: HUMPBACK }), box('40Hz', { label: HUMPBACK })],
+  };
+  list.render(store, null, 'verify', 'clip-1', PROFILE, true, SPECIES_CONFIG);
+  const [fin, humpback, oldTag] = rows();
+  const tags = row => find(row, node => node.classList.contains('modal-bbox-row__tags'));
+  const checkbox = row => find(row, node => node.getAttribute('data-action') === 'select');
+
+  assert.deepEqual(tags(fin).children.map(chip => chip.getAttribute('data-tag')), ['20Hz', '30Hz', '40Hz']);
+  assert.equal(fin.classList.contains('is-untagged'), true);
+  assert.notEqual(checkbox(fin), null);
+
+  assert.equal(tags(humpback), null, 'no tag controls');
+  assert.equal(humpback.classList.contains('is-untagged'), false);
+  assert.equal(checkbox(humpback), null);
+  assert.deepEqual(window.bboxPanel.describeBox(1).tag, null);
+  assert.equal(window.bboxPanel.needsTag(store.boxes[1]), false);
+
+  // A tag the species does not have stays visible, as a chip that removes it.
+  assert.deepEqual(tags(oldTag).children.map(chip => chip.getAttribute('data-tag')), ['40Hz']);
+  assert.notEqual(checkbox(oldTag), null);
+
+  assert.match(header.textContent, /Untagged 1/);
+  assert.equal(bulk.hidden, false);
+
+  // A humpback-only clip has nothing to tag: no untagged count, no bulk bar.
+  list.render({ item_id: 'clip-2', boxes: [box(null, { label: HUMPBACK })] }, null, 'verify', 'clip-2', PROFILE, true, SPECIES_CONFIG);
+  assert.doesNotMatch(header.textContent, /Untagged/);
+  assert.equal(bulk.hidden, true);
+});
+
+test('new boxes and the box editor use the tags of the box species', () => {
+  const { window } = load();
+  const draw = window.dash_clientside.bboxInteractions.updateBoxesFromGraph;
+  const figure = { data: [], layout: { meta: { x_min: 0, x_max: 10, y_min: 5, y_max: 100 }, shapes: [] } };
+  const relayout = { shapes: [{ type: 'rect', x0: 1, x1: 2, y0: 20, y1: 40 }] };
+  const drawFor = label => draw(relayout, { item_id: 'clip-1', boxes: [] }, figure, { label, allow_existing: true },
+    'clip-1', 'verify', PROFILE, null, '20Hz', SPECIES_CONFIG)[0].boxes[0];
+  assert.equal(drawFor(FIN).tag, '20Hz');
+  assert.equal('tag' in drawFor(HUMPBACK), false);
+
+  const editorOptions = window.dash_clientside.bboxList.editorTagOptions;
+  assert.deepEqual(Array.from(editorOptions(FIN, null, SPECIES_CONFIG), o => o.value), ['20Hz', '30Hz', '40Hz']);
+  assert.deepEqual(Array.from(editorOptions(HUMPBACK, null, SPECIES_CONFIG)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(editorOptions(HUMPBACK, '40Hz', SPECIES_CONFIG))), [{ label: '40 Hz', value: '40Hz' }]);
+});

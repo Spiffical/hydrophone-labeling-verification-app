@@ -21,7 +21,7 @@ from app.services.spectrogram_ranges import (
     resolve_visible_spectrogram_ranges,
     resolve_active_spectrogram_range,
 )
-from app.utils.image_processing import create_item_spectrogram_figure
+from app.utils.image_processing import create_item_spectrogram_figure, spectrogram_time_span
 from app.utils.image_utils import (
     build_modal_image_request_src,
     resolve_modal_image_target,
@@ -297,19 +297,31 @@ def register_modal_view_callbacks(
         active_xaxis = (
             active_layout.get("xaxis", {}) if isinstance(active_layout, dict) else {}
         )
-        x_range = active_xaxis.get("range") if isinstance(active_xaxis, dict) else None
-        # These panels stretch the whole clip's image across the plot, so label
-        # the whole clip even when the main plot shows one page of a long clip.
         active_meta = active_layout.get("meta", {}) if isinstance(active_layout, dict) else {}
-        clip_range = [active_meta.get("x_min"), active_meta.get("x_max")] if isinstance(active_meta, dict) else []
-        if all(isinstance(value, (int, float)) for value in clip_range) and clip_range[1] > clip_range[0]:
-            x_range = clip_range
-        if not isinstance(x_range, (list, tuple)) or len(x_range) != 2:
-            x_range = [0.0, 1.0]
-        x_min, x_max = float(x_range[0]), float(x_range[1])
-        if x_max <= x_min:
-            x_min, x_max = 0.0, 1.0
+        active_meta = active_meta if isinstance(active_meta, dict) else {}
+
+        def valid_range(value):
+            return (
+                isinstance(value, (list, tuple))
+                and len(value) == 2
+                and all(isinstance(bound, (int, float)) for bound in value)
+                and value[1] > value[0]
+            )
+
+        # The whole clip on the main plot's time axis, and the part it shows.
+        # The panels follow the main plot's time window and margins
+        # (modal_range_panels.js), so the same moment lines up in every panel.
+        view_range = active_xaxis.get("range") if isinstance(active_xaxis, dict) else None
+        clip_range = [active_meta.get("x_min"), active_meta.get("x_max")]
+        if not valid_range(clip_range):
+            clip_range = view_range if valid_range(view_range) else [0.0, 1.0]
+        x_min, x_max = float(clip_range[0]), float(clip_range[1])
+        view_range = [float(bound) for bound in view_range] if valid_range(view_range) else [x_min, x_max]
+        x_to_seconds = active_meta.get("x_to_seconds")
+        x_to_seconds = float(x_to_seconds) if isinstance(x_to_seconds, (int, float)) and x_to_seconds > 0 else 1.0
+        x_origin_seconds = active_meta.get("x_origin_seconds")
         x_title = active_xaxis.get("title", "Time") if isinstance(active_xaxis, dict) else "Time"
+        x_tickformat = active_xaxis.get("tickformat") if isinstance(active_xaxis, dict) else None
 
         def build_plot_panel(range_spec, index):
             range_cfg = (
@@ -331,6 +343,22 @@ def register_modal_view_callbacks(
             )
             freq_min_hz = float(range_spec["freq_min_hz"])
             freq_max_hz = float(range_spec["freq_max_hz"])
+            # Each plot's time axis starts at its own first frame, half a window
+            # into the clip, so place this range's image where its frames are
+            # on the main plot's axis. Without that origin, fill the clip.
+            image_x = [x_min, x_max]
+            if isinstance(x_origin_seconds, (int, float)):
+                span = spectrogram_time_span(
+                    modal_item,
+                    range_cfg,
+                    y_axis_min_hz=range_spec["freq_min_hz"],
+                    y_axis_max_hz=range_spec["freq_max_hz"],
+                )
+                if span and span[1] > span[0]:
+                    image_x = [
+                        (span[0] - x_origin_seconds) / x_to_seconds,
+                        (span[1] - x_origin_seconds) / x_to_seconds,
+                    ]
             figure = go.Figure()
             figure.add_trace(
                 go.Scatter(
@@ -345,26 +373,35 @@ def register_modal_view_callbacks(
             figure.add_layout_image(
                 {
                     "source": image_src,
-                    "xref": "paper",
+                    "xref": "x",
                     "yref": "paper",
-                    "x": 0,
+                    "x": image_x[0],
                     "y": 1,
-                    "sizex": 1,
+                    "sizex": max(1e-9, image_x[1] - image_x[0]),
                     "sizey": 1,
+                    "xanchor": "left",
+                    "yanchor": "top",
                     "sizing": "stretch",
                     "opacity": 1.0,
                     "layer": "below",
                 }
             )
+            # No fixed height: the panel shares the plot column with the main
+            # plot (zz_workbench.css) and Plotly fills whatever it is given.
+            # Margins and time window follow the main plot, so neither axis
+            # zooms on its own and Plotly must not move the margins.
             figure.update_layout(
-                height=390,
+                autosize=True,
                 margin={"l": 70, "r": 36, "t": 18, "b": 50},
                 template="plotly_white",
-                dragmode="pan",
+                dragmode=False,
                 xaxis={
                     "title": x_title,
-                    "range": [x_min, x_max],
+                    "range": view_range,
                     "showgrid": False,
+                    "tickformat": x_tickformat,
+                    "fixedrange": True,
+                    "automargin": False,
                 },
                 yaxis={
                     "title": "Frequency (Hz)",
@@ -375,6 +412,8 @@ def register_modal_view_callbacks(
                         else [freq_min_hz, freq_max_hz]
                     ),
                     "showgrid": False,
+                    "fixedrange": True,
+                    "automargin": False,
                 },
             )
             return html.Section(
@@ -403,7 +442,6 @@ def register_modal_view_callbacks(
                             "responsive": True,
                         },
                         className="spectrogram-modal-range-graph",
-                        style={"height": "390px"},
                     ),
                 ],
                 className=(

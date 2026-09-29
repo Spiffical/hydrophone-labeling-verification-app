@@ -9,6 +9,7 @@ from dash.exceptions import PreventUpdate
 from app.callbacks.modal.figure_helpers import patch_modal_boxes
 
 from app.services.annotations import clean_box_tag
+from app.services.bbox_tags import option_values, tag_options_for_label
 
 
 def _coerce_int(value):
@@ -262,6 +263,7 @@ def register_modal_bbox_editor_callbacks(
         State("current-filename", "data"),
         State("mode-tabs", "data"),
         State("user-profile-store", "data"),
+        State("modal-bbox-list-config-store", "data"),
         prevent_initial_call=True,
     )
     def apply_modal_box_editor(
@@ -281,6 +283,7 @@ def register_modal_bbox_editor_callbacks(
         current_item_id,
         mode,
         profile,
+        list_config=None,
     ):
         if not apply_clicks or mode == "explore" or not current_item_id:
             raise PreventUpdate
@@ -309,6 +312,12 @@ def register_modal_bbox_editor_callbacks(
         previous["label"] = label
         previous["annotation_extent"] = extent
         next_tag = clean_box_tag(tag)
+        tag_sets = list_config.get("tag_sets") if isinstance(list_config, dict) else None
+        if next_tag and label_changed and isinstance(tag_sets, list):
+            # Call types belong to a species: a box moved to a species without
+            # this one loses it.
+            if next_tag not in option_values(tag_options_for_label(tag_sets, label)):
+                next_tag = None
         if next_tag:
             previous["tag"] = next_tag
             previous["tag_source"] = "human"

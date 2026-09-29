@@ -961,6 +961,32 @@ def resolve_item_spectrogram(
     return spec
 
 
+def spectrogram_time_span(
+    item: Optional[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]],
+    *,
+    y_axis_min_hz: Any = None,
+    y_axis_max_hz: Any = None,
+) -> Optional[Tuple[float, float]]:
+    """Seconds into the clip of the first and last frame centres.
+
+    Plots start their time axis at their own first frame (``time - time[0]``),
+    which is half a window into the clip, so ranges with different windows
+    need this to line up. Uses the cached spectrogram the image route reuses.
+    """
+    spectrogram = resolve_item_spectrogram(
+        item,
+        cfg,
+        y_axis_min_hz=y_axis_min_hz,
+        y_axis_max_hz=y_axis_max_hz,
+    )
+    times = np.asarray((spectrogram or {}).get("time", []), dtype=np.float64)
+    # Existing spectrogram files can carry datenums instead of seconds.
+    if times.size == 0 or not np.all(np.isfinite(times[[0, -1]])) or times[0] > 1000:
+        return None
+    return float(times[0]), float(times[-1])
+
+
 def resolve_item_modal_matrix(
     item: Optional[Dict[str, Any]],
     cfg: Optional[Dict[str, Any]],
@@ -2518,6 +2544,13 @@ def create_spectrogram_figure(
     else:
         x_min = 0.0
         x_max = 1.0
+    # x = 0 is the first frame centre; other ranges are placed against this.
+    raw_time = np.asarray(spectrogram_data.get("time", []), dtype=np.float64)
+    x_origin_seconds = (
+        float(raw_time[0])
+        if raw_time.size and x_to_seconds == 1.0 and np.isfinite(raw_time[0]) and raw_time[0] <= 1000
+        else None
+    )
     image_y_min = float(np.min(freq_plot)) if len(freq_plot) else 0.0
     image_y_max = float(np.max(freq_plot)) if len(freq_plot) else 1.0
 
@@ -2699,6 +2732,7 @@ def create_spectrogram_figure(
             "render_reason": render_reason,
             "page_seconds": page_seconds,
             "page_seconds_options": page_seconds_options,
+            "x_origin_seconds": x_origin_seconds,
         },
         uirevision=render_signature,
     )

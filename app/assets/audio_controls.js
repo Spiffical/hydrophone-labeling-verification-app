@@ -1548,7 +1548,10 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
             const xTitle = (xaxis && xaxis.title && (xaxis.title.text || xaxis.title)) || '';
             xToSeconds = String(xTitle).toLowerCase().includes('minute') ? 60.0 : 1.0;
         }
-        let markerPosition = domainStart + (currentTime / xToSeconds);
+        // x = 0 is the first spectrogram frame, half a window into the clip
+        // (x_origin_seconds), so the audio clock sits that much to the left.
+        const originSeconds = toFiniteNumber(meta.x_origin_seconds) || 0;
+        let markerPosition = domainStart + ((currentTime - originSeconds) / xToSeconds);
 
         // Last-resort support for figures with no meaningful time-unit metadata.
         if (!isFinite(markerPosition) && isFinite(duration) && duration > 0) {

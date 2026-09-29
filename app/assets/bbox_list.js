@@ -44,19 +44,83 @@
     return match ? match.label : value;
   }
 
+  // Tags are call types, so they come in sets per species (config.tag_sets:
+  // [{label, options}]). A box is tagged from the first set whose species
+  // label is its label or an ancestor of it; a set without a label applies to
+  // every box. Mirrors tag_options_for_label in app/services/bbox_tags.py.
+  function labelParts(label) {
+    return String(label || '').split('>').map(function (part) { return part.trim().toLowerCase(); }).filter(Boolean);
+  }
+
+  function normalizeTagSets(config) {
+    const source = config && Array.isArray(config.tag_sets)
+      ? config.tag_sets
+      : [{ label: null, options: config && config.tag_options }];
+    return source.map(function (set) {
+      return { root: labelParts(set && set.label), options: normalizeOptions(set && set.options) };
+    }).filter(function (set) { return set.options.length > 0; });
+  }
+
+  function labelMatches(parts, root) {
+    if (!root.length) {
+      return true;
+    }
+    const prefix = root.every(function (part, index) { return parts[index] === part; });
+    // A bare species name ("Fin whale") still counts as that species.
+    return prefix || parts.indexOf(root[root.length - 1]) >= 0;
+  }
+
+  function optionsForLabel(sets, label) {
+    const parts = labelParts(label);
+    const match = (Array.isArray(sets) ? sets : []).find(function (set) { return labelMatches(parts, set.root); });
+    return match ? match.options : [];
+  }
+
+  function allOptions(sets) {
+    return normalizeOptions([].concat.apply([], (Array.isArray(sets) ? sets : []).map(function (set) { return set.options; })));
+  }
+
+  // Used by bbox_clientside.js for the tag a new box may take.
+  function tagOptionsFor(config, label) {
+    return optionsForLabel(normalizeTagSets(config), label);
+  }
+
+  // `options` is one option list for every box, or a function giving the
+  // options for a box's label.
+  function optionsResolver(options) {
+    if (typeof options === 'function') {
+      return function (label) { return normalizeOptions(options(label)); };
+    }
+    const fixed = normalizeOptions(options);
+    return function () { return fixed; };
+  }
+
+  // Boxes of a species without tags cannot be tagged, so they never count as
+  // untagged; `taggable` counts the boxes that have or could have a tag.
   function summarize(boxes, options) {
+    const resolve = optionsResolver(options);
     const list = Array.isArray(boxes) ? boxes : [];
     const counts = {};
+    const opts = typeof options === 'function' ? [] : resolve(null).slice();
     let untagged = 0;
+    let taggable = 0;
     list.forEach(function (box) {
+      const boxOptions = resolve(box && box.label);
+      boxOptions.forEach(function (option) {
+        if (!opts.some(function (known) { return known.value === option.value; })) {
+          opts.push(option);
+        }
+      });
       const tag = cleanTag(box && box.tag);
       if (tag) {
         counts[tag] = (counts[tag] || 0) + 1;
-      } else {
+      } else if (boxOptions.length) {
         untagged += 1;
       }
+      if (tag || boxOptions.length) {
+        taggable += 1;
+      }
     });
-    const opts = normalizeOptions(options);
     const tags = opts.map(function (option) {
       return { value: option.value, label: option.label, count: counts[option.value] || 0 };
     });
@@ -66,13 +130,15 @@
         tags.push({ value: value, label: value, count: counts[value] });
       }
     });
-    return { total: list.length, untagged: untagged, tags: tags };
+    return { total: list.length, untagged: untagged, taggable: taggable, tags: tags };
   }
 
-  function untaggedIndices(boxes) {
+  // Without `options` every box counts; with them, only boxes that could be tagged.
+  function untaggedIndices(boxes, options) {
+    const resolve = options === undefined ? null : optionsResolver(options);
     const indices = [];
     (Array.isArray(boxes) ? boxes : []).forEach(function (box, index) {
-      if (!cleanTag(box && box.tag)) {
+      if (!cleanTag(box && box.tag) && (!resolve || resolve(box && box.label).length)) {
         indices.push(index);
       }
     });
@@ -171,6 +237,9 @@
   window.bboxListModel = {
     cleanTag: cleanTag,
     normalizeOptions: normalizeOptions,
+    normalizeTagSets: normalizeTagSets,
+    optionsForLabel: optionsForLabel,
+    tagOptionsFor: tagOptionsFor,
     summarize: summarize,
     untaggedIndices: untaggedIndices,
     applyTag: applyTag,
@@ -186,9 +255,12 @@
   const view = {
     itemId: null,
     boxes: [],
-    options: [],
+    tagSets: [],
+    allOptions: [],
+    anyTaggable: false,
     bulk: true,
     editable: false,
+    needsProfile: false,
     readOnlyReason: '',
     activeTag: null,
     open: false,
@@ -309,14 +381,38 @@
     setProps('modal-bbox-active-tag-store', { data: clean });
   }
 
+  // Tag options for a box with this label (its species' set, or none).
+  function boxOptions(label) {
+    return optionsForLabel(view.tagSets, label);
+  }
+
+  // Options for the next boxes drawn: those of the label draw mode gives them.
+  function newBoxOptions() {
+    const draw = window.bboxDrawMode;
+    return boxOptions(draw ? draw.label() : null);
+  }
+
+  function needsTag(box) {
+    return !cleanTag(box && box.tag) && boxOptions(box && box.label).length > 0;
+  }
+
+  function canTag(box) {
+    return Boolean(cleanTag(box && box.tag)) || boxOptions(box && box.label).length > 0;
+  }
+
   function visibleIndices() {
     const indices = [];
     view.boxes.forEach(function (box, index) {
-      if (!ui.untaggedOnly || !cleanTag(box && box.tag)) {
+      if (!ui.untaggedOnly || needsTag(box)) {
         indices.push(index);
       }
     });
     return indices;
+  }
+
+  // Listed rows with a checkbox: boxes that have or could have a tag.
+  function selectableIndices() {
+    return visibleIndices().filter(function (index) { return canTag(view.boxes[index]); });
   }
 
   // ---------------------------------------------------------------------------
@@ -332,28 +428,53 @@
     }, attrs));
   }
 
+  function drawButton(on, disabled, title) {
+    return el('button', {
+      type: 'button',
+      className: 'modal-bbox-draw' + (on ? ' is-active' : ''),
+      'data-action': 'toggle-draw',
+      'aria-pressed': on ? 'true' : 'false',
+      disabled: disabled,
+      title: title,
+    }, [
+      el('i', { className: 'bi bi-bounding-box', 'aria-hidden': 'true' }),
+      on ? 'Drawing' : 'Draw',
+      el('kbd', { text: 'B' }),
+    ]);
+  }
+
   function renderDrawControls(root) {
     const draw = window.bboxDrawMode;
-    if (!view.editable || !draw) {
+    if (!draw) {
+      return;
+    }
+    // Without a reviewer name the controls stay, switched off, with a way to
+    // add one. Each dashboard address keeps its own profile in the browser,
+    // so a name given on one dashboard is not known on the next.
+    if (!view.editable) {
+      if (view.needsProfile) {
+        root.appendChild(drawButton(false, true, 'Add your name and email to draw boxes'));
+        root.appendChild(el('button', {
+          type: 'button',
+          className: 'modal-bbox-toolbar__profile',
+          'data-action': 'open-profile',
+        }, [
+          el('i', { className: 'bi bi-person', 'aria-hidden': 'true' }),
+          'Add your name to draw boxes',
+        ]));
+      }
       return;
     }
     const on = draw.isOn();
     const labels = draw.labels();
     const current = draw.label();
-    root.appendChild(el('button', {
-      type: 'button',
-      className: 'modal-bbox-draw' + (on ? ' is-active' : ''),
-      'data-action': 'toggle-draw',
-      'aria-pressed': on ? 'true' : 'false',
-      disabled: !labels.length && !on,
-      title: on
+    root.appendChild(drawButton(
+      on,
+      !labels.length && !on,
+      on
         ? 'Stop drawing (B or Esc)'
         : (labels.length ? 'Draw boxes: every drag adds one (B)' : 'Accept or add a label to draw boxes'),
-    }, [
-      el('i', { className: 'bi bi-bounding-box', 'aria-hidden': 'true' }),
-      on ? 'Drawing' : 'Draw',
-      el('kbd', { text: 'B' }),
-    ]));
+    ));
     if (labels.length > 1) {
       const select = el('select', {
         className: 'modal-bbox-draw-label form-select form-select-sm',
@@ -372,11 +493,15 @@
 
   function renderToolbar(root) {
     root.textContent = '';
-    const summary = summarize(view.boxes, view.options);
+    const summary = summarize(view.boxes, boxOptions);
     renderDrawControls(root);
-    if (view.editable && view.options.length) {
-      const chips = [{ value: null, label: 'No tag' }].concat(view.options).map(function (option, position) {
-        const active = cleanTag(option.value) === view.activeTag;
+    // Chips only for a species with tags, e.g. fin whale call types while a
+    // fin whale label is the one being drawn.
+    const options = newBoxOptions();
+    if (view.editable && options.length) {
+      const current = options.some(function (option) { return option.value === view.activeTag; }) ? view.activeTag : null;
+      const chips = [{ value: null, label: 'No tag' }].concat(options).map(function (option, position) {
+        const active = cleanTag(option.value) === current;
         const button = el('button', {
           type: 'button',
           role: 'radio',
@@ -407,9 +532,11 @@
         title: 'Show the box list',
       }, [
         text,
-        summary.untagged
-          ? el('span', { className: 'modal-bbox-toolbar__untagged', text: ' · ' + summary.untagged + ' untagged' })
-          : el('span', { className: 'modal-bbox-toolbar__done', text: ' · all tagged' }),
+        !summary.taggable
+          ? null
+          : summary.untagged
+            ? el('span', { className: 'modal-bbox-toolbar__untagged', text: ' · ' + summary.untagged + ' untagged' })
+            : el('span', { className: 'modal-bbox-toolbar__done', text: ' · all tagged' }),
         el('i', { className: 'bi bi-arrow-down-short', 'aria-hidden': 'true' }),
       ]));
     }
@@ -426,9 +553,9 @@
       box && box.source,
       box && box.decision,
       view.editable,
-      view.bulk,
+      view.bulk && view.anyTaggable,
       multiLabel,
-      view.options,
+      boxOptions(box && box.label),
     ]);
   }
 
@@ -468,11 +595,13 @@
 
   function buildRow(box, index, multiLabel) {
     const tag = cleanTag(box && box.tag);
+    const options = boxOptions(box && box.label);
     const extent = describeExtent(box && box.annotation_extent);
     const number = index + 1;
     const color = typeof interactions().boxColor === 'function' ? interactions().boxColor(box) : null;
     const cells = [];
-    if (view.editable && view.bulk) {
+    const selectable = view.editable && view.bulk && view.anyTaggable;
+    if (selectable && canTag(box)) {
       cells.push(el('input', {
         type: 'checkbox',
         className: 'modal-bbox-row__select form-check-input',
@@ -481,6 +610,9 @@
         checked: ui.selected.has(index),
         'aria-label': 'Select box ' + number,
       }));
+    } else if (selectable) {
+      // Keeps the column lined up with rows that can be selected for tagging.
+      cells.push(el('span', { className: 'modal-bbox-row__select-spacer', 'aria-hidden': 'true' }));
     }
     cells.push(el('span', {
       className: 'modal-bbox-row__num',
@@ -501,18 +633,33 @@
     }));
     cells.push(el('span', { className: 'modal-bbox-row__freq', text: extent.freq }));
 
-    let tagCell;
+    let tagCell = null;
     if (!view.editable) {
-      tagCell = el('span', { className: 'modal-bbox-row__tags' }, [
-        el('span', { className: 'modal-bbox-tag is-static' + (tag ? '' : ' is-empty'), text: tag ? tagLabel(tag, view.options) : 'No tag' }),
-      ]);
-    } else if (view.options.length > CHIP_LIMIT) {
+      if (tag || options.length) {
+        tagCell = el('span', { className: 'modal-bbox-row__tags' }, [
+          el('span', { className: 'modal-bbox-tag is-static' + (tag ? '' : ' is-empty'), text: tag ? tagLabel(tag, view.allOptions) : 'No tag' }),
+        ]);
+      }
+    } else if (!options.length) {
+      // A species without tags: a tag it carries anyway stays visible, and
+      // clicking it removes it.
+      if (tag) {
+        tagCell = el('span', { className: 'modal-bbox-row__tags', role: 'group', 'aria-label': 'Tag for box ' + number }, [
+          tagButton({ value: tag, label: tagLabel(tag, view.allOptions) }, true, {
+            'data-action': 'tag',
+            'data-index': index,
+            'data-tag': tag,
+            title: 'Remove tag',
+          }),
+        ]);
+      }
+    } else if (options.length > CHIP_LIMIT) {
       const select = el('select', {
         className: 'modal-bbox-row__select-tag form-select form-select-sm',
         'data-action': 'tag-select',
         'data-index': index,
         'aria-label': 'Tag for box ' + number,
-      }, [el('option', { value: '', text: 'No tag' })].concat(view.options.map(function (option) {
+      }, [el('option', { value: '', text: 'No tag' })].concat(options.map(function (option) {
         return el('option', { value: option.value, text: option.label });
       })));
       select.value = tag || '';
@@ -522,7 +669,7 @@
         className: 'modal-bbox-row__tags',
         role: 'group',
         'aria-label': 'Tag for box ' + number,
-      }, view.options.map(function (option) {
+      }, options.map(function (option) {
         return tagButton(option, option.value === tag, {
           'data-action': 'tag',
           'data-index': index,
@@ -539,7 +686,9 @@
         'aria-label': 'Machine box tag',
       }));
     }
-    cells.push(tagCell);
+    if (tagCell) {
+      cells.push(tagCell);
+    }
     if (view.editable) {
       cells.push(el('button', {
         type: 'button',
@@ -551,8 +700,8 @@
       }, [el('i', { className: 'bi bi-pencil-square', 'aria-hidden': 'true' })]));
     }
     return el('div', {
-      className: 'modal-bbox-row' + (tag ? '' : ' is-untagged') + (ui.selected.has(index) ? ' is-selected' : '')
-        + (multiLabel ? ' has-label' : '') + (view.editable && view.bulk ? ' has-select' : '')
+      className: 'modal-bbox-row' + (tag || !options.length ? '' : ' is-untagged') + (ui.selected.has(index) ? ' is-selected' : '')
+        + (multiLabel ? ' has-label' : '') + (selectable ? ' has-select' : '')
         + (view.editable ? '' : ' is-readonly'),
       role: 'listitem',
       'data-index': index,
@@ -627,14 +776,17 @@
     const chips = summary.tags.filter(function (tag) { return tag.count > 0; }).map(function (tag) {
       return el('span', { className: 'modal-bbox-summary__item' }, [tag.label + ' ', el('b', { text: String(tag.count) })]);
     });
-    chips.push(el('button', {
-      type: 'button',
-      className: 'modal-bbox-summary__untagged' + (summary.untagged ? '' : ' is-zero') + (ui.untaggedOnly ? ' is-active' : ''),
-      'data-action': 'filter-untagged',
-      'aria-pressed': ui.untaggedOnly ? 'true' : 'false',
-      title: ui.untaggedOnly ? 'Show all boxes' : 'Show only untagged boxes',
-      disabled: !summary.untagged && !ui.untaggedOnly,
-    }, ['Untagged ', el('b', { text: String(summary.untagged) })]));
+    // Only boxes of a species with tags can be untagged.
+    if (summary.taggable || ui.untaggedOnly) {
+      chips.push(el('button', {
+        type: 'button',
+        className: 'modal-bbox-summary__untagged' + (summary.untagged ? '' : ' is-zero') + (ui.untaggedOnly ? ' is-active' : ''),
+        'data-action': 'filter-untagged',
+        'aria-pressed': ui.untaggedOnly ? 'true' : 'false',
+        title: ui.untaggedOnly ? 'Show all boxes' : 'Show only untagged boxes',
+        disabled: !summary.untagged && !ui.untaggedOnly,
+      }, ['Untagged ', el('b', { text: String(summary.untagged) })]));
+    }
     header.appendChild(el('div', { className: 'modal-bbox-panel__title' }, [
       'Boxes', el('span', { className: 'modal-bbox-count', text: String(summary.total) }),
     ]));
@@ -652,12 +804,12 @@
 
   function renderBulk(bulk) {
     bulk.textContent = '';
-    const show = view.editable && view.bulk && view.boxes.length > 0;
+    const show = view.editable && view.bulk && view.anyTaggable;
     bulk.hidden = !show;
     if (!show) {
       return;
     }
-    const visible = visibleIndices();
+    const visible = selectableIndices();
     const selectedVisible = visible.filter(function (index) { return ui.selected.has(index); }).length;
     const count = ui.selected.size;
     bulk.appendChild(el('label', { className: 'modal-bbox-bulk__all' }, [
@@ -675,10 +827,13 @@
       type: 'button',
       className: 'modal-bbox-bulk__link',
       'data-action': 'select-untagged',
-      disabled: !untaggedIndices(view.boxes).length,
+      disabled: !untaggedIndices(view.boxes, boxOptions).length,
     }, ['Select untagged']));
     bulk.appendChild(el('span', { className: 'modal-bbox-bulk__count', text: count + ' selected' }));
-    const apply = view.options.map(function (option) {
+    // Each tag goes only to selected boxes of a species that has it.
+    const apply = normalizeOptions([].concat.apply([], view.boxes.map(function (box) {
+      return boxOptions(box && box.label);
+    }))).map(function (option) {
       return tagButton(option, false, { 'data-action': 'bulk-tag', 'data-tag': option.value, disabled: !count });
     });
     apply.push(tagButton({ value: '', label: 'No tag' }, false, {
@@ -712,7 +867,7 @@
 
   function renderPanel(root, previousCount) {
     ensurePanelStructure(root);
-    const summary = summarize(view.boxes, view.options);
+    const summary = summarize(view.boxes, boxOptions);
     renderHeader(root.querySelector('.modal-bbox-panel__header'), summary);
     renderBulk(root.querySelector('.modal-bbox-bulk'));
     const note = root.querySelector('.modal-bbox-note');
@@ -731,6 +886,7 @@
     }
     bind(toolbar);
     bind(panel);
+    view.anyTaggable = view.boxes.some(canTag);
     renderToolbar(toolbar);
     renderPanel(panel, previousCount);
     // The clip overview under the plot marks every box (modal_paging.js).
@@ -800,9 +956,13 @@
       // Clicking the current tag again removes it.
       tagBoxes([index], cleanTag(view.boxes[index] && view.boxes[index].tag) === tag ? null : tag);
     } else if (action === 'bulk-tag') {
-      const selected = Array.from(ui.selected).sort(function (a, b) { return a - b; });
+      const tag = cleanTag(target.getAttribute('data-tag'));
+      const selected = Array.from(ui.selected).sort(function (a, b) { return a - b; }).filter(function (candidate) {
+        const box = view.boxes[candidate];
+        return !tag || boxOptions(box && box.label).some(function (option) { return option.value === tag; });
+      });
       ui.selected.clear();
-      tagBoxes(selected, target.getAttribute('data-tag'));
+      tagBoxes(selected, tag);
       refresh();
     } else if (action === 'active-tag') {
       setActiveTag(target.getAttribute('data-tag'));
@@ -811,7 +971,7 @@
     } else if (action === 'edit' && index !== null) {
       openEditor(index);
     } else if (action === 'select-untagged') {
-      untaggedIndices(view.boxes).forEach(function (candidate) { ui.selected.add(candidate); });
+      untaggedIndices(view.boxes, boxOptions).forEach(function (candidate) { ui.selected.add(candidate); });
       refresh();
     } else if (action === 'clear-selection') {
       ui.selected.clear();
@@ -829,6 +989,11 @@
       const panel = document.getElementById(PANEL_ID);
       if (panel) {
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else if (action === 'open-profile') {
+      const profile = document.getElementById('profile-btn');
+      if (profile) {
+        profile.click();
       }
     }
   }
@@ -853,7 +1018,7 @@
         renderBulk(panel.querySelector('.modal-bbox-bulk'));
       }
     } else if (action === 'select-all') {
-      const visible = visibleIndices();
+      const visible = selectableIndices();
       visible.forEach(function (candidate) {
         if (target.checked) {
           ui.selected.add(candidate);
@@ -923,10 +1088,11 @@
   // and bbox_hover_affordances.js (hovering or editing boxes on the plot).
   window.bboxPanel = {
     handleTagKey: function (key) {
-      if (!view.editable || !view.open) {
+      const options = newBoxOptions();
+      if (!view.editable || !view.open || !options.length) {
         return false;
       }
-      const tag = tagForKey(key, view.options);
+      const tag = tagForKey(key, options);
       if (tag === undefined) {
         return false;
       }
@@ -947,13 +1113,17 @@
       }
       const tag = cleanTag(box.tag);
       const extent = describeExtent(box.annotation_extent);
+      const taggable = boxOptions(box.label).length > 0;
       return {
         title: 'Box ' + (index + 1),
-        tag: tag ? tagLabel(tag, view.options) : 'No tag',
-        untagged: !tag,
+        // A species without tags shows none.
+        tag: tag ? tagLabel(tag, view.allOptions) : (taggable ? 'No tag' : null),
+        untagged: !tag && taggable,
         detail: leafLabel(box.label) + ' · ' + extent.time + ' · ' + extent.freq,
       };
     },
+    // For the clip overview under the plot (modal_paging.js).
+    needsTag: needsTag,
     highlightRow: function (index) {
       const panel = document.getElementById(PANEL_ID);
       if (!panel) {
@@ -995,14 +1165,17 @@
         const complete = typeof interactions().profileIsComplete === 'function'
           ? interactions().profileIsComplete(profile)
           : false;
-        view.options = normalizeOptions(config.tag_options);
+        view.tagSets = normalizeTagSets(config);
+        view.allOptions = allOptions(view.tagSets);
         view.bulk = config.bulk_tagging !== false;
         view.open = Boolean(isOpen);
         view.editable = Boolean(itemId) && mode !== 'explore' && complete;
+        view.needsProfile = Boolean(itemId) && mode !== 'explore' && !complete;
         view.readOnlyReason = !itemId || view.editable ? ''
           : (mode === 'explore' ? 'Explore mode: boxes are read-only.' : 'Add your name and email in Profile to edit boxes.');
         const remembered = cleanTag(activeTag);
-        let active = view.options.some(function (option) { return option.value === remembered; }) ? remembered : null;
+        // Kept while drawing another species, for when a species with this tag is drawn again.
+        let active = view.allOptions.some(function (option) { return option.value === remembered; }) ? remembered : null;
         // A render queued before the store took the reviewer's new choice must not undo it.
         if (ui.pendingActive) {
           if (ui.pendingActive.tag === active || Date.now() - ui.pendingActive.at > PENDING_MS) {
@@ -1073,6 +1246,20 @@
           figure && typeof apply === 'function' ? apply(figure, result.boxes) : noUpdate,
           { dirty: true, item_id: currentItemId },
         ];
+      },
+
+      // The box editor offers the tags of the species chosen in it; a tag the
+      // box already has stays listed so it can be seen and cleared.
+      editorTagOptions: function (label, value, listConfig) {
+        const sets = normalizeTagSets(listConfig);
+        const options = optionsForLabel(sets, label).map(function (option) {
+          return { label: option.label, value: option.value };
+        });
+        const current = cleanTag(value);
+        if (current && !options.some(function (option) { return option.value === current; })) {
+          options.push({ label: tagLabel(current, allOptions(sets)), value: current });
+        }
+        return options;
       },
     },
   });

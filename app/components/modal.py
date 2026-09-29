@@ -1,7 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.services.bbox_tags import get_bbox_bulk_tagging, get_bbox_tag_options
+from app.services.bbox_tags import get_bbox_bulk_tagging, get_bbox_tag_options, get_bbox_tag_sets
 from taxonomy.hierarchical_labels import get_all_paths, path_to_string
 
 
@@ -12,14 +12,25 @@ def _classification_options():
     ]
 
 
-def _help_menu(tag_options):
+def _species_name(label):
+    return str(label or "").split(">")[-1].strip()
+
+
+def _help_menu(tag_sets):
     """Keyboard shortcuts and drawing tips, behind a small toolbar button."""
     tips = [("B", "Draw boxes: every drag adds one, until B or Esc")]
-    # Number keys only cover the first nine tags (see bbox_list.js).
-    count = min(len(tag_options), 9)
+    # Number keys only cover the first nine tags of the species being drawn
+    # (see bbox_list.js).
+    count = min(max((len(tag_set["options"]) for tag_set in tag_sets), default=0), 9)
     if count:
         keys = "1" if count == 1 else f"1–{count}"
-        tips.append((keys, "Tag new boxes · 0 no tag"))
+        species = [_species_name(tag_set.get("label")) for tag_set in tag_sets]
+        boxes = (
+            " / ".join(name[:1].lower() + name[1:] for name in species) + " boxes"
+            if all(species)
+            else "boxes"
+        )
+        tips.append((keys, f"Tag new {boxes} · 0 no tag"))
     tips += [
         ("Enter", "Save and go to the next clip"),
         ("← / →", "Previous / next clip"),
@@ -58,6 +69,7 @@ def create_spectrogram_modal(config=None):
     Create a large modal for zoomed-in spectrogram view with Plotly interactivity.
     """
     tag_options = get_bbox_tag_options(config)
+    tag_sets = get_bbox_tag_sets(config)
     classification_options = _classification_options()
 
     display_settings = html.Details([
@@ -403,7 +415,7 @@ def create_spectrogram_modal(config=None):
                                 display_settings,
                                 # Draw toggle, tag for new boxes and box count (bbox_list.js).
                                 html.Div(id="modal-bbox-toolbar", className="modal-bbox-toolbar"),
-                                _help_menu(tag_options),
+                                _help_menu(tag_sets),
                             ],
                             className="modal-workbench-toolbar",
                         ),
@@ -467,6 +479,11 @@ def create_spectrogram_modal(config=None):
                     id='modal-bbox-list-config-store',
                     data={
                         "tag_options": tag_options,
+                        # Tags per species; bbox_list.js offers a box the set for its label.
+                        "tag_sets": [
+                            {"label": tag_set["label"], "options": tag_set["options"]}
+                            for tag_set in tag_sets
+                        ],
                         "bulk_tagging": get_bbox_bulk_tagging(config),
                     },
                 ),

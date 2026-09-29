@@ -108,7 +108,9 @@ def test_audio_playback_marker_uses_figure_time_metadata():
     trace_fallback = script.index("const firstTrace = graphDiv.data")
     assert meta_bounds < trace_fallback
     assert "const endpointsOnly = xVals.length === 2;" in script
-    assert "let markerPosition = domainStart + (currentTime / xToSeconds);" in script
+    # x = 0 is the first spectrogram frame, x_origin_seconds into the clip
+    # (behaviour covered in tests/audio_stability.test.cjs).
+    assert "let markerPosition = domainStart + ((currentTime - originSeconds) / xToSeconds);" in script
     assert "currentTime / duration" in script
 
 

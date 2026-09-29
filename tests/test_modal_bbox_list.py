@@ -38,11 +38,30 @@ def test_modal_has_box_toolbar_panel_and_tag_stores():
     assert components["modal-bbox-active-tag-store"].storage_type == "session"
     assert components["modal-bbox-list-config-store"].data == {
         "tag_options": TAGS,
+        # Inline options without a species apply to every box.
+        "tag_sets": [{"label": None, "options": TAGS}],
         "bulk_tagging": True,
     }
     help_text = " ".join(node for node in _walk(modal) if isinstance(node, str))
     assert "1–2" in help_text
     assert "Tag new boxes · 0 no tag" in help_text
+
+
+def test_default_tags_belong_to_fin_whale_boxes(mock_config):
+    app_config = {**mock_config, "bounding_box_tags": load_bbox_tag_options(get_repo_root(), {})}
+    modal = create_spectrogram_modal(app_config)
+    data = _components_by_id(modal)["modal-bbox-list-config-store"].data
+
+    assert data["tag_sets"] == [{
+        "label": FIN_WHALE,
+        "options": [
+            {"label": "20 Hz", "value": "20Hz"},
+            {"label": "30 Hz", "value": "30Hz"},
+            {"label": "40 Hz", "value": "40Hz"},
+        ],
+    }]
+    help_text = " ".join(node for node in _walk(modal) if isinstance(node, str))
+    assert "Tag new fin whale boxes · 0 no tag" in help_text
 
 
 def test_bulk_tagging_defaults_on_and_can_be_disabled():
@@ -79,7 +98,12 @@ def test_box_list_is_rendered_and_tagged_in_the_browser(mock_config):
         if (entry.get("clientside_function") or {}).get("namespace") == "bboxList"
     }
 
-    assert set(list_callbacks) == {"render", "applyCommand"}
+    assert set(list_callbacks) == {"render", "applyCommand", "editorTagOptions"}
+    # The box editor lists the tags of the species chosen in it.
+    assert list_callbacks["editorTagOptions"]["output"] == "bbox-editor-tag-dropdown.options"
+    assert ("bbox-editor-label-dropdown", "value") in {
+        (i["id"], i["property"]) for i in list_callbacks["editorTagOptions"]["inputs"]
+    }
     render_inputs = {(i["id"], i["property"]) for i in list_callbacks["render"]["inputs"]}
     assert ("modal-bbox-store", "data") in render_inputs
     assert ("modal-bbox-active-tag-store", "data") in render_inputs
@@ -169,3 +193,34 @@ def test_modal_audio_player_can_fold_away_its_controls(mock_root):
     ]
 
     assert len(toggles) == 1
+
+
+def test_box_editor_drops_a_call_type_when_the_box_changes_species(mock_config):
+    humpback = "Biophony > Marine mammal > Cetacean > Baleen whale > Humpback whale"
+    app = create_app(mock_config)
+    apply = next(
+        entry["callback"].__wrapped__
+        for entry in app.callback_map.values()
+        if "callback" in entry and entry["callback"].__wrapped__.__name__ == "apply_modal_box_editor"
+    )
+    extent = {"type": "time_freq_box", "time_start_sec": 1.0, "time_end_sec": 2.0, "freq_min_hz": 15.0, "freq_max_hz": 30.0}
+    store = {"item_id": "clip-1", "boxes": [{
+        "label": FIN_WHALE, "annotation_extent": extent, "tag": "20Hz",
+        "tag_source": "human", "tag_scope": "time_freq_box", "source": "manual", "decision": "added",
+    }]}
+    item = {
+        "item_id": "clip-1",
+        "predictions": {"labels": [FIN_WHALE, humpback]},
+        "annotations": {"labels": [FIN_WHALE, humpback], "boxes": store["boxes"]},
+    }
+    figure = {"data": [], "layout": {"meta": {"x_min": 0, "x_max": 10, "y_min": 5, "y_max": 100, "x_to_seconds": 1, "y_to_hz": 1}}}
+    list_config = {"tag_sets": [{"label": FIN_WHALE, "options": TAGS}]}
+    profile = {"name": "Tester", "email": "tester@example.com"}
+
+    def tag_after_edit(label):
+        result = apply(1, 0, label, "20Hz", 1.0, 2.0, 15.0, 30.0, store, figure, item, {}, None,
+                       "clip-1", "verify", profile, list_config)
+        return result[0]["boxes"][0].get("tag")
+
+    assert tag_after_edit(FIN_WHALE) == "20Hz"
+    assert tag_after_edit(humpback) is None

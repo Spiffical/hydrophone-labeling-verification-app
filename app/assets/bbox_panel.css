@@ -38,6 +38,25 @@
     background: var(--accent-subtle);
 }
 
+/* Shown beside a switched-off Draw until the reviewer adds a name. */
+.modal-bbox-toolbar__profile {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-toolbar__profile:hover {
+    background: var(--accent-subtle);
+    text-decoration: underline;
+}
+
 .modal-bbox-toolbar__untagged {
     color: var(--warning);
     font-weight: 700;
@@ -323,6 +342,13 @@
     margin: 0;
     border: 1.5px solid var(--text-secondary);
     cursor: pointer;
+}
+
+/* Rows of a species without tags have no checkbox; keep the columns lined up. */
+.modal-bbox-row__select-spacer {
+    flex: 0 0 1em;
+    width: 1em;
+    height: 1em;
 }
 
 .modal-bbox-bulk__all .form-check-input {
