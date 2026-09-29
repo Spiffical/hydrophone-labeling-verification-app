@@ -118,6 +118,8 @@ def register_verify_filter_callbacks(
     def render_verify_class_filter_tree(option_values, selected_values, expanded_values):
         option_values = ordered_unique_labels(option_values or [])
         if not option_values:
+            # Leave "select all" alone while classes load: unticking it here
+            # read as the reviewer clearing every class (see below).
             return (
                 html.Div("No classes available", className="text-muted small"),
                 [
@@ -128,7 +130,7 @@ def register_verify_filter_callbacks(
                         )
                     ),
                 ],
-                False,
+                no_update,
             )
 
         leaf_values = build_verify_leaf_paths(option_values)
@@ -251,16 +253,19 @@ def register_verify_filter_callbacks(
 
         triggered = ctx.triggered_id
 
+        # "Select all" is also set by render_verify_class_filter_tree to show
+        # the selection; only a value that disagrees with it is a click.
         if triggered == "verify-class-filter-select-all":
-            if bool(select_all_checked):
-                if current_values is None:
-                    raise PreventUpdate
-                return None
-            if selected_values:
-                return []
-            raise PreventUpdate
+            all_selected = current_values is None or set(selected_values) >= set(leaf_values)
+            if bool(select_all_checked) == all_selected:
+                raise PreventUpdate
+            return None if select_all_checked else []
 
         if not (isinstance(triggered, dict) and triggered.get("type") == "verify-filter-checkbox"):
+            raise PreventUpdate
+        # A click changes one box; a redrawn tree reports every box at once,
+        # which would otherwise toggle the first class on its own.
+        if len(ctx.triggered or []) != 1:
             raise PreventUpdate
 
         path = (triggered.get("path") or "").strip()
