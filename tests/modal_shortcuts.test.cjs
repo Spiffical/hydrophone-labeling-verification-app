@@ -68,10 +68,15 @@ test('B toggles draw mode, Esc stops it, and Enter saves and moves on', () => {
     assert.equal(s.press('b').prevented, true);
     assert.equal(s.press('Escape').prevented, true);
     assert.equal(s.press('Enter').prevented, true);
-    // A focused button keeps Enter for itself.
-    const onButton = s.press('Enter', { target: { closest: selector => (selector.includes('button') ? {} : null) } });
+    // A button reached with the keyboard keeps Enter for itself...
+    const keyboardFocused = { matches: selector => selector === ':focus-visible' };
+    const onButton = s.press('Enter', { target: { closest: selector => (selector.startsWith('button') ? keyboardFocused : null) } });
     assert.equal(onButton.prevented, undefined);
-    assert.deepEqual(actions, ['toggle', 'off', 'save-next']);
+    // ...but one that only kept focus after a mouse click (such as play) does not.
+    const mouseFocused = { matches: () => false };
+    const afterClick = s.press('Enter', { target: { closest: selector => (selector.startsWith('button') ? mouseFocused : null) } });
+    assert.equal(afterClick.prevented, true);
+    assert.deepEqual(actions, ['toggle', 'off', 'save-next', 'save-next']);
 });
 
 test('[ and ] (or Page Up/Down) turn the pages of a long clip', () => {

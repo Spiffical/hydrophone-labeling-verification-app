@@ -46,8 +46,10 @@
         }
 
         if (event.key === 'Enter') {
-            // A focused button or link keeps Enter for itself.
-            if (target && target.closest && target.closest('button, a, summary, [role="button"]')) return;
+            // A button or link reached with the keyboard keeps Enter for itself.
+            // One that only holds focus from a mouse click (say, play) does not.
+            const control = target && target.closest && target.closest('button, a, summary, [role="button"]');
+            if (control && (typeof control.matches !== 'function' || control.matches(':focus-visible'))) return;
             const workbench = window.modalWorkbench;
             if (!workbench) return;
             event.preventDefault();
