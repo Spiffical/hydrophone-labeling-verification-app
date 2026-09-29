@@ -382,7 +382,33 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
     )
 
 
-def _build_display_range_outputs(prefix, page_items, cfg, current_y_min, current_y_max, current_color_min, current_color_max):
+def _same_value(new, current):
+    if new is None or current is None:
+        return new is None and current is None
+    if isinstance(new, (list, tuple)) and isinstance(current, (list, tuple)):
+        return len(new) == len(current) and all(_same_value(a, b) for a, b in zip(new, current))
+    new_number, current_number = _coerce_float(new), _coerce_float(current)
+    if new_number is not None and current_number is not None:
+        return abs(new_number - current_number) <= 1e-9 * max(1.0, abs(current_number))
+    return new == current
+
+
+# Outputs that other callbacks listen to: the sliders' values and the min/max
+# inputs, which the grid is rendered from.
+_SLIDER_VALUE_OUTPUTS = {"y_slider": 3, "y_min": 6, "y_max": 7, "color_slider": 13, "color_min": 16, "color_max": 17}
+
+
+def _build_display_range_outputs(
+    prefix,
+    page_items,
+    cfg,
+    current_y_min,
+    current_y_max,
+    current_color_min,
+    current_color_max,
+    current_y_slider=None,
+    current_color_slider=None,
+):
     summary = _page_display_summary(page_items, cfg)
     triggered_id = ctx.triggered_id
     y_state = _frequency_slider_state(
@@ -399,7 +425,7 @@ def _build_display_range_outputs(prefix, page_items, cfg, current_y_min, current
         current_color_max,
         triggered_id,
     )
-    return (
+    outputs = [
         y_state[0],
         y_state[1],
         y_state[2],
@@ -426,7 +452,24 @@ def _build_display_range_outputs(prefix, page_items, cfg, current_y_min, current
             "colorbar": color_state[8],
             "colorbar_readout": color_state[4],
         },
-    )
+    ]
+    # Send only values that changed. Dash re-runs every callback downstream of
+    # an output even when its value is the same, so opening the Spectrogram
+    # menu re-rendered the grid and reloaded every card image.
+    current = {
+        "y_slider": current_y_slider,
+        "y_min": current_y_min,
+        "y_max": current_y_max,
+        "color_slider": current_color_slider,
+        "color_min": current_color_min,
+        "color_max": current_color_max,
+    }
+    for name, index in _SLIDER_VALUE_OUTPUTS.items():
+        if name.endswith("_slider") and current[name] is None:
+            continue  # not rendered yet
+        if _same_value(outputs[index], current[name]):
+            outputs[index] = no_update
+    return tuple(outputs)
 
 
 def _commit_frequency_slider(slider_value, slider_min, slider_max):
@@ -609,6 +652,8 @@ def register_display_range_callbacks(
         State("label-yaxis-max-input", "value"),
         State("label-colorbar-min-input", "value"),
         State("label-colorbar-max-input", "value"),
+        State("label-yaxis-slider", "value"),
+        State("label-colorbar-slider", "value"),
     )
     def sync_label_display_ranges(
         data,
@@ -621,6 +666,8 @@ def register_display_range_callbacks(
         current_y_max,
         current_color_min,
         current_color_max,
+        current_y_slider=None,
+        current_color_slider=None,
     ):
         _ = y_reset_clicks, color_reset_clicks
         if not int(details_clicks or 0) % 2:
@@ -638,6 +685,8 @@ def register_display_range_callbacks(
                 current_y_max,
                 current_color_min,
                 current_color_max,
+                current_y_slider,
+                current_color_slider,
             ),
             True,
         )
@@ -659,6 +708,8 @@ def register_display_range_callbacks(
         State("verify-yaxis-max-input", "value"),
         State("verify-colorbar-min-input", "value"),
         State("verify-colorbar-max-input", "value"),
+        State("verify-yaxis-slider", "value"),
+        State("verify-colorbar-slider", "value"),
     )
     def sync_verify_display_ranges(
         verify_cache_key,
@@ -675,6 +726,8 @@ def register_display_range_callbacks(
         current_y_max,
         current_color_min,
         current_color_max,
+        current_y_slider=None,
+        current_color_slider=None,
     ):
         _ = y_reset_clicks, color_reset_clicks, verify_cache_revision
         if not int(details_clicks or 0) % 2:
@@ -707,6 +760,8 @@ def register_display_range_callbacks(
                 current_y_max,
                 current_color_min,
                 current_color_max,
+                current_y_slider,
+                current_color_slider,
             ),
             True,
         )
@@ -724,6 +779,8 @@ def register_display_range_callbacks(
         State("explore-yaxis-max-input", "value"),
         State("explore-colorbar-min-input", "value"),
         State("explore-colorbar-max-input", "value"),
+        State("explore-yaxis-slider", "value"),
+        State("explore-colorbar-slider", "value"),
     )
     def sync_explore_display_ranges(
         data,
@@ -736,6 +793,8 @@ def register_display_range_callbacks(
         current_y_max,
         current_color_min,
         current_color_max,
+        current_y_slider=None,
+        current_color_slider=None,
     ):
         _ = y_reset_clicks, color_reset_clicks
         if not int(details_clicks or 0) % 2:
@@ -753,6 +812,8 @@ def register_display_range_callbacks(
                 current_y_max,
                 current_color_min,
                 current_color_max,
+                current_y_slider,
+                current_color_slider,
             ),
             True,
         )
