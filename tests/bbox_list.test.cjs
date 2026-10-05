@@ -604,3 +604,17 @@ test('with box checks on, rows to fix are marked, counted and can be listed alon
   assert.doesNotMatch(header.textContent, /To fix/);
   assert.equal(hints.hidden, true);
 });
+
+test('reference boxes in the figure meta are drawn dashed after the boxes', () => {
+  const { window } = load();
+  const { applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  const lynn = { type: 'time_freq_box', time_start_sec: 72.252, time_end_sec: 79.176, freq_min_hz: 16.388, freq_max_hz: 33.742 };
+  const figure = { data: [], layout: { meta: { x_min: 0, x_max: 300, y_min: 5, y_max: 100, reference_boxes: [lynn] }, shapes: [] } };
+  const fixed = box('30Hz', { annotation_extent: { ...lynn, time_start_sec: 75.0, time_end_sec: 76.8 } });
+  const shapes = applyBoxesToFigure(figure, [fixed]).layout.shapes;
+  assert.deepEqual(Array.from(shapes, shape => shape.name), ['playback-marker', 'bbox-0', 'ref-box-0']);
+  const reference = shapes[2];
+  assert.equal(reference.editable, false);
+  assert.equal(reference.line.dash, 'dash');
+  assert.deepEqual([reference.x0, reference.x1], [72.252, 79.176]);
+});

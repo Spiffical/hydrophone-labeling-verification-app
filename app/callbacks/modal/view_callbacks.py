@@ -14,6 +14,7 @@ from app.callbacks.modal.display_helpers import (
     resolve_mode_value,
     resolve_mode_y_axis_limits,
 )
+from app.services.modal_boxes import reference_box_extents
 from app.services.spectrogram_ranges import (
     config_for_spectrogram_range,
     format_frequency_range,
@@ -644,6 +645,8 @@ def register_modal_view_callbacks(
                 "page_display_y_max_hz": page_y_axis_max_hz,
                 "page_display_color_min": page_color_min,
                 "page_display_color_max": page_color_max,
+                # Drawn dashed beside the boxes (apply_modal_boxes_to_figure).
+                "reference_boxes": reference_box_extents(modal_item),
             }
         )
         fig.update_layout(meta=updated_meta)

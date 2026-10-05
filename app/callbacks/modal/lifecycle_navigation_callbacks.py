@@ -16,6 +16,7 @@ from app.components.audio_player import (
     EQ_LOW_FOCUS_MAX_HZ,
     create_modal_audio_player,
 )
+from app.services.modal_boxes import reference_box_extents
 from app.services.spectrogram_ranges import config_for_spectrogram_range, resolve_active_spectrogram_range
 from app.services.verify_modal_cache import get_verify_modal_item
 from app.utils.audio_settings import get_modal_amplification
@@ -558,6 +559,8 @@ def register_modal_lifecycle_navigation_callbacks(
                 "page_display_y_max_hz": page_y_axis_max_hz,
                 "page_display_color_min": page_display_color_min,
                 "page_display_color_max": page_display_color_max,
+                # Drawn dashed beside the boxes (apply_modal_boxes_to_figure).
+                "reference_boxes": reference_box_extents(source_item),
             }
         )
         fig.update_layout(meta=figure_meta)

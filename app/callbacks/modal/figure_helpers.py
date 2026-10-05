@@ -18,6 +18,10 @@ BBOX_DELETE_TRACE_NAME = "__bbox_delete_handle__"
 BBOX_EDIT_TRACE_NAME = "__bbox_edit_handle__"
 
 
+# Mirrors REFERENCE_BOX_LINE in bbox_clientside.js.
+REFERENCE_BOX_LINE = {"color": "rgba(255, 255, 255, 0.95)", "width": 1.5, "dash": "dash"}
+
+
 def patch_modal_boxes(figure_context, boxes, *, apply_boxes=None, **kwargs):
     """Update overlays without uploading or returning the spectrogram matrix."""
     context = deepcopy(figure_context) if isinstance(figure_context, dict) else {}
@@ -255,6 +259,29 @@ def apply_modal_boxes_to_figure(
         edit_x.append(x_edit)
         edit_y.append(y_edit)
         edit_indices.append(box_idx)
+
+    # Boxes kept for comparison (figure meta reference_boxes, e.g. the
+    # expert's originals on a correction dashboard): dashed and not editable,
+    # after the boxes so shape indices still match box indices.
+    meta = layout.get("meta") if isinstance(layout.get("meta"), dict) else {}
+    for ref_idx, extent in enumerate(meta.get("reference_boxes") or []):
+        rect = extent_to_shape(extent, axis_meta)
+        if rect is None:
+            continue
+        shape_list.append(
+            {
+                "type": "rect",
+                "name": f"ref-box-{ref_idx}",
+                "x0": rect["x0"],
+                "x1": rect["x1"],
+                "y0": rect["y0"],
+                "y1": rect["y1"],
+                "line": dict(REFERENCE_BOX_LINE),
+                "fillcolor": "rgba(0, 0, 0, 0)",
+                "editable": False,
+                "layer": "above",
+            }
+        )
 
     layout["shapes"] = shape_list
     layout["annotations"] = annotations

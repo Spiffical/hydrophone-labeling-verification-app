@@ -138,6 +138,28 @@ def axis_meta_from_figure(fig):
     }
 
 
+def reference_box_extents(item):
+    """Boxes kept on an item for comparison (``reference_boxes``), as clean extents.
+
+    A box-correction dashboard keeps the expert's original boxes there, in clip
+    time, so they can be drawn as dashed outlines beside the corrected boxes.
+    Loaded items keep extra source fields in ``metadata``.
+    """
+    source = item if isinstance(item, dict) else {}
+    reference = source.get("reference_boxes")
+    if reference is None:
+        metadata = source.get("metadata")
+        reference = metadata.get("reference_boxes") if isinstance(metadata, dict) else None
+    boxes = reference.get("boxes") if isinstance(reference, dict) else reference
+    extents = []
+    for box in boxes if isinstance(boxes, list) else []:
+        raw = box.get("annotation_extent", box) if isinstance(box, dict) else None
+        extent = clean_annotation_extent(raw)
+        if extent and extent.get("type") != "clip":
+            extents.append(extent)
+    return extents
+
+
 def extent_to_shape(extent, axis_meta):
     cleaned = clean_annotation_extent(extent)
     if not cleaned or cleaned.get("type") == "clip":

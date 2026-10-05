@@ -521,6 +521,9 @@
     return Number.isFinite(lower) && Number.isFinite(upper) && upper > lower ? [lower, upper] : null;
   }
 
+  // Mirrors REFERENCE_BOX_LINE in app/callbacks/modal/figure_helpers.py.
+  const REFERENCE_BOX_LINE = { color: 'rgba(255, 255, 255, 0.95)', width: 1.5, dash: 'dash' };
+
   function applyBoxesToFigure(figure, boxes) {
     if (!figure || typeof figure !== 'object') {
       return figure;
@@ -671,6 +674,19 @@
       editX.push(editHandle[0]);
       editY.push(editHandle[1]);
       editIndices.push(entry.boxIndex);
+    });
+    // Boxes kept for comparison (figure meta reference_boxes, e.g. the
+    // expert's originals on a correction dashboard): dashed and not editable,
+    // after the boxes so shape indices still match box indices.
+    const references = layout.meta && Array.isArray(layout.meta.reference_boxes) ? layout.meta.reference_boxes : [];
+    references.forEach(function (extent, refIndex) {
+      const rect = extentToShape(extent, axisMeta);
+      if (rect) {
+        shapes.push({
+          type: 'rect', name: 'ref-box-' + refIndex, x0: rect.x0, x1: rect.x1, y0: rect.y0, y1: rect.y1,
+          line: Object.assign({}, REFERENCE_BOX_LINE), fillcolor: 'rgba(0, 0, 0, 0)', editable: false, layer: 'above',
+        });
+      }
     });
 
     layout.shapes = shapes;

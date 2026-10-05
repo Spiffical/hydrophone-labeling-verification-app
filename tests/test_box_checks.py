@@ -71,3 +71,25 @@ def test_reviewer_notes_on_an_item_survive_loading(tmp_path):
     loaded = load_whale_mode({"whale": {"predictions_json": str(predictions)}})
     # Extra source fields are kept in metadata, where bbox_list.js reads them.
     assert loaded["items"][0]["metadata"]["review_hints"] == hints
+
+
+def test_reference_boxes_are_drawn_dashed_after_the_boxes():
+    from app.callbacks.modal.figure_helpers import apply_modal_boxes_to_figure
+    from app.services.modal_boxes import reference_box_extents
+
+    lynn = {"type": "time_freq_box", "time_start_sec": 72.252, "time_end_sec": 79.176,
+            "freq_min_hz": 16.388, "freq_max_hz": 33.742}
+    item = {"item_id": "clip-1", "metadata": {"reference_boxes": {
+        "title": "Lynn's boxes", "boxes": [{"annotation_extent": lynn, "tag": "30Hz"}, {"type": "clip"}, "bad"]}}}
+    assert reference_box_extents(item) == [lynn]
+    assert reference_box_extents({"reference_boxes": [lynn]}) == [lynn]
+    assert reference_box_extents({}) == []
+
+    figure = {"data": [], "layout": {"meta": {"x_min": 0, "x_max": 300, "y_min": 5, "y_max": 100,
+                                               "reference_boxes": reference_box_extents(item)}, "shapes": []}}
+    box = {"label": FIN, "decision": "accepted", "annotation_extent": dict(lynn, time_start_sec=75.0, time_end_sec=76.8)}
+    shapes = apply_modal_boxes_to_figure(figure, [box])["layout"]["shapes"]
+    assert [shape.get("name") for shape in shapes] == ["playback-marker", "bbox-0", "ref-box-0"]
+    reference = shapes[-1]
+    assert reference["editable"] is False and reference["line"]["dash"] == "dash"
+    assert (reference["x0"], reference["x1"]) == (72.252, 79.176)
