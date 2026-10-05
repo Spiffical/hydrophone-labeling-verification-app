@@ -520,3 +520,79 @@
         flex-basis: auto;
     }
 }
+
+/* Boxes to fix, on dashboards that turn on box checks (config box_checks). */
+.modal-bbox-panel,
+.modal-bbox-toolbar {
+    --bbox-fix: #c2410c;
+}
+
+.theme-dark .modal-bbox-panel,
+.theme-dark .modal-bbox-toolbar {
+    --bbox-fix: #f0883e;
+}
+
+.modal-bbox-toolbar__problems {
+    color: var(--bbox-fix);
+    font-weight: 700;
+}
+
+.modal-bbox-summary__problems {
+    padding: 1px 8px;
+    border: 1px solid var(--bbox-fix);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bbox-fix) 10%, transparent);
+    color: var(--bbox-fix);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.modal-bbox-summary__problems b {
+    color: inherit;
+}
+
+.modal-bbox-summary__problems.is-active {
+    background: var(--bbox-fix);
+    color: #ffffff;
+}
+
+.modal-bbox-summary__problems.is-zero {
+    border-color: var(--border);
+    background: none;
+    color: var(--success);
+}
+
+.modal-bbox-summary__problems:disabled {
+    cursor: default;
+}
+
+.modal-bbox-summary__problems:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.modal-bbox-row.has-problem {
+    box-shadow: inset 3px 0 0 var(--bbox-fix);
+}
+
+.modal-bbox-row__problem {
+    flex: 0 0 auto;
+    color: var(--bbox-fix);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.modal-bbox-hints {
+    margin: 0 0 8px;
+    padding: 6px 10px 6px 26px;
+    border-left: 3px solid var(--bbox-fix);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bbox-fix) 8%, transparent);
+    color: var(--text);
+    font-size: 12px;
+}
+
+.modal-bbox-hints[hidden] {
+    display: none;
+}

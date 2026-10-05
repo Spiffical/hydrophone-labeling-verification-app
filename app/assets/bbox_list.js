@@ -234,6 +234,64 @@
     return parts.length ? parts[parts.length - 1] : 'Unlabeled';
   }
 
+  // Box checks a dashboard can turn on (config box_checks), e.g. for a queue
+  // of boxes to tighten before training. Mirrors box_flags in the analysis
+  // repo's scripts/analysis/review_box_quality.py. `tagName` gives a tag's
+  // display name. Returns [{kind, text}] for the problems found.
+  function boxProblems(box, checks, tagName) {
+    if (!checks || typeof checks !== 'object' || !box || typeof box !== 'object') {
+      return [];
+    }
+    if (checks.label && String(box.label || '').trim() !== checks.label) {
+      return [];
+    }
+    const extent = box.annotation_extent && typeof box.annotation_extent === 'object' ? box.annotation_extent : {};
+    const start = finite(extent.time_start_sec);
+    const end = finite(extent.time_end_sec);
+    const low = finite(extent.freq_min_hz);
+    const high = finite(extent.freq_max_hz);
+    const problems = [];
+    const window = finite(checks.detector_window_seconds);
+    const longest = finite(checks.max_box_seconds);
+    if (start !== null && end !== null) {
+      const length = end - start;
+      const seconds = length.toFixed(1) + ' s long';
+      if (window !== null && length > window) {
+        problems.push({ kind: 'too_long', text: seconds + ', more than the detector’s ' + window + ' s window: tighten it to the call, or draw one box per call' });
+      } else if (longest !== null && length > longest) {
+        problems.push({ kind: 'loose', text: seconds + ': tighten it to the call, or draw one box per call' });
+      }
+    }
+    const tag = cleanTag(box.tag);
+    const bands = checks.tag_bands_hz && typeof checks.tag_bands_hz === 'object' ? checks.tag_bands_hz : {};
+    const band = tag && Array.isArray(bands[tag]) ? bands[tag].map(finite) : null;
+    if (band && band[0] !== null && band[1] !== null && low !== null && high !== null && !(low < band[1] && high > band[0])) {
+      const name = typeof tagName === 'function' ? tagName(tag) : tag;
+      problems.push({ kind: 'tag_band', text: 'Tagged ' + name + ' but sits at ' + Math.round(low) + '–' + Math.round(high) + ' Hz: check the tag' });
+    }
+    return problems;
+  }
+
+  // Notes for the reviewer stored on an item (review_hints): strings, or
+  // {text, only_without_boxes} for a note that no longer applies once the
+  // item has boxes. Loaded items keep extra source fields in `metadata`
+  // (unified_format_converter.py).
+  function itemHints(item, boxCount) {
+    const source = item && typeof item === 'object' ? item : {};
+    const metadata = source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    const raw = Array.isArray(source.review_hints) ? source.review_hints : metadata.review_hints;
+    const hints = Array.isArray(raw) ? raw : [];
+    return hints.map(function (hint) {
+      if (typeof hint === 'string') {
+        return hint.trim();
+      }
+      if (!hint || typeof hint !== 'object' || (hint.only_without_boxes && boxCount > 0)) {
+        return '';
+      }
+      return String(hint.text || '').trim();
+    }).filter(Boolean);
+  }
+
   window.bboxListModel = {
     cleanTag: cleanTag,
     normalizeOptions: normalizeOptions,
@@ -246,6 +304,8 @@
     applyTagChanges: applyTagChanges,
     tagForKey: tagForKey,
     describeExtent: describeExtent,
+    boxProblems: boxProblems,
+    itemHints: itemHints,
   };
 
   // ---------------------------------------------------------------------------
@@ -264,6 +324,9 @@
     readOnlyReason: '',
     activeTag: null,
     open: false,
+    // config.box_checks, when the dashboard turns them on; notes on the item.
+    checks: null,
+    hints: [],
   };
   const ui = {
     itemId: null,
@@ -274,6 +337,7 @@
     // Same for the tag-for-new-boxes choice: {tag, at} or null.
     pendingActive: null,
     untaggedOnly: false,
+    problemsOnly: false,
     expanded: readExpanded(),
   };
   const PENDING_MS = 5000;
@@ -400,10 +464,14 @@
     return Boolean(cleanTag(box && box.tag)) || boxOptions(box && box.label).length > 0;
   }
 
+  function problemsOf(box) {
+    return boxProblems(box, view.checks, function (tag) { return tagLabel(tag, view.allOptions); });
+  }
+
   function visibleIndices() {
     const indices = [];
     view.boxes.forEach(function (box, index) {
-      if (!ui.untaggedOnly || needsTag(box)) {
+      if ((!ui.untaggedOnly || needsTag(box)) && (!ui.problemsOnly || problemsOf(box).length)) {
         indices.push(index);
       }
     });
@@ -525,6 +593,7 @@
     }
     if (summary.total) {
       const text = summary.total + (summary.total === 1 ? ' box' : ' boxes');
+      const toFix = view.checks ? view.boxes.filter(function (box) { return problemsOf(box).length; }).length : 0;
       root.appendChild(el('button', {
         type: 'button',
         className: 'modal-bbox-toolbar__summary',
@@ -537,6 +606,7 @@
           : summary.untagged
             ? el('span', { className: 'modal-bbox-toolbar__untagged', text: ' · ' + summary.untagged + ' untagged' })
             : el('span', { className: 'modal-bbox-toolbar__done', text: ' · all tagged' }),
+        toFix ? el('span', { className: 'modal-bbox-toolbar__problems', text: ' · ' + toFix + ' to fix' }) : null,
         el('i', { className: 'bi bi-arrow-down-short', 'aria-hidden': 'true' }),
       ]));
     }
@@ -556,6 +626,7 @@
       view.bulk && view.anyTaggable,
       multiLabel,
       boxOptions(box && box.label),
+      view.checks,
     ]);
   }
 
@@ -689,6 +760,20 @@
     if (tagCell) {
       cells.push(tagCell);
     }
+    const problems = problemsOf(box);
+    if (problems.length) {
+      const length = problems.some(function (problem) { return problem.kind !== 'tag_band'; });
+      const detail = problems.map(function (problem) { return problem.text; }).join('\n');
+      cells.push(el('span', {
+        className: 'modal-bbox-row__problem',
+        title: detail,
+        'aria-label': 'To fix: ' + detail,
+      }, [
+        el('i', { className: 'bi bi-exclamation-triangle-fill', 'aria-hidden': 'true' }),
+        // The box's length is already in the row; name the kind of fix.
+        ' ' + (length ? 'Tighten' : 'Check tag'),
+      ]));
+    }
     if (view.editable) {
       cells.push(el('button', {
         type: 'button',
@@ -702,7 +787,7 @@
     return el('div', {
       className: 'modal-bbox-row' + (tag || !options.length ? '' : ' is-untagged') + (ui.selected.has(index) ? ' is-selected' : '')
         + (multiLabel ? ' has-label' : '') + (selectable ? ' has-select' : '')
-        + (view.editable ? '' : ' is-readonly'),
+        + (view.editable ? '' : ' is-readonly') + (problems.length ? ' has-problem' : ''),
       role: 'listitem',
       'data-index': index,
     }, cells);
@@ -753,7 +838,7 @@
       list.appendChild(el('div', {
         className: 'modal-bbox-empty',
         text: view.boxes.length
-          ? 'Every box has a tag.'
+          ? (ui.problemsOnly ? 'Nothing left to fix.' : 'Every box has a tag.')
           : (view.editable ? 'No boxes yet. Press Draw (B), then drag on the spectrogram.' : 'No boxes.'),
       }));
     }
@@ -786,6 +871,17 @@
         title: ui.untaggedOnly ? 'Show all boxes' : 'Show only untagged boxes',
         disabled: !summary.untagged && !ui.untaggedOnly,
       }, ['Untagged ', el('b', { text: String(summary.untagged) })]));
+    }
+    if (view.checks) {
+      const toFix = view.boxes.filter(function (box) { return problemsOf(box).length; }).length;
+      chips.push(el('button', {
+        type: 'button',
+        className: 'modal-bbox-summary__problems' + (toFix ? '' : ' is-zero') + (ui.problemsOnly ? ' is-active' : ''),
+        'data-action': 'filter-problems',
+        'aria-pressed': ui.problemsOnly ? 'true' : 'false',
+        title: ui.problemsOnly ? 'Show all boxes' : 'Show only boxes to fix',
+        disabled: !toFix && !ui.problemsOnly,
+      }, ['To fix ', el('b', { text: String(toFix) })]));
     }
     header.appendChild(el('div', { className: 'modal-bbox-panel__title' }, [
       'Boxes', el('span', { className: 'modal-bbox-count', text: String(summary.total) }),
@@ -861,6 +957,7 @@
     root.appendChild(el('div', { className: 'modal-bbox-panel__header' }));
     root.appendChild(el('div', { className: 'modal-bbox-bulk' }));
     root.appendChild(el('div', { className: 'modal-bbox-note' }));
+    root.appendChild(el('ul', { className: 'modal-bbox-hints', 'aria-label': 'Notes for this clip' }));
     root.appendChild(el('div', { className: 'modal-bbox-list', role: 'list', 'aria-label': 'Boxes' }));
     root.setAttribute('data-bbox-ready', '1');
   }
@@ -873,6 +970,12 @@
     const note = root.querySelector('.modal-bbox-note');
     note.textContent = view.readOnlyReason;
     note.hidden = !view.readOnlyReason;
+    const hints = root.querySelector('.modal-bbox-hints');
+    hints.textContent = '';
+    view.hints.forEach(function (text) {
+      hints.appendChild(el('li', { text: text }));
+    });
+    hints.hidden = !view.hints.length;
     const list = root.querySelector('.modal-bbox-list');
     list.classList.toggle('is-expanded', ui.expanded);
     patchRows(list, previousCount);
@@ -982,6 +1085,9 @@
       refresh();
     } else if (action === 'filter-untagged') {
       ui.untaggedOnly = !ui.untaggedOnly;
+      refresh();
+    } else if (action === 'filter-problems') {
+      ui.problemsOnly = !ui.problemsOnly;
       refresh();
     } else if (action === 'toggle-expand') {
       ui.expanded = !ui.expanded;
@@ -1181,11 +1287,16 @@
 
   window.dash_clientside = Object.assign({}, window.dash_clientside, {
     bboxList: {
-      render: function (bboxStore, activeTag, mode, currentItemId, profile, isOpen, listConfig) {
+      render: function (bboxStore, activeTag, mode, currentItemId, profile, isOpen, listConfig, item) {
         const config = listConfig && typeof listConfig === 'object' ? listConfig : {};
         const store = bboxStore && typeof bboxStore === 'object' ? bboxStore : {};
         const itemId = currentItemId || null;
         const boxes = store.item_id === itemId && Array.isArray(store.boxes) ? store.boxes : [];
+        view.checks = config.box_checks && typeof config.box_checks === 'object' ? config.box_checks : null;
+        view.hints = item && item.item_id === itemId ? itemHints(item, boxes.length) : [];
+        if (!view.checks) {
+          ui.problemsOnly = false;
+        }
         const complete = typeof interactions().profileIsComplete === 'function'
           ? interactions().profileIsComplete(profile)
           : false;
@@ -1216,6 +1327,7 @@
           ui.selected.clear();
           ui.pending.clear();
           ui.untaggedOnly = false;
+          ui.problemsOnly = false;
           const panel = document.getElementById(PANEL_ID);
           const list = panel && panel.querySelector('.modal-bbox-list');
           if (list) {

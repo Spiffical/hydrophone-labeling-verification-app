@@ -41,6 +41,8 @@ def test_modal_has_box_toolbar_panel_and_tag_stores():
         # Inline options without a species apply to every box.
         "tag_sets": [{"label": None, "options": TAGS}],
         "bulk_tagging": True,
+        # Off unless a dashboard turns them on (test_box_checks.py).
+        "box_checks": None,
     }
     help_text = " ".join(node for node in _walk(modal) if isinstance(node, str))
     assert "1–2" in help_text

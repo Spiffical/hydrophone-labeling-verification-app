@@ -16,6 +16,8 @@ def register_modal_bbox_list_callbacks(app):
         Input("user-profile-store", "data"),
         Input("image-modal", "is_open"),
         State("modal-bbox-list-config-store", "data"),
+        # Notes for the reviewer stored on the item (review_hints).
+        State("modal-item-store", "data"),
     )
 
     # Tag edits from the list: update boxes, figure overlays and unsaved state

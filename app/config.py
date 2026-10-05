@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -57,6 +57,43 @@ def _annotation_times_config(section: Any) -> Dict[str, Any]:
     except (TypeError, ValueError):
         window = None
     return {"legacy_window_s": window if window is not None and 0 < window <= 30 else None}
+
+
+def _box_checks_config(section: Any) -> Optional[Dict[str, Any]]:
+    """Checks that flag boxes to fix in the box list (bbox_list.js), for a
+    dashboard of boxes to correct. Off unless the config has this section.
+
+    - ``max_box_seconds``: longer boxes are flagged to tighten.
+    - ``detector_window_seconds``: longer boxes get a stronger message.
+    - ``tag_bands_hz``: ``{tag: [low, high]}``; a box with the tag must reach into the band.
+    - ``label``: only boxes of this label are checked (every box if unset).
+    """
+    if not isinstance(section, dict) or section.get("enabled") is False:
+        return None
+
+    def positive(key):
+        try:
+            value = float(section.get(key))
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    bands = {}
+    raw_bands = section.get("tag_bands_hz")
+    for tag, band in (raw_bands.items() if isinstance(raw_bands, dict) else []):
+        try:
+            low, high = float(band[0]), float(band[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+        if 0 <= low < high:
+            bands[str(tag)] = [low, high]
+    label = section.get("label")
+    return {
+        "label": label.strip() if isinstance(label, str) and label.strip() else None,
+        "max_box_seconds": positive("max_box_seconds"),
+        "detector_window_seconds": positive("detector_window_seconds"),
+        "tag_bands_hz": bands,
+    }
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -338,6 +375,8 @@ def get_config() -> Dict[str, Any]:
         "bounding_box_tags": load_bbox_tag_options(repo_root, bbox_tags_cfg),
         # The window older rounds' boxes were drawn with (annotation_times.py).
         "annotation_times": _annotation_times_config(config.get("annotation_times")),
+        # Boxes to flag for fixing in the box list; None unless turned on.
+        "box_checks": _box_checks_config(config.get("box_checks")),
         "server": {
             "host": args.host,
             "port": args.port,

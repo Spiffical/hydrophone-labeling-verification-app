@@ -449,6 +449,8 @@ def create_spectrogram_modal(config=None):
                             for tag_set in tag_sets
                         ],
                         "bulk_tagging": get_bbox_bulk_tagging(config),
+                        # Boxes to flag for fixing (config box_checks); None unless turned on.
+                        "box_checks": (config or {}).get("box_checks") if isinstance(config, dict) else None,
                     },
                 ),
                 dcc.Store(id='modal-bbox-list-render-sink', data=None),

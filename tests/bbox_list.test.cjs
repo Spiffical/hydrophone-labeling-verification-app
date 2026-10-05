@@ -310,7 +310,7 @@ function loadWithToolbar({ drawLabel = 'Bio > Humpback whale' } = {}) {
   const panel = new FakeElement('section');
   panel.setAttribute('data-bbox-ready', '1');
   const parts = {};
-  ['header', 'bulk', 'note', 'list'].forEach(part => { parts[part] = new FakeElement('div'); });
+  ['header', 'bulk', 'note', 'hints', 'list'].forEach(part => { parts[part] = new FakeElement('div'); });
   panel.querySelector = selector => parts[selector.replace('.modal-bbox-', '').replace('panel__', '')] || null;
   let profileClicks = 0;
   const elements = {
@@ -344,6 +344,8 @@ function loadWithToolbar({ drawLabel = 'Bio > Humpback whale' } = {}) {
     rows: () => parts.list.children.filter(node => node.classList.contains('modal-bbox-row')),
     header: parts.header,
     bulk: parts.bulk,
+    hints: parts.hints,
+    panel,
     window,
     list: window.dash_clientside.bboxList,
     profileClicks: () => profileClicks,
@@ -515,4 +517,90 @@ test('"Delete box" in the editor removes the box being edited', () => {
   const [next, , unsaved] = list.applyCommand(commands[0], store, figure, 'clip-1', 'verify', PROFILE);
   assert.deepEqual(Array.from(next.boxes, b => b.tag), ['40Hz']);
   assert.equal(unsaved.dirty, true);
+});
+
+test('box checks flag loose boxes, boxes longer than the detector window and tags outside their band', () => {
+  const { model } = load();
+  const checks = {
+    label: 'Bio > Fin whale',
+    max_box_seconds: 3,
+    detector_window_seconds: 9.6,
+    tag_bands_hz: { '20Hz': [0, 35], '40Hz': [35, 1000] },
+  };
+  const at = (tag, start, end, low, high) => box(tag, {
+    annotation_extent: { type: 'time_freq_box', time_start_sec: start, time_end_sec: end, freq_min_hz: low, freq_max_hz: high },
+  });
+  const kinds = b => Array.from(model.boxProblems(b, checks), problem => problem.kind);
+  assert.deepEqual(kinds(at('20Hz', 1, 2.5, 15, 30)), []);
+  assert.deepEqual(kinds(at('20Hz', 1, 4.5, 15, 30)), ['loose']);
+  // Longer than the window: one message, the stronger one.
+  assert.deepEqual(kinds(at('20Hz', 1, 12, 15, 30)), ['too_long']);
+  assert.match(model.boxProblems(at('20Hz', 1, 12, 15, 30), checks)[0].text, /^11\.0 s long, more than the detector/);
+  // A 20 Hz box above 35 Hz, and a 40 Hz box below it; touching the band is fine.
+  assert.deepEqual(kinds(at('20Hz', 1, 2, 41, 58)), ['tag_band']);
+  assert.deepEqual(kinds(at('40Hz', 1, 2, 16, 30)), ['tag_band']);
+  assert.deepEqual(kinds(at('40Hz', 1, 2, 30, 50)), []);
+  assert.equal(model.boxProblems(at('20Hz', 1, 2, 41, 58), checks, () => '20 Hz')[0].text,
+    'Tagged 20 Hz but sits at 41–58 Hz: check the tag');
+  assert.deepEqual(kinds(at('20Hz', 0, 20, 41, 58)), ['too_long', 'tag_band']);
+  // Untagged boxes are already marked by the list; a tag without a band is not checked.
+  assert.deepEqual(kinds(at(null, 1, 2, 41, 58)), []);
+  assert.deepEqual(kinds(at('30Hz', 1, 2, 41, 58)), []);
+  // Only the configured species, and nothing when the checks are off.
+  assert.deepEqual(kinds(at('20Hz', 1, 12, 15, 30, ) && { ...at('20Hz', 1, 12, 15, 30), label: 'Bio > Blue whale' }), []);
+  assert.deepEqual(Array.from(model.boxProblems(at('20Hz', 1, 12, 15, 30), null)), []);
+});
+
+test('item notes show until they no longer apply', () => {
+  const { model } = load();
+  const item = { item_id: 'clip-1', review_hints: [
+    'Box at 0.5–2.1 s may start earlier',
+    { text: 'Accepted as fin whale with no boxes: draw a box on each call', only_without_boxes: true },
+    { text: '  ' },
+    7,
+  ] };
+  assert.deepEqual(Array.from(model.itemHints(item, 0)), [
+    'Box at 0.5–2.1 s may start earlier',
+    'Accepted as fin whale with no boxes: draw a box on each call',
+  ]);
+  assert.deepEqual(Array.from(model.itemHints(item, 2)), ['Box at 0.5–2.1 s may start earlier']);
+  assert.deepEqual(Array.from(model.itemHints({ item_id: 'clip-2' }, 0)), []);
+  // Loaded items keep the notes in metadata.
+  assert.deepEqual(Array.from(model.itemHints({ item_id: 'clip-3', metadata: { review_hints: ['note'] } }, 0)), ['note']);
+  assert.deepEqual(Array.from(model.itemHints(null, 0)), []);
+});
+
+test('with box checks on, rows to fix are marked, counted and can be listed alone', () => {
+  const { toolbar, rows, header, hints, panel, list } = loadWithToolbar({ drawLabel: FIN });
+  const config = { ...SPECIES_CONFIG, box_checks: { label: FIN, max_box_seconds: 3, detector_window_seconds: 9.6, tag_bands_hz: { '20Hz': [0, 35] } } };
+  const at = (tag, start, end, low, high) => box(tag, {
+    label: FIN, annotation_extent: { type: 'time_freq_box', time_start_sec: start, time_end_sec: end, freq_min_hz: low, freq_max_hz: high },
+  });
+  const store = { item_id: 'clip-1', boxes: [at('20Hz', 1, 2, 15, 30), at('20Hz', 5, 17, 15, 30), at('20Hz', 20, 21, 41, 58)] };
+  const item = { item_id: 'clip-1', review_hints: ['Box at 0.5\u20132.1 s may start earlier'] };
+  list.render(store, null, 'verify', 'clip-1', PROFILE, true, config, item);
+  const problem = row => row.children.find(node => node.classList && node.classList.contains('modal-bbox-row__problem'));
+  assert.deepEqual(rows().map(row => row.classList.contains('has-problem')), [false, true, true]);
+  assert.match(problem(rows()[1]).getAttribute('title'), /^12\.0 s long, more than the detector/);
+  assert.match(problem(rows()[2]).textContent, /Check tag/);
+  assert.match(header.textContent, /To fix 2/);
+  assert.match(toolbar.textContent, /3 boxes .* · 2 to fix/);
+  assert.equal(hints.hidden, false);
+  assert.match(hints.textContent, /may start earlier/);
+
+  // "To fix" lists only those boxes; fixing one takes it off the list.
+  const filter = find(header, node => node.getAttribute('data-action') === 'filter-problems');
+  // The list's click handler sits on the panel; the fake parts are not its children.
+  panel.listeners.click.forEach(handler => handler({ target: filter, currentTarget: { contains: () => true } }));
+  assert.deepEqual(rows().map(row => row.getAttribute('data-index')), ['1', '2']);
+  const fixed = { item_id: 'clip-1', boxes: [store.boxes[0], at('20Hz', 5, 6.2, 15, 30), store.boxes[2]] };
+  list.render(fixed, null, 'verify', 'clip-1', PROFILE, true, config, item);
+  assert.deepEqual(rows().map(row => row.getAttribute('data-index')), ['2']);
+  assert.match(header.textContent, /To fix 1/);
+
+  // Without box checks nothing is flagged, and the notes belong to their own clip.
+  list.render(store, null, 'verify', 'clip-1', PROFILE, true, SPECIES_CONFIG, { item_id: 'clip-9', review_hints: ['other'] });
+  assert.deepEqual(rows().map(row => row.classList.contains('has-problem')), [false, false, false]);
+  assert.doesNotMatch(header.textContent, /To fix/);
+  assert.equal(hints.hidden, true);
 });
