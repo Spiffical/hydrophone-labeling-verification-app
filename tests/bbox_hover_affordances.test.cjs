@@ -22,8 +22,9 @@ function rect(left, top, width, height) {
   return { left, top, right: left + width, bottom: top + height, width, height };
 }
 
-// One box on the spectrogram with its × and ✎ handles, as Plotly renders them.
-function load() {
+// One box on the spectrogram with its × and ✎ handles, as Plotly renders them;
+// with `reference`, also the expert's box around it (ref-box-0).
+function load({ reference = false } = {}) {
   const handle = (glyph, bounds) => {
     const point = { classList: classList(), getBoundingClientRect: () => bounds };
     const text = { classList: classList(), getBoundingClientRect: () => bounds };
@@ -38,16 +39,17 @@ function load() {
   };
   const del = handle('×', rect(212, 88, 10, 10));
   const edit = handle('✎', rect(212, 130, 10, 10));
-  const shape = { getAttribute: () => '0', getBoundingClientRect: () => rect(150, 100, 50, 80) };
+  const shape = { getAttribute: () => '0', getBoundingClientRect: () => rect(150, 100, 50, 80), style: {} };
+  const outline = { getAttribute: () => '1', getBoundingClientRect: () => rect(120, 90, 120, 110), style: {} };
   const plot = {
     classList: classList(),
-    layout: { shapes: [{ name: 'bbox-0' }] },
+    layout: { shapes: reference ? [{ name: 'bbox-0' }, { name: 'ref-box-0' }] : [{ name: 'bbox-0' }] },
     data: [
       { name: '__bbox_delete_handle__', customdata: [0] },
       { name: '__bbox_edit_handle__', customdata: [0] },
     ],
     querySelector: () => null,
-    querySelectorAll: selector => (selector.includes('shapelayer') ? [shape] : [del.trace, edit.trace]),
+    querySelectorAll: selector => (selector.includes('shapelayer') ? (reference ? [shape, outline] : [shape]) : [del.trace, edit.trace]),
   };
   const graphListeners = {};
   const documentListeners = {};
@@ -75,7 +77,7 @@ function load() {
     documentListeners[type] = listeners.filter(entry => !entry.once);
     listeners.forEach(entry => entry.listener(event));
   };
-  return { hover: window.bboxHover, plot, del, fire, fireDocument };
+  return { hover: window.bboxHover, window, plot, shape, outline, del, fire, fireDocument };
 }
 
 test('hovering a box shows its handles and a pointer over its ×', () => {
@@ -110,6 +112,42 @@ test('releasing a press off the plot clears the hovered box', () => {
   s.fire('mouseleave', { clientX: 170, clientY: 140, buttons: 1 });
   s.fireDocument('mouseup', { clientX: 900, clientY: 700 });
   assert.equal(s.hover.activeBox, null);
+});
+
+test('the expert outlines let the pointer through; boxes stay draggable', () => {
+  // Shape editing makes every shape draggable; a drag starting inside an
+  // outline must pan or draw instead of moving the outline.
+  const s = load({ reference: true });
+  assert.equal(s.outline.style.pointerEvents, 'none');
+  assert.equal(s.shape.style.pointerEvents, undefined);
+  s.fire('mousemove', { clientX: 130, clientY: 95, buttons: 0 });
+  assert.equal(s.hover.activeBox, null, 'inside the outline only, no box is hovered');
+  s.fire('mousemove', { clientX: 170, clientY: 140, buttons: 0 });
+  assert.equal(s.hover.activeBox, 0);
+});
+
+test('scrolling over a box zooms like scrolling over the plot', () => {
+  // Plotly zooms on wheel events at its drag layer; boxes are drawn above it.
+  const s = load();
+  const sent = [];
+  const area = { getBoundingClientRect: () => rect(0, 0, 600, 400), dispatchEvent: event => sent.push(event) };
+  s.plot.querySelector = selector => (selector === '.nsewdrag' ? area : null);
+  s.window.WheelEvent = class { constructor(type, init) { Object.assign(this, init, { type }); } };
+  const wheel = (inBox) => {
+    const event = {
+      target: { closest: selector => (inBox && selector === '.shapelayer' ? {} : null) },
+      clientX: 170, clientY: 140, deltaX: 0, deltaY: -120, deltaMode: 0,
+      prevented: false, preventDefault() { this.prevented = true; }, stopPropagation() {},
+    };
+    s.fire('wheel', event);
+    return event;
+  };
+
+  assert.equal(wheel(true).prevented, true);
+  assert.equal(sent.length, 1);
+  assert.deepEqual([sent[0].type, sent[0].clientX, sent[0].clientY, sent[0].deltaY, sent[0].bubbles], ['wheel', 170, 140, -120, true]);
+  assert.equal(wheel(false).prevented, false, 'elsewhere Plotly gets the wheel itself');
+  assert.equal(sent.length, 1);
 });
 
 test('only a shown ✎ takes clicks; the × leaves them to Plotly', () => {

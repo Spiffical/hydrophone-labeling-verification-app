@@ -502,6 +502,8 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
     height: auto;
 }
 
+/* In a window too short for all of it, the card scrolls rather than cut off
+   the end of the list. */
 .modal-workbench-side > .modal-bbox-panel {
     flex: 1 1 0;
     min-height: 0;
@@ -510,12 +512,24 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
     display: flex;
     flex-direction: column;
     container-type: inline-size;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
+/* The list takes the space left; its rows scroll. When space is short the
+   notes on the clip give way first, down to two lines (then they scroll),
+   and the list keeps at least a row or two. */
 .modal-workbench-side .modal-bbox-list {
-    flex: 1 1 auto;
-    min-height: 120px;
+    flex: 1 1 100px;
+    min-height: 64px;
     max-height: none;
+}
+
+.modal-workbench-side .modal-bbox-hints {
+    flex: 0 4 auto;
+    min-height: 4em;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .modal-workbench-side .modal-bbox-expand {
@@ -639,7 +653,14 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
         max-height: none;
     }
 
+    /* The body scrolls here, so the card is as tall as its contents. */
+    .modal-workbench-side > .modal-bbox-panel {
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
     .modal-workbench-side .modal-bbox-list {
+        flex: 0 0 auto;
         max-height: 50vh;
     }
 }

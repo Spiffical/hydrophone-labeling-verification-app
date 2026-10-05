@@ -266,9 +266,53 @@
         event.stopPropagation();
       }
     }, true);
+    // Scrolling over the plot zooms it about the pointer (scrollZoom in
+    // modal.py). Plotly listens for the wheel on its drag layer, which the
+    // boxes are drawn over, so a wheel on a box is passed down to it.
+    graph.addEventListener('wheel', function (event) {
+      const target = event.target;
+      const area = plotOf(graph).querySelector('.nsewdrag');
+      if (
+        !area || typeof window.WheelEvent !== 'function' ||
+        !target || typeof target.closest !== 'function' || !target.closest('.shapelayer')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      area.dispatchEvent(new window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaZ: event.deltaZ,
+        deltaMode: event.deltaMode,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+      }));
+    }, { capture: true, passive: false });
   }
 
   let lastBoxCount = null;
+
+  // Reference boxes (ref-box-<i>, e.g. the expert's boxes on a correction
+  // dashboard) are only to look at. Shape editing (edits.shapePosition) makes
+  // every shape draggable, so a drag starting inside one would move it
+  // instead of panning or drawing a box; let the pointer through to the plot.
+  function passThroughReferenceShapes(plot, shapes) {
+    plot.querySelectorAll('.shapelayer path[data-index]').forEach(function (path) {
+      const shape = shapes[Number(path.getAttribute('data-index'))];
+      if (shape && /^ref-box-/.test(String(shape.name || '')) && path.style.pointerEvents !== 'none') {
+        path.style.pointerEvents = 'none';
+      }
+    });
+  }
 
   // Plotly redraws recreate the handle elements; reapply the current state.
   function scan() {
@@ -283,6 +327,7 @@
     bindGraph(graph);
     const plot = plotOf(graph);
     const shapes = plot.layout && Array.isArray(plot.layout.shapes) ? plot.layout.shapes : [];
+    passThroughReferenceShapes(plot, shapes);
     const boxCount = shapes.filter(function (shape) { return /^bbox-\d+$/.test(String((shape || {}).name || '')); }).length;
     if (lastBoxCount !== null && boxCount !== lastBoxCount) {
       // Adding or deleting a box renumbers the rest; start hover afresh.

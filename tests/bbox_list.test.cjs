@@ -618,3 +618,27 @@ test('reference boxes in the figure meta are drawn dashed after the boxes', () =
   assert.equal(reference.line.dash, 'dash');
   assert.deepEqual([reference.x0, reference.x1], [72.252, 79.176]);
 });
+
+test('with reference boxes on the plot, a drag adds the drawn box and a deletion still deletes', () => {
+  // Plotly reports every shape after a drag. Reference boxes are shapes but
+  // not boxes, so they must not be taken for the new box or keep a deleted one.
+  const { window } = load();
+  const { updateBoxesFromGraph, applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  const extent = (start, end, low, high) => ({ type: 'time_freq_box', time_start_sec: start, time_end_sec: end, freq_min_hz: low, freq_max_hz: high });
+  const lynn = [extent(9.658, 14.824, 40.194, 72.231), extent(32.671, 36.898, 39.971, 63.332)];
+  const fixed = [box('40Hz', { annotation_extent: extent(10.5, 12.3, 40.194, 72.231) }),
+    box('40Hz', { annotation_extent: { ...lynn[1] } })]; // kept as she drew it
+  const base = { data: [], layout: { meta: { x_min: 0, x_max: 419.459, y_min: 5, y_max: 100, reference_boxes: lynn }, shapes: [] } };
+  const shapes = Array.from(applyBoxesToFigure(base, fixed).layout.shapes);
+  const store = { item_id: 'clip-1', boxes: fixed };
+  const run = (payload, active) => updateBoxesFromGraph(payload, store, base, active, 'clip-1', 'verify', PROFILE, null, null, { tag_options: OPTIONS })[0];
+
+  const drawn = { type: 'rect', x0: 307, x1: 312, y0: 47, y1: 62 };
+  const added = run({ shapes: shapes.concat([drawn]) }, { label: 'Bio > Fin whale', allow_existing: true });
+  assert.equal(added.boxes.length, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(added.boxes[2].annotation_extent)), extent(307, 312, 47, 62));
+
+  // Deleting the kept box leaves its reference outline at the same place.
+  const deleted = run({ shapes: shapes.filter(shape => shape.name !== 'bbox-1') }, null);
+  assert.deepEqual(Array.from(deleted.boxes, b => b.annotation_extent.time_start_sec), [10.5]);
+});

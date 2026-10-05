@@ -94,6 +94,10 @@ def test_modal_graph_hides_plotly_shape_modebar_buttons():
     assert config["edits"]["shapePosition"] is True
 
 
+def test_modal_graph_zooms_on_scroll():
+    assert _modal_graph().config["scrollZoom"] is True
+
+
 def test_spectrogram_modal_includes_bbox_editor_and_configured_tags():
     modal = create_spectrogram_modal(
         {"bounding_box_tags": {"options": [{"label": "20 Hz", "value": "20Hz"}]}}
@@ -138,6 +142,23 @@ def test_filter_payload_shapes_keeps_only_rectangles():
     )
 
     assert payload_shapes == [{"type": "rect", "x0": 1, "x1": 2, "y0": 10, "y1": 20}]
+
+
+def test_filter_payload_shapes_skips_reference_boxes():
+    drawn = {"type": "rect", "x0": 307, "x1": 312, "y0": 47, "y1": 62}
+    payload_shapes = filter_payload_shapes(
+        {
+            "shapes": [
+                {"type": "line", "name": "playback-marker"},
+                {"type": "rect", "name": "bbox-0", "x0": 10, "x1": 12, "y0": 45, "y1": 60},
+                {"type": "rect", "name": "ref-box-0", "x0": 9.658, "x1": 14.824, "y0": 40.194, "y1": 72.231},
+                drawn,
+            ]
+        }
+    )
+
+    assert [shape.get("name") for shape in payload_shapes] == ["bbox-0", None]
+    assert payload_shapes[-1] is drawn
 
 
 def test_extract_coord_updates_ignores_playback_marker_and_offsets_box_index():

@@ -251,6 +251,8 @@ def create_spectrogram_modal(config=None):
                         config={
                             'displayModeBar': True,
                             'displaylogo': False,
+                            # Scrolling over the plot zooms about the pointer.
+                            'scrollZoom': True,
                             # Kept in the DOM for instant programmatic bbox activation.
                             'modeBarButtonsToAdd': ['drawrect'],
                             'modeBarButtonsToRemove': [

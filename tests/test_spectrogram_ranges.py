@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from app.services.spectrogram_ranges import (
     add_custom_spectrogram_range,
     config_for_spectrogram_range,
@@ -300,13 +304,32 @@ def test_modal_range_panels_line_up_with_the_main_plot_in_clip_time(mock_config,
     panels = [node for node in above + below if "spectrogram-panel-splitter" not in (node.className or "")]
     figure = panels[0].children[1].figure
     image = figure.layout.images[0]
-    assert (image.xref, image.yref, image.x, image.sizex) == ("x", "paper", 0.375, 9.0)
-    # The panel starts on the main plot's window and never zooms on its own
+    assert (image.xref, image.yref, image.x, image.sizex) == ("x", "y", 0.375, 9.0)
+    # The image covers the band on the frequency axis, so it moves with a
+    # frequency zoom on the panel (modal_range_panels.js).
+    assert (image.y, image.sizey) == (32000.0, 30000.0)
+    assert list(figure.layout.yaxis.range) == [2000.0, 32000.0]
+    # Plotly keeps a frequency zoom while the figure stays for this clip and band.
+    assert figure.layout.uirevision == "clip-1|high|2000|32000|linear"
+    # The panel starts on the main plot's window; Plotly does not zoom it
     # (modal_range_panels.js keeps it on the main plot's window and margins).
     assert list(figure.layout.xaxis.range) == [2.0, 4.0]
     assert figure.layout.xaxis.tickformat == ".2f"
     assert figure.layout.xaxis.fixedrange and figure.layout.yaxis.fixedrange
     assert figure.layout.xaxis.automargin is False and figure.layout.yaxis.automargin is False
+
+    # On a log axis the band is in decades, for the axis and the image alike.
+    _title, _readout, above, below, _section, _only_range = render(
+        {"item_id": "clip-1", "audio_path": "clip-1.wav"},
+        state, cfg, "default", "log", {}, active_figure, None, None, None,
+    )
+    panels = [node for node in above + below if "spectrogram-panel-splitter" not in (node.className or "")]
+    figure = panels[0].children[1].figure
+    image = figure.layout.images[0]
+    low, high = math.log10(2000.0), math.log10(32000.0)
+    assert figure.layout.yaxis.type == "log"
+    assert list(figure.layout.yaxis.range) == pytest.approx([low, high])
+    assert (image.yref, image.y, image.sizey) == ("y", pytest.approx(high), pytest.approx(high - low))
 
 
 def test_modal_panels_have_splitters_controls_and_their_band(mock_config):

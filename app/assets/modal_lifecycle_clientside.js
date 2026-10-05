@@ -174,6 +174,10 @@
     // Long clips reset to the page on screen, not the whole clip (modal_paging.js).
     const pageRange = window.modalPaging && window.modalPaging.homeRange();
     if (pageRange) ranges.x = pageRange;
+    // The other spectrograms' frequency zoom resets too (modal_range_panels.js).
+    if (window.modalRangePanels && typeof window.modalRangePanels.resetBands === 'function') {
+      window.modalRangePanels.resetBands();
+    }
     graph._hydrophoneAxisResetPending = true;
     restoreFullRaster(graph);
     window.requestAnimationFrame(function () {

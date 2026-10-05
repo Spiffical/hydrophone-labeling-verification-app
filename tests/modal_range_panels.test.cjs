@@ -5,30 +5,36 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 // A main spectrogram with a colour bar (plot area 101-946 px on the page) and
-// one other range under it, as the modal lays them out.
-function plot({ left, width, size, range, meta = {} }) {
+// one other range under it, as the modal lays them out. Plot areas start 100 px
+// down the page.
+function plot({ left, width, size, range, yRange, yType = 'linear', meta = {} }) {
   const handlers = {};
+  const listeners = {};
   const gd = {
     layout: { meta },
-    _fullLayout: { _size: size, xaxis: { range }, yaxis: { type: 'linear' }, dragmode: false },
+    _fullLayout: { _size: size, xaxis: { range }, yaxis: { type: yType, range: yRange }, dragmode: false },
     // Already showing the clip's (no) boxes.
     _rangePanelShapes: '[]',
     _rangePanelLayout: null,
-    getBoundingClientRect: () => ({ left, right: left + width, width }),
+    getBoundingClientRect: () => ({ left, right: left + width, width, top: 100 }),
     on(name, handler) { handlers[name] = handler; },
+    addEventListener(name, handler) { listeners[name] = handler; },
     handlers,
+    listeners,
   };
   gd._rangePanelLayout = gd.layout;
   return gd;
 }
 
 function load({ panelLeft = 44, panelWidth = 1006, panelSize = { l: 70, r: 36, w: 900 }, panelRange = [0, 9.75],
-  boxes = [], drawing = false } = {}) {
+  panelYRange = [5, 125], panelYType = 'linear', boxes = [], drawing = false } = {}) {
   const main = plot({ left: 44, width: 1006, size: { l: 57, r: 104, w: 845 }, range: [2, 4] });
   // The Low range (5-125 Hz) of a 10 s clip.
   const panel = plot({ left: panelLeft, width: panelWidth, size: panelSize, range: panelRange,
+    yRange: panelYRange, yType: panelYType,
     meta: { range_id: 'low', freq_min_hz: 5, freq_max_hz: 125, x_min: 0, x_max: 10, x_to_seconds: 1 } });
   const relayouts = [];
+  const targets = [];
   const added = [];
   let drawSubscriber = null;
   const window = {
@@ -39,8 +45,8 @@ function load({ panelLeft = 44, panelWidth = 1006, panelSize = { l: 70, r: 36, w
     Plotly: {
       relayout(gd, update) {
         if ('dragmode' in update) gd._fullLayout.dragmode = update.dragmode;
-        
         relayouts.push(JSON.parse(JSON.stringify(update)));
+        targets.push(gd === main ? 'main' : 'panel');
         return Promise.resolve();
       },
     },
@@ -57,8 +63,25 @@ function load({ panelLeft = 44, panelWidth = 1006, panelSize = { l: 70, r: 36, w
       window, document, MutationObserver,
     });
   }
-  return { window, main, panel, relayouts, added, setDrawing: on => { drawing = on; }, drawSubscriber: () => drawSubscriber };
+  return { window, main, panel, relayouts, targets, added, setDrawing: on => { drawing = on; }, drawSubscriber: () => drawSubscriber };
 }
+
+// A panel lined up with the main plot (plot area 101-946 px across, 112-400 px down).
+const LINED_UP = { panelSize: { l: 57, r: 104, w: 845, t: 12, h: 288 }, panelRange: [2, 4] };
+const STEP_IN = Math.exp(-0.1); // Plotly's largest scroll step, one wheel notch
+
+function wheelAt(s, across, up, deltaY) {
+  const event = {
+    clientX: 101 + 845 * across, clientY: 400 - 288 * up, deltaY,
+    prevented: false, preventDefault() { this.prevented = true; },
+  };
+  s.panel.listeners.wheel(event);
+  return event;
+}
+
+const near = (actual, expected) => assert.ok(
+  actual.length === expected.length && actual.every((value, index) => Math.abs(value - expected[index]) < 1e-9),
+  JSON.stringify(actual) + ' vs ' + JSON.stringify(expected));
 
 test('other ranges take the main plot\'s plot-area edges and time window', () => {
   const { window, relayouts } = load();
@@ -141,4 +164,90 @@ test('a figure from the server gets its boxes back', () => {
   s.panel.layout = { meta: s.panel.layout.meta };  // Plotly.react with a new figure
   s.window.modalRangePanels.sync();
   assert.equal(s.relayouts.filter(update => update.shapes).length, applied + 1);
+});
+
+test('scrolling over a panel zooms time on the main plot and frequency in the panel, about the pointer', () => {
+  const s = load(LINED_UP);
+  s.window.modalRangePanels.sync();
+  const event = wheelAt(s, 0.5, 0.25, -120);
+  assert.equal(event.prevented, true);
+  // Time about 3 s on the main plot, which every panel follows; frequency about 35 Hz.
+  assert.deepEqual(s.targets, ['main', 'panel']);
+  near(s.relayouts[0]['xaxis.range'], [3 - STEP_IN, 3 + STEP_IN]);
+  assert.equal(s.relayouts[0]['xaxis.autorange'], false);
+  near(s.relayouts[1]['yaxis.range'], [35 - 30 * STEP_IN, 35 + 90 * STEP_IN]);
+});
+
+test('a panel zooms out no further than its band, and stays inside it', () => {
+  const s = load(LINED_UP);
+  s.window.modalRangePanels.sync();
+  wheelAt(s, 0.5, 0.5, 120);
+  near(s.relayouts.at(-1)['yaxis.range'], [5, 125]);
+  // Zoomed in at the top of the band, zooming out moves the window down.
+  s.panel._fullLayout.yaxis.range = [100, 125];
+  wheelAt(s, 0.5, 0.8, 120);
+  const range = s.relayouts.at(-1)['yaxis.range'];
+  near([range[1]], [125]);
+  near([range[1] - range[0]], [25 / STEP_IN]);
+});
+
+test('scrolling over a panel\'s axes or margins scrolls the page', () => {
+  const s = load(LINED_UP);
+  s.window.modalRangePanels.sync();
+  assert.equal(wheelAt(s, -0.02, 0.5, -120).prevented, false);
+  assert.equal(wheelAt(s, 0.5, 1.05, -120).prevented, false);
+  assert.deepEqual(s.relayouts, []);
+});
+
+test('on a log axis a panel zooms in decades', () => {
+  const band = [Math.log10(5), Math.log10(125)];
+  const s = load({ ...LINED_UP, panelYRange: band.slice(), panelYType: 'log' });
+  s.window.modalRangePanels.sync();
+  wheelAt(s, 0.5, 0.5, -120);
+  const middle = (band[0] + band[1]) / 2;
+  const half = (band[1] - band[0]) / 2;
+  near(s.relayouts.at(-1)['yaxis.range'], [middle - half * STEP_IN, middle + half * STEP_IN]);
+});
+
+test('a double-click on a panel resets the zoom, and a reset puts every panel back on its band', () => {
+  const s = load(LINED_UP);
+  s.window.modalRangePanels.sync();
+  // Plotly's drag cover takes the native dblclick; its own clicks carry the count.
+  s.panel.listeners.click({ detail: 1 });
+  assert.deepEqual(s.relayouts, []);
+  s.panel.listeners.click({ detail: 2 });
+  assert.deepEqual(s.relayouts.at(-1), { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  assert.equal(s.targets.at(-1), 'main');
+  s.panel._fullLayout.yaxis.range = [20, 60];
+  s.window.modalRangePanels.resetBands();
+  assert.deepEqual(s.relayouts.at(-1), { 'yaxis.range': [5, 125] });
+  assert.equal(s.targets.at(-1), 'panel');
+  s.panel._fullLayout.yaxis.range = [5, 125];
+  const count = s.relayouts.length;
+  s.window.modalRangePanels.resetBands();
+  assert.equal(s.relayouts.length, count, 'already on its band');
+});
+
+test('a panel keeps its frequency zoom when Dash sends it again for the same clip and band', () => {
+  const s = load(LINED_UP);
+  s.panel.layout.uirevision = 'clip-1|low|5|125|linear';
+  s.window.modalRangePanels.sync();
+  wheelAt(s, 0.5, 0.25, -120);
+  const zoomed = s.relayouts.at(-1)['yaxis.range'];
+  // Re-created on the whole band (after a box is drawn): sync puts the zoom back.
+  s.panel.layout = { meta: s.panel.layout.meta, uirevision: 'clip-1|low|5|125|linear' };
+  s.panel._fullLayout.yaxis.range = [5, 125];
+  s.window.modalRangePanels.sync();
+  near(s.relayouts.at(-1)['yaxis.range'], zoomed);
+  // Another clip starts on its whole band; so does every panel after a reset.
+  s.panel._fullLayout.yaxis.range = [5, 125];
+  s.panel.layout = { meta: s.panel.layout.meta, uirevision: 'clip-2|low|5|125|linear' };
+  let count = s.relayouts.length;
+  s.window.modalRangePanels.sync();
+  assert.ok(s.relayouts.slice(count).every(update => !('yaxis.range' in update)));
+  s.panel.layout = { meta: s.panel.layout.meta, uirevision: 'clip-1|low|5|125|linear' };
+  s.window.modalRangePanels.resetBands();
+  count = s.relayouts.length;
+  s.window.modalRangePanels.sync();
+  assert.ok(s.relayouts.slice(count).every(update => !('yaxis.range' in update)));
 });

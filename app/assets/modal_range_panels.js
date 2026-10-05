@@ -1,7 +1,9 @@
 // Other visible ranges above or below the main spectrogram (view_callbacks.py)
 // follow the main plot's time axis: the same plot-area edges and the same time
 // window (page, zoom or pan), so a moment sits at the same place in every
-// panel. Only the main plot zooms; the panels' axes are fixed.
+// panel. Scrolling over a panel zooms like scrolling over the main plot: the
+// time window on the main plot, which every panel follows, and the panel's
+// own frequency axis within its band. A double-click resets the zoom.
 //
 // Each panel also shows the clip's boxes that reach into its frequency band,
 // and in draw mode a drag on a panel adds a box there (bbox_list.js addBox).
@@ -194,6 +196,10 @@
       if (!sameRange(panel._fullLayout.xaxis.range, range)) {
         update['xaxis.range'] = [Number(range[0]), Number(range[1])];
       }
+      const zoom = bandZoom[zoomKey(panel)];
+      if (zoom && panel._fullLayout.yaxis && !sameRange(panel._fullLayout.yaxis.range, zoom)) {
+        update['yaxis.range'] = zoom.slice();
+      }
       const shapes = panelShapes(panel, boxes);
       const signature = JSON.stringify(shapes);
       if (panel._rangePanelShapes !== signature) {
@@ -242,6 +248,138 @@
     schedule();
   }
 
+  // ---------------------------------------------------------------------------
+  // Scroll zoom over a panel. The step is Plotly's own (the main plot's
+  // scrollZoom, modal.py), and steps are applied once per frame.
+
+  let wheel = null;
+
+  // Each panel's frequency zoom, by its figure's uirevision (clip, range and
+  // band; view_callbacks.py). Dash re-creates the panels when it sends them
+  // again (after a box is drawn, say), and sync() puts the zoom back.
+  const bandZoom = {};
+
+  function zoomKey(panel) {
+    const uirevision = panel && panel.layout && panel.layout.uirevision;
+    return uirevision ? String(uirevision) : null;
+  }
+
+  // The panel's band on its frequency axis (log axes count in decades).
+  function bandOf(panel) {
+    const meta = panelMeta(panel);
+    if (!Number.isFinite(meta.fmin) || !Number.isFinite(meta.fmax) || meta.fmax <= meta.fmin) {
+      return null;
+    }
+    return meta.log ? [Math.log10(Math.max(meta.fmin, 1e-9)), Math.log10(meta.fmax)] : [meta.fmin, meta.fmax];
+  }
+
+  // [lower, upper] zoomed by `factor` about `at`, kept inside `band` if given.
+  function zoomAbout(range, at, factor, band) {
+    let lower = at + (range[0] - at) * factor;
+    let upper = at + (range[1] - at) * factor;
+    if (!band) {
+      return [lower, upper];
+    }
+    if (upper - lower >= band[1] - band[0]) {
+      return [band[0], band[1]];
+    }
+    if (lower < band[0]) {
+      upper += band[0] - lower;
+      lower = band[0];
+    }
+    if (upper > band[1]) {
+      lower -= upper - band[1];
+      upper = band[1];
+    }
+    return [lower, upper];
+  }
+
+  // Zoom changes are GUI edits, which Plotly keeps when Dash sends the same
+  // figure again (uirevision; modal_paging.js): the main plot's time window,
+  // which the panels follow in sync(), and a panel's frequency axis, which
+  // its figure keeps per clip and range (view_callbacks.py).
+  function relayoutGui(gd, update) {
+    const paging = window.modalPaging;
+    return paging && typeof paging.relayout === 'function'
+      ? paging.relayout(gd, update)
+      : window.Plotly.relayout(gd, update);
+  }
+
+  function applyWheel() {
+    const step = wheel;
+    wheel = null;
+    const main = mainPlot();
+    if (!step || !ready(main) || !ready(step.panel) || !window.Plotly) {
+      return;
+    }
+    relayoutGui(main, {
+      'xaxis.range': zoomAbout(main._fullLayout.xaxis.range.map(Number), step.time, step.factor, null),
+      'xaxis.autorange': false,
+    });
+    const band = bandOf(step.panel);
+    if (band) {
+      const range = zoomAbout(step.panel._fullLayout.yaxis.range.map(Number), step.freq, step.factor, band);
+      const key = zoomKey(step.panel);
+      if (key && sameRange(range, band)) {
+        delete bandZoom[key];
+      } else if (key) {
+        bandZoom[key] = range;
+      }
+      relayoutGui(step.panel, { 'yaxis.range': range });
+    }
+  }
+
+  function onPanelWheel(panel, event) {
+    const main = mainPlot();
+    if (!ready(main) || !ready(panel) || !panel._fullLayout.yaxis) {
+      return;
+    }
+    const size = panel._fullLayout._size;
+    const rect = panel.getBoundingClientRect();
+    const across = (event.clientX - rect.left - size.l) / size.w;
+    const up = (rect.top + size.t + size.h - event.clientY) / size.h;
+    if (!(across >= 0 && across <= 1 && up >= 0 && up <= 1)) {
+      return; // over the axes or margins: the page scrolls
+    }
+    event.preventDefault();
+    const delta = -Number(event.deltaY) || 0;
+    const factor = Math.exp(-Math.min(Math.max(delta, -20), 20) / 200);
+    const time = main._fullLayout.xaxis.range.map(Number);
+    const freq = panel._fullLayout.yaxis.range.map(Number);
+    const pending = wheel && wheel.panel === panel;
+    wheel = { panel: panel, factor: (pending ? wheel.factor : 1) * factor,
+      time: time[0] + (time[1] - time[0]) * across, freq: freq[0] + (freq[1] - freq[0]) * up };
+    if (!pending) {
+      window.requestAnimationFrame(applyWheel);
+    }
+  }
+
+  // Every panel back to its whole band (also on the main plot's reset,
+  // modal_lifecycle_clientside.js).
+  function resetBands() {
+    Object.keys(bandZoom).forEach(function (key) { delete bandZoom[key]; });
+    if (!window.Plotly) {
+      return;
+    }
+    document.querySelectorAll(PANELS).forEach(function (panel) {
+      const band = ready(panel) && panel._fullLayout.yaxis ? bandOf(panel) : null;
+      if (band && !sameRange(panel._fullLayout.yaxis.range, band)) {
+        relayoutGui(panel, { 'yaxis.range': band });
+      }
+    });
+  }
+
+  // A double-click on a panel resets the zoom as one on the main plot does:
+  // Plotly's autorange there goes back to the page (modal_lifecycle_clientside.js),
+  // and with it every panel to its band. Plotly's drag cover takes the native
+  // double-click; the clicks it sends on afterwards count (event.detail).
+  function onPanelClick(event) {
+    const main = mainPlot();
+    if (event && event.detail === 2 && ready(main) && window.Plotly) {
+      window.Plotly.relayout(main, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    }
+  }
+
   function bindMain(gd) {
     if (!gd || gd._rangePanelsBound || typeof gd.on !== 'function') {
       return;
@@ -261,6 +399,10 @@
     // A figure from the server comes back with its own margins and window.
     gd.on('plotly_afterplot', schedule);
     gd.on('plotly_relayout', function (event) { onPanelRelayout(gd, event); });
+    if (typeof gd.addEventListener === 'function') {
+      gd.addEventListener('wheel', function (event) { onPanelWheel(gd, event); }, { passive: false });
+      gd.addEventListener('click', onPanelClick);
+    }
   }
 
   // Panels are rebuilt with each clip and range change, and the main graph
@@ -288,6 +430,7 @@
   window.modalRangePanels = {
     sync: sync,
     schedule: schedule,
+    resetBands: resetBands,
     // For tests.
     panelShapes: panelShapes,
     extentFromPanelShape: extentFromPanelShape,

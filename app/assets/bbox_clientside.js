@@ -523,6 +523,13 @@
 
   // Mirrors REFERENCE_BOX_LINE in app/callbacks/modal/figure_helpers.py.
   const REFERENCE_BOX_LINE = { color: 'rgba(255, 255, 255, 0.95)', width: 1.5, dash: 'dash' };
+  const REFERENCE_SHAPE = 'ref-box-';
+
+  // Reference boxes are drawn on the plot but are not boxes: a drawn,
+  // resized or deleted box is found among the other shapes.
+  function isReferenceShape(shape) {
+    return Boolean(shape) && typeof shape.name === 'string' && shape.name.indexOf(REFERENCE_SHAPE) === 0;
+  }
 
   function applyBoxesToFigure(figure, boxes) {
     if (!figure || typeof figure !== 'object') {
@@ -683,7 +690,7 @@
       const rect = extentToShape(extent, axisMeta);
       if (rect) {
         shapes.push({
-          type: 'rect', name: 'ref-box-' + refIndex, x0: rect.x0, x1: rect.x1, y0: rect.y0, y1: rect.y1,
+          type: 'rect', name: REFERENCE_SHAPE + refIndex, x0: rect.x0, x1: rect.x1, y0: rect.y0, y1: rect.y1,
           line: Object.assign({}, REFERENCE_BOX_LINE), fillcolor: 'rgba(0, 0, 0, 0)', editable: false, layer: 'above',
         });
       }
@@ -774,7 +781,7 @@
     let forceResync = false;
     let clearActive = false;
     const payloadShapes = Array.isArray(relayoutData.shapes)
-      ? relayoutData.shapes.filter(function (shape) { return shape && shape.type === 'rect'; })
+      ? relayoutData.shapes.filter(function (shape) { return shape && shape.type === 'rect' && !isReferenceShape(shape); })
       : null;
 
     if (payloadShapes && addMode) {

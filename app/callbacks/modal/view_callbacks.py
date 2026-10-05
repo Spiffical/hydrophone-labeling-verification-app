@@ -268,6 +268,15 @@ def register_modal_view_callbacks(
             )
             freq_min_hz = float(range_spec["freq_min_hz"])
             freq_max_hz = float(range_spec["freq_max_hz"])
+            # The band on the frequency axis (log axes count in decades). The
+            # image sits on that axis, so a frequency zoom (modal_range_panels.js)
+            # moves and scales it with the axis.
+            log_axis = (y_axis_scale or "linear") == "log"
+            y_band = (
+                [log10(max(freq_min_hz, 1e-9)), log10(freq_max_hz)]
+                if log_axis
+                else [freq_min_hz, freq_max_hz]
+            )
             # Each plot's time axis starts at its own first frame, half a window
             # into the clip, so place this range's image where its frames are
             # on the main plot's axis. Without that origin, fill the clip.
@@ -299,11 +308,11 @@ def register_modal_view_callbacks(
                 {
                     "source": image_src,
                     "xref": "x",
-                    "yref": "paper",
+                    "yref": "y",
                     "x": image_x[0],
-                    "y": 1,
+                    "y": y_band[1],
                     "sizex": max(1e-9, image_x[1] - image_x[0]),
-                    "sizey": 1,
+                    "sizey": max(1e-9, y_band[1] - y_band[0]),
                     "xanchor": "left",
                     "yanchor": "top",
                     "sizing": "stretch",
@@ -313,14 +322,23 @@ def register_modal_view_callbacks(
             )
             # No fixed height: the panel shares the plot column with the main
             # plot (zz_workbench.css) and Plotly fills whatever it is given.
-            # Margins and time window follow the main plot, so neither axis
-            # zooms on its own and Plotly must not move the margins.
+            # Margins and time window follow the main plot, and scrolling over
+            # the panel zooms time there and frequency within the band
+            # (modal_range_panels.js), so Plotly zooms neither axis itself and
+            # must not move the margins.
             figure.update_layout(
                 autosize=True,
                 # The main plot names the axes; these panels keep their ticks.
                 margin={"l": 70, "r": 36, "t": 12, "b": 26},
                 template="plotly_white",
                 dragmode=False,
+                # A frequency zoom stays when this figure comes again for the
+                # same clip and band (after a box is drawn, say); another clip
+                # or band starts on the whole band.
+                uirevision=(
+                    f"{modal_item.get('item_id')}|{range_spec['selection_id']}|"
+                    f"{freq_min_hz:g}|{freq_max_hz:g}|{'log' if log_axis else 'linear'}"
+                ),
                 meta={
                     "range_id": range_spec["selection_id"],
                     "freq_min_hz": freq_min_hz,
@@ -339,12 +357,8 @@ def register_modal_view_callbacks(
                 },
                 yaxis={
                     "title": "Hz",
-                    "type": "log" if (y_axis_scale or "linear") == "log" else "linear",
-                    "range": (
-                        [log10(max(freq_min_hz, 1e-9)), log10(freq_max_hz)]
-                        if (y_axis_scale or "linear") == "log"
-                        else [freq_min_hz, freq_max_hz]
-                    ),
+                    "type": "log" if log_axis else "linear",
+                    "range": list(y_band),
                     "showgrid": False,
                     "fixedrange": True,
                     "automargin": False,

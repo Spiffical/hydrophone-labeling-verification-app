@@ -38,12 +38,16 @@ def resolve_add_mode(*, boxes, chosen_label, allow_existing_label):
 
 
 def filter_payload_shapes(relayout_data):
+    """Box shapes in a relayout payload: rectangles that are not reference
+    boxes (``ref-box-<i>``, drawn for comparison; see figure_helpers.py)."""
     if not isinstance(relayout_data.get("shapes"), list):
         return None
     return [
         shape
         for shape in relayout_data.get("shapes", [])
-        if isinstance(shape, dict) and shape.get("type") == "rect"
+        if isinstance(shape, dict)
+        and shape.get("type") == "rect"
+        and not str(shape.get("name") or "").startswith("ref-box-")
     ]
 
 
