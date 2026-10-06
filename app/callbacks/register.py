@@ -90,6 +90,7 @@ from app.utils.image_processing import (
     prefetch_page_images_in_background,
     schedule_modal_prefetch_for_future_pages,
     schedule_prefetch_for_future_pages,
+    set_auto_contrast,
     set_cache_sizes,
 )
 from app.utils.image_utils import get_item_image_src
@@ -150,6 +151,7 @@ def register_callbacks(app, config):
 
     deps = {
         "set_cache_sizes": set_cache_sizes,
+        "set_auto_contrast": set_auto_contrast,
         "estimate_page_audio_generation_work": estimate_page_audio_generation_work,
         "schedule_specgen_prefetch_for_current_page_images": prefetch_page_images_in_background,
         "schedule_specgen_prefetch_for_future_pages": schedule_prefetch_for_future_pages,

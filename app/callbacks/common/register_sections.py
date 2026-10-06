@@ -36,6 +36,7 @@ from app.callbacks.verify.threshold_callbacks import register_verify_threshold_c
 def register_all_callback_sections(app, *, config, deps):
     d = deps
     d["set_cache_sizes"]((config or {}).get("cache", {}).get("max_size", DEFAULT_CACHE_MAX_SIZE))
+    d["set_auto_contrast"](((config or {}).get("display") or {}).get("auto_contrast"))
     register_review_preferences_callbacks(app)
     register_mode_tab_callbacks(app)
     register_pagination_callbacks(app)

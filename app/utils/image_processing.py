@@ -430,15 +430,54 @@ def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> D
     }
 
 
+# How automatic contrast is chosen (config display.auto_contrast), set once at
+# start-up (register_sections.py). "percentile": the spectrogram's 2nd to 98th
+# percentile. "background": from below_db under the spectrogram's median level
+# (its background) to above_db over it. Levels are dB relative to each clip's
+# loudest bin, so the same numbers fall differently from clip to clip; tying the
+# range to each clip's background shows calls the same way in loud and quiet clips.
+_AUTO_CONTRAST = {"mode": "percentile", "below_db": 3.0, "above_db": 12.0}
+# Power floored at 1e-10 of the clip's loudest bin: digital silence.
+_SILENT_DB = -100.0
+
+
+def set_auto_contrast(settings: Optional[Dict[str, Any]]) -> None:
+    """Use ``settings`` (``{"mode", "below_db", "above_db"}``, app/config.py) for
+    automatic contrast. Cached spectrograms and images carry the old ranges,
+    so the caches are emptied when the setting changes."""
+    settings = settings if isinstance(settings, dict) else {}
+    updated = {
+        "mode": "background" if settings.get("mode") == "background" else "percentile",
+        "below_db": float(settings.get("below_db", 3.0)),
+        "above_db": float(settings.get("above_db", 12.0)),
+    }
+    if updated == _AUTO_CONTRAST:
+        return
+    _AUTO_CONTRAST.update(updated)
+    for lock, cache in (
+        (_SPECTROGRAM_CACHE_LOCK, spectrogram_cache),
+        (_AUDIO_SPECTROGRAM_CACHE_LOCK, audio_spectrogram_cache),
+        (_IMAGE_CACHE_LOCK, image_cache),
+    ):
+        with lock:
+            cache.clear()
+
+
 def _compute_color_limit_summary(psd: np.ndarray) -> Dict[str, float]:
     psd_valid = psd[np.isfinite(psd)]
     if len(psd_valid) > 0:
         data_min = float(np.min(psd_valid))
         data_max = float(np.max(psd_valid))
-        auto_min, auto_max = (float(value) for value in np.percentile(psd_valid, [2, 98]))
-        if auto_max - auto_min < 0.1:
-            auto_min = data_min
-            auto_max = data_max
+        if _AUTO_CONTRAST["mode"] == "background":
+            heard = psd_valid[psd_valid > _SILENT_DB]
+            background = float(np.median(heard if heard.size else psd_valid))
+            auto_min = background - _AUTO_CONTRAST["below_db"]
+            auto_max = background + _AUTO_CONTRAST["above_db"]
+        else:
+            auto_min, auto_max = (float(value) for value in np.percentile(psd_valid, [2, 98]))
+            if auto_max - auto_min < 0.1:
+                auto_min = data_min
+                auto_max = data_max
     else:
         data_min, data_max = -60.0, 0.0
         auto_min, auto_max = -60.0, 0.0

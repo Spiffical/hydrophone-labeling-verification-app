@@ -312,9 +312,10 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
     )
 
 
-def _color_slider_state(prefix, summary, current_min, current_max, triggered_id, default_range=None):
+def _color_slider_state(prefix, summary, current_min, current_max, triggered_id, default_range=None, auto_note=None):
     """``default_range``: the dashboard's own contrast (config display
-    colorbar_min/max), which its reset returns to instead of automatic."""
+    colorbar_min/max), which its reset returns to instead of automatic.
+    ``auto_note``: how automatic contrast is set, when not the page's percentiles."""
     bound_min = float(summary.get("color_data_min", -120.0))
     bound_max = float(summary.get("color_data_max", 0.0))
     if bound_max <= bound_min:
@@ -332,7 +333,7 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id,
 
     current_min = _coerce_float(current_min)
     current_max = _coerce_float(current_max)
-    help_text = f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}."
+    help_text = auto_note or f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}."
     if default_range:
         help_text = f"Default: {_format_db(default_range[0])} to {_format_db(default_range[1])}. {help_text}"
 
@@ -422,6 +423,13 @@ def _build_display_range_outputs(
     display_cfg = (cfg or {}).get("display") or {}
     default_color = (display_cfg.get("colorbar_min"), display_cfg.get("colorbar_max"))
     default_color = default_color if None not in default_color else None
+    auto_contrast = display_cfg.get("auto_contrast") or {}
+    auto_note = (
+        f"Auto: each spectrogram from {auto_contrast.get('below_db', 3.0):g} dB below its "
+        f"background level to {auto_contrast.get('above_db', 12.0):g} dB above it."
+        if auto_contrast.get("mode") == "background"
+        else None
+    )
     y_state = _frequency_slider_state(
         prefix,
         summary,
@@ -436,6 +444,7 @@ def _build_display_range_outputs(
         current_color_max,
         triggered_id,
         default_range=default_color,
+        auto_note=auto_note,
     )
     outputs = [
         y_state[0],

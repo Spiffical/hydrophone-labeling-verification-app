@@ -75,6 +75,28 @@ def _default_contrast(display_cfg: Any) -> Dict[str, Optional[float]]:
     return {"colorbar_min": lower, "colorbar_max": upper}
 
 
+def _auto_contrast_config(display_cfg: Any) -> Dict[str, Any]:
+    """``auto_contrast`` (display): how automatic contrast is chosen
+    (app/utils/image_processing.py). ``mode: background`` runs each
+    spectrogram's colour scale from ``below_db`` under its median level to
+    ``above_db`` over it (defaults 3 and 12); anything else keeps the 2nd to
+    98th percentile. ``auto_contrast: background`` is short for the defaults."""
+    section = display_cfg.get("auto_contrast") if isinstance(display_cfg, dict) else None
+    if isinstance(section, str):
+        section = {"mode": section}
+    section = section if isinstance(section, dict) else {}
+
+    def decibels(key, default):
+        try:
+            value = float(section.get(key, default))
+        except (TypeError, ValueError):
+            return default
+        return value if math.isfinite(value) and 0 <= value <= 60 else default
+
+    mode = "background" if str(section.get("mode", "")).strip().lower() == "background" else "percentile"
+    return {"mode": mode, "below_db": decibels("below_db", 3.0), "above_db": decibels("above_db", 12.0)}
+
+
 def _box_checks_config(section: Any) -> Optional[Dict[str, Any]]:
     """Checks that flag boxes to fix in the box list (bbox_list.js), for a
     dashboard of boxes to correct. Off unless the config has this section.
@@ -400,6 +422,8 @@ def get_config() -> Dict[str, Any]:
             ),
             "modal_page_seconds": display_cfg.get("modal_page_seconds", DEFAULT_MODAL_PAGE_SECONDS),
             **_default_contrast(display_cfg),
+            # How automatic contrast is chosen (percentile or background).
+            "auto_contrast": _auto_contrast_config(display_cfg),
         },
         "cache": {
             "max_size": cache_max_size,
