@@ -96,3 +96,69 @@ test('over the axes, colour bar or margins the page scrolls', () => {
   s.frame();
   assert.deepEqual(s.relayouts, []);
 });
+
+// A press, drag and release on the main plot's axes (plot area 101-946 px
+// across, 112-400 px down; the time axis labels run below 400 px).
+function press(s, x, y, plotlyArea = null) {
+  const event = {
+    button: 0, clientX: x, clientY: y,
+    target: { closest: selector => (selector.includes('modal-image-graph') ? s.main : (plotlyArea && selector.includes(plotlyArea) ? {} : null)) },
+    prevented: false, stopped: false,
+    preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; },
+  };
+  s.listeners.mousedown.handler(event);
+  return event;
+}
+const moveTo = (s, x, y) => s.listeners.mousemove.handler({ clientX: x, clientY: y, preventDefault() {} });
+const release = s => s.listeners.mouseup.handler({});
+
+test('dragging the time axis zooms it about the point pressed instead of panning', () => {
+  const s = load();
+  // Pressed at 13.15 s on Plotly's axis drag area: Plotly never sees it.
+  const down = press(s, 101 + 845 * 0.25, 410, '.ewdrag');
+  assert.equal(down.stopped, true);
+  moveTo(s, 101 + 845 * 0.25 + 150, 410);
+  s.frame();
+  near(s.relayouts.at(-1)['xaxis.range'], [13.15 - 13.15 * Math.exp(-1), 13.15 + 39.45 * Math.exp(-1)]);
+  assert.equal('yaxis.range' in s.relayouts.at(-1), false);
+  // Back to where it started: back to the view it started from.
+  moveTo(s, 101 + 845 * 0.25, 410);
+  s.frame();
+  near(s.relayouts.at(-1)['xaxis.range'], [0, 52.6]);
+  release(s);
+  // Dragging left zooms out, no further than the whole clip.
+  press(s, 500, 415);
+  moveTo(s, 100, 415);
+  s.frame();
+  near(s.relayouts.at(-1)['xaxis.range'], [0, 52.6]);
+  release(s);
+});
+
+test('dragging the frequency axis up zooms it in about the point pressed', () => {
+  const s = load();
+  press(s, 80, 400 - 288 * 0.5); // the tick labels left of the plot, at 52.5 Hz
+  moveTo(s, 80, 400 - 288 * 0.5 - 150);
+  s.frame();
+  near(s.relayouts.at(-1)['yaxis.range'], [52.5 - 47.5 * Math.exp(-1), 52.5 + 47.5 * Math.exp(-1)]);
+  release(s);
+  moveTo(s, 80, 0);
+  s.frame();
+  assert.equal(s.relayouts.length, 1, 'released: moving no longer zooms');
+});
+
+test('presses inside the plot are left to Plotly, and a double-click on an axis resets it', () => {
+  const s = load({ xRange: [10, 20], yRange: [40, 60] });
+  const inside = press(s, 500, 250);
+  assert.equal(inside.prevented, false);
+  moveTo(s, 700, 250);
+  s.frame();
+  assert.deepEqual(s.relayouts, []);
+  const dbl = (x, y) => s.listeners.dblclick.handler({
+    clientX: x, clientY: y, target: { closest: selector => (selector.includes('modal-image-graph') ? s.main : null) },
+    preventDefault() {}, stopPropagation() {},
+  });
+  dbl(500, 415);
+  near(s.relayouts.at(-1)['xaxis.range'], [0, 52.6]);
+  dbl(80, 250);
+  near(s.relayouts.at(-1)['yaxis.range'], [5, 100]);
+});

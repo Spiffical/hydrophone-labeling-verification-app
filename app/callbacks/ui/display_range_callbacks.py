@@ -312,7 +312,9 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
     )
 
 
-def _color_slider_state(prefix, summary, current_min, current_max, triggered_id):
+def _color_slider_state(prefix, summary, current_min, current_max, triggered_id, default_range=None):
+    """``default_range``: the dashboard's own contrast (config display
+    colorbar_min/max), which its reset returns to instead of automatic."""
     bound_min = float(summary.get("color_data_min", -120.0))
     bound_max = float(summary.get("color_data_max", 0.0))
     if bound_max <= bound_min:
@@ -330,15 +332,20 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
 
     current_min = _coerce_float(current_min)
     current_max = _coerce_float(current_max)
+    help_text = f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}."
+    if default_range:
+        help_text = f"Default: {_format_db(default_range[0])} to {_format_db(default_range[1])}. {help_text}"
 
-    if triggered_id == f"{prefix}-colorbar-reset-btn":
+    if triggered_id == f"{prefix}-colorbar-reset-btn" and default_range:
+        current_min, current_max = default_range
+    elif triggered_id == f"{prefix}-colorbar-reset-btn":
         return (
             round(bound_min, 2),
             round(bound_max, 2),
             marks,
             default_slider_value,
             "Auto contrast",
-            f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}.",
+            help_text,
             None,
             None,
             default_slider_value,
@@ -374,7 +381,7 @@ def _color_slider_state(prefix, summary, current_min, current_max, triggered_id)
         marks,
         slider_pair,
         readout,
-        f"Automatic range for this page: {_format_db(auto_min)} to {_format_db(auto_max)}.",
+        help_text,
         actual_lower,
         actual_upper,
         default_slider_value,
@@ -412,6 +419,9 @@ def _build_display_range_outputs(
 ):
     summary = _page_display_summary(page_items, cfg)
     triggered_id = ctx.triggered_id
+    display_cfg = (cfg or {}).get("display") or {}
+    default_color = (display_cfg.get("colorbar_min"), display_cfg.get("colorbar_max"))
+    default_color = default_color if None not in default_color else None
     y_state = _frequency_slider_state(
         prefix,
         summary,
@@ -425,6 +435,7 @@ def _build_display_range_outputs(
         current_color_min,
         current_color_max,
         triggered_id,
+        default_range=default_color,
     )
     outputs = [
         y_state[0],

@@ -145,6 +145,9 @@ def create_display_range_bar(
         group_id=f"{prefix}-frequency-window-group",
         hidden=uses_visible_ranges(config),
     )
+    has_default_contrast = (
+        display_cfg.get("colorbar_min") is not None and display_cfg.get("colorbar_max") is not None
+    )
     contrast_group = _slider_group(
         label="Contrast",
         slider_id=f"{prefix}-colorbar-slider",
@@ -155,7 +158,8 @@ def create_display_range_bar(
         manual_min_id=f"{prefix}-colorbar-manual-min-input",
         manual_max_id=f"{prefix}-colorbar-manual-max-input",
         reset_id=f"{prefix}-colorbar-reset-btn",
-        reset_label="Auto",
+        # A dashboard with its own contrast resets to it (display_range_callbacks.py).
+        reset_label="Default" if has_default_contrast else "Auto",
         slider_min=-120.0,
         slider_max=0.0,
         slider_value=[-90.0, -10.0],

@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 from typing import Any, Dict, Optional
 
@@ -57,6 +58,21 @@ def _annotation_times_config(section: Any) -> Dict[str, Any]:
     except (TypeError, ValueError):
         window = None
     return {"legacy_window_s": window if window is not None and 0 < window <= 30 else None}
+
+
+def _default_contrast(display_cfg: Any) -> Dict[str, Optional[float]]:
+    """``colorbar_min`` / ``colorbar_max`` (dB/Hz): the contrast spectrograms
+    open with, and that the page's reset returns to (display_range_callbacks.py).
+    Both or neither, lower below upper; otherwise contrast is automatic."""
+    display_cfg = display_cfg if isinstance(display_cfg, dict) else {}
+    try:
+        lower = float(display_cfg.get("colorbar_min"))
+        upper = float(display_cfg.get("colorbar_max"))
+    except (TypeError, ValueError):
+        return {"colorbar_min": None, "colorbar_max": None}
+    if not (math.isfinite(lower) and math.isfinite(upper) and lower < upper):
+        return {"colorbar_min": None, "colorbar_max": None}
+    return {"colorbar_min": lower, "colorbar_max": upper}
 
 
 def _box_checks_config(section: Any) -> Optional[Dict[str, Any]]:
@@ -357,6 +373,7 @@ def get_config() -> Dict[str, Any]:
                 "full_resolution_image",
             ),
             "modal_page_seconds": display_cfg.get("modal_page_seconds", DEFAULT_MODAL_PAGE_SECONDS),
+            **_default_contrast(display_cfg),
         },
         "cache": {
             "max_size": cache_max_size,
