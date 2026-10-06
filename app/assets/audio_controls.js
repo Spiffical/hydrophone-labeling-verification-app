@@ -1633,9 +1633,11 @@ function updateSpectrogramPlaybackMarker(currentTime, duration) {
         }
 
         positionPlaybackOverlay(graphDiv, markerPosition);
-        // The other spectrograms share the main plot's time axis
-        // (modal_range_panels.js); each gets its own line.
-        document.querySelectorAll('.spectrogram-modal-range-graph .js-plotly-plot').forEach(function (panel) {
+        // The other spectrograms and the detector score strip share the main
+        // plot's time axis (modal_range_panels.js); each gets its own line.
+        document.querySelectorAll(
+            '.spectrogram-modal-range-graph .js-plotly-plot, #modal-score-track-graph .js-plotly-plot'
+        ).forEach(function (panel) {
             positionPlaybackOverlay(panel, markerPosition);
         });
     } catch (e) {

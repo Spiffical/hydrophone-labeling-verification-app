@@ -19,6 +19,7 @@ from app.callbacks.modal.audio_callbacks import register_modal_audio_callbacks
 from app.callbacks.modal.bbox_callbacks import register_modal_bbox_callbacks
 from app.callbacks.modal.label_callbacks import register_modal_label_callbacks
 from app.callbacks.modal.lifecycle_callbacks import register_modal_lifecycle_callbacks
+from app.callbacks.modal.score_track_callbacks import register_modal_score_track_callbacks
 from app.callbacks.modal.view_callbacks import register_modal_view_callbacks
 from app.callbacks.modal.attribute_callbacks import register_modal_label_attribute_callbacks
 from app.callbacks.ui.app_config_callbacks import register_app_config_callbacks
@@ -176,6 +177,7 @@ def register_all_callback_sections(app, *, config, deps):
         _apply_modal_boxes_to_figure=d["apply_modal_boxes_to_figure"],
         _build_modal_item_actions=d["build_modal_item_actions"],
     )
+    register_modal_score_track_callbacks(app, config=config)
 
     register_modal_label_callbacks(
         app,

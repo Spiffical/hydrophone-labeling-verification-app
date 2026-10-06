@@ -9,7 +9,8 @@
 // Over the main plot, time and frequency zoom, out to the whole clip and the
 // plot's band. Over another spectrogram (modal_range_panels.js), time zooms on
 // the main plot, which every panel follows, and frequency within the panel's
-// band. Over the axes, colour bar or margins the page scrolls as usual.
+// band. Over the detector score strip, only time zooms. Over the axes, colour
+// bar or margins the page scrolls as usual.
 //
 // Dragging along an axis zooms that axis about the point pressed, instead of
 // Plotly's pan: right or up zooms in, left or down out, and dragging back
@@ -19,6 +20,7 @@
 
   const MAIN = '#modal-image-graph .js-plotly-plot';
   const PANEL = '.spectrogram-modal-range-graph .js-plotly-plot';
+  const SCORE_TRACK = '#modal-score-track-graph .js-plotly-plot';
   let pending = null;
 
   function ready(gd) {
@@ -93,7 +95,7 @@
       update['xaxis.range'] = nextTime;
       update['xaxis.autorange'] = false;
     }
-    if (!step.panel) {
+    if (!step.panel && !step.timeOnly) {
       const freq = main._fullLayout.yaxis.range.map(Number);
       const nextFreq = zoomAbout(freq, step.freq, step.factor, limits.y);
       if (!same(nextFreq, freq)) {
@@ -122,7 +124,8 @@
 
   function onWheel(event) {
     const target = event.target && typeof event.target.closest === 'function' ? event.target : null;
-    const gd = target && (target.closest(MAIN) || target.closest(PANEL));
+    const strip = target && target.closest(SCORE_TRACK);
+    const gd = target && (target.closest(MAIN) || target.closest(PANEL) || strip);
     const main = document.querySelector(MAIN);
     if (!gd || !ready(gd) || !ready(main)) {
       return;
@@ -135,12 +138,14 @@
       return;
     }
     event.preventDefault();
-    const panel = gd === main ? null : gd;
+    const panel = gd === main || gd === strip ? null : gd;
     const time = main._fullLayout.xaxis.range.map(Number);
     const freq = gd._fullLayout.yaxis.range.map(Number);
-    const same = Boolean(pending) && pending.panel === panel;
+    const same = Boolean(pending) && pending.gd === gd;
     pending = {
+      gd: gd,
       panel: panel,
+      timeOnly: gd === strip,
       factor: (same ? pending.factor : 1) * wheelFactor(event),
       time: time[0] + (time[1] - time[0]) * across,
       freq: freq[0] + (freq[1] - freq[0]) * up,

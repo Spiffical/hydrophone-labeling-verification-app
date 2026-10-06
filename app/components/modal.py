@@ -278,6 +278,19 @@ def create_spectrogram_modal(config=None):
                     )
                 ], className="p-0")
             ], className="spectrogram-zoom-card"),
+            # The detector's score along the clip (config score_track), on the
+            # main plot's time axis (modal_range_panels.js); hidden without one.
+            html.Div(
+                dcc.Graph(
+                    id="modal-score-track-graph",
+                    # Fills the strip's height (zz_workbench.css).
+                    responsive=True,
+                    config={"displayModeBar": False, "displaylogo": False},
+                ),
+                id="modal-score-track",
+                className="modal-score-track",
+                hidden=True,
+            ),
             # Where the page on screen sits in a long clip, with its boxes.
             html.Div(id="modal-page-overview", className="modal-page-overview", hidden=True),
         ],

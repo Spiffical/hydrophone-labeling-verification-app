@@ -301,6 +301,18 @@
     padding-top: 6px;
 }
 
+/* The detector's score along the clip, under the main plot
+   (score_track_callbacks.py); its time axis follows the main plot's. */
+.modal-score-track {
+    flex: 0 0 auto;
+    height: 76px;
+    padding-top: 4px;
+}
+
+.modal-score-track[hidden] {
+    display: none;
+}
+
 .modal-page-overview__track {
     position: relative;
     height: 16px;

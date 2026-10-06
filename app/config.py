@@ -112,6 +112,32 @@ def _box_checks_config(section: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+def _score_track_config(section: Any, repo_root: str) -> Optional[Dict[str, Any]]:
+    """A detector's score along each clip, drawn as a strip under the main
+    spectrogram (app/services/score_tracks.py). Off unless the config names a
+    file.
+
+    - ``file``: the score file, by item id (relative paths start at the app folder).
+    - ``label``: the strip's title (the file's own label if unset).
+    - ``threshold``: a dashed line at this score (0 to 1), if set.
+    """
+    if not isinstance(section, dict) or section.get("enabled") is False:
+        return None
+    path = section.get("file")
+    if not isinstance(path, str) or not path.strip():
+        return None
+    label = section.get("label")
+    try:
+        threshold = float(section.get("threshold"))
+    except (TypeError, ValueError):
+        threshold = None
+    return {
+        "file": resolve_path(path.strip(), repo_root),
+        "label": label.strip() if isinstance(label, str) and label.strip() else None,
+        "threshold": threshold if threshold is not None and 0 < threshold < 1 else None,
+    }
+
+
 def _coerce_bool(value: Any, default: bool) -> bool:
     if value is None:
         return bool(default)
@@ -394,6 +420,8 @@ def get_config() -> Dict[str, Any]:
         "annotation_times": _annotation_times_config(config.get("annotation_times")),
         # Boxes to flag for fixing in the box list; None unless turned on.
         "box_checks": _box_checks_config(config.get("box_checks")),
+        # A detector's score along each clip, under the main plot; None unless set.
+        "score_track": _score_track_config(config.get("score_track"), repo_root),
         "server": {
             "host": args.host,
             "port": args.port,

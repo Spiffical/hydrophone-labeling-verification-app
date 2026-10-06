@@ -7,11 +7,15 @@
 //
 // Each panel also shows the clip's boxes that reach into its frequency band,
 // and in draw mode a drag on a panel adds a box there (bbox_list.js addBox).
+//
+// The detector score strip under the main plot (score_track_callbacks.py)
+// follows its time axis the same way.
 (function () {
   'use strict';
 
   const MAIN = '#modal-image-graph .js-plotly-plot';
   const PANELS = '.spectrogram-modal-range-graph .js-plotly-plot';
+  const SCORE_TRACK = '#modal-score-track-graph .js-plotly-plot';
   const TOLERANCE_PX = 0.5;
   const OWN_SHAPE = 'panel-box-';
   let frame = null;
@@ -38,6 +42,21 @@
       return null;
     }
     return { l: Math.round(left), r: Math.round(right) };
+  }
+
+  // The margins and time window that line `gd` up with the main plot.
+  function followMain(gd, main, range) {
+    const update = {};
+    const margins = marginsFor(gd, main);
+    const size = gd._fullLayout._size;
+    if (margins && (Math.abs(size.l - margins.l) > TOLERANCE_PX || Math.abs(size.r - margins.r) > TOLERANCE_PX)) {
+      update['margin.l'] = margins.l;
+      update['margin.r'] = margins.r;
+    }
+    if (!sameRange(gd._fullLayout.xaxis.range, range)) {
+      update['xaxis.range'] = [Number(range[0]), Number(range[1])];
+    }
+    return update;
   }
 
   function sameRange(a, b) {
@@ -186,16 +205,7 @@
         panel._rangePanelLayout = panel.layout;
         panel._rangePanelShapes = null;
       }
-      const update = {};
-      const margins = marginsFor(panel, main);
-      const size = panel._fullLayout._size;
-      if (margins && (Math.abs(size.l - margins.l) > TOLERANCE_PX || Math.abs(size.r - margins.r) > TOLERANCE_PX)) {
-        update['margin.l'] = margins.l;
-        update['margin.r'] = margins.r;
-      }
-      if (!sameRange(panel._fullLayout.xaxis.range, range)) {
-        update['xaxis.range'] = [Number(range[0]), Number(range[1])];
-      }
+      const update = followMain(panel, main, range);
       const zoom = bandZoom[zoomKey(panel)];
       if (zoom && panel._fullLayout.yaxis && !sameRange(panel._fullLayout.yaxis.range, zoom)) {
         update['yaxis.range'] = zoom.slice();
@@ -217,6 +227,14 @@
         window.Plotly.relayout(panel, update);
       }
     });
+    const strip = document.querySelector(SCORE_TRACK);
+    bindStrip(strip);
+    if (ready(strip)) {
+      const update = followMain(strip, main, range);
+      if (Object.keys(update).length) {
+        window.Plotly.relayout(strip, update);
+      }
+    }
     refreshPlayback();
   }
 
@@ -341,6 +359,15 @@
     }
   }
 
+  // A strip figure from the server comes with its own margins and window.
+  function bindStrip(gd) {
+    if (!gd || gd._scoreTrackBound || typeof gd.on !== 'function') {
+      return;
+    }
+    gd._scoreTrackBound = true;
+    gd.on('plotly_afterplot', schedule);
+  }
+
   // Panels are rebuilt with each clip and range change, and the main graph
   // remounts when the modal opens.
   new MutationObserver(function (mutations) {
@@ -350,7 +377,10 @@
         continue;
       }
       const main = mainPlot();
-      if (target.closest('.spectrogram-modal-range-stack') || (main && !main._rangePanelsBound && target.closest('#modal-image-graph'))) {
+      if (
+        target.closest('.spectrogram-modal-range-stack') || target.closest('#modal-score-track') ||
+        (main && !main._rangePanelsBound && target.closest('#modal-image-graph'))
+      ) {
         bindMain(main);
         schedule();
         return;
