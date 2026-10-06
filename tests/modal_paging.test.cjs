@@ -47,13 +47,14 @@ function load({ xMax = 1394, stored = null } = {}) {
     },
     dash_clientside: { set_props() {} },
   };
+  const documentListeners = {};
   const document = {
     documentElement: {},
     getElementById: id => elements[id] || null,
     querySelector: selector => (selector.includes('js-plotly-plot') ? gd : null),
     createElement: tag => new FakeElement(tag),
     createTextNode: text => String(text),
-    addEventListener() {},
+    addEventListener(name, handler) { (documentListeners[name] = documentListeners[name] || []).push(handler); },
   };
   // The graph is bound when it appears; here it is there from the start.
   class MutationObserver {
@@ -65,7 +66,13 @@ function load({ xMax = 1394, stored = null } = {}) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/assets', file), 'utf8'), context);
   }
   const flush = () => new Promise(resolve => setImmediate(resolve));
-  return { window, gd, handlers, relayouts, elements, flush };
+  // The player at `seconds` (x = seconds on these clips), playing.
+  const audio = { id: 'modal-player-audio', paused: false, currentTime: 0 };
+  const playAt = (seconds) => {
+    audio.currentTime = seconds;
+    (documentListeners.timeupdate || []).forEach(handler => handler({ target: audio }));
+  };
+  return { window, gd, handlers, relayouts, elements, flush, playAt };
 }
 
 test('page windows match the server: equal widths, the last page ends with the clip', () => {
@@ -139,4 +146,38 @@ test('clips that fit on a page get no pager or overview', () => {
   assert.equal(s.elements['modal-page-bar'].hidden, true);
   assert.equal(s.elements['modal-page-overview'].hidden, true);
   assert.equal(s.window.modalPaging.step(1), false);
+});
+
+test('playback turns the page when it runs off the page on screen', async () => {
+  const s = load();
+  s.playAt(290);
+  s.playAt(301);
+  await s.flush();
+  assert.deepEqual(s.relayouts.at(-1).update['xaxis.range'], [300, 600]);
+});
+
+test('zoomed in, playback moves the view on by its width and keeps the zoom', async () => {
+  const s = load();
+  s.gd._fullLayout.xaxis.range = [100, 110];
+  s.playAt(108);
+  s.playAt(110.4);
+  await s.flush();
+  assert.deepEqual(s.relayouts.at(-1).update['xaxis.range'], [110, 120]);
+  // At the end of the clip the view stops at its end.
+  s.gd._fullLayout.xaxis.range = [1380, 1390];
+  s.playAt(1389);
+  s.playAt(1391);
+  await s.flush();
+  assert.deepEqual(s.relayouts.at(-1).update['xaxis.range'], [1384, 1394]);
+});
+
+test('a view the reviewer moved away from the playhead stays put', async () => {
+  const s = load();
+  s.playAt(100);
+  // The reviewer zooms in somewhere else while it plays.
+  s.gd._fullLayout.xaxis.range = [500, 510];
+  s.playAt(100.3);
+  s.playAt(100.6);
+  await s.flush();
+  assert.equal(s.relayouts.length, 0);
 });

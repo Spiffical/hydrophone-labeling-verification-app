@@ -94,8 +94,9 @@ def test_modal_graph_hides_plotly_shape_modebar_buttons():
     assert config["edits"]["shapePosition"] is True
 
 
-def test_modal_graph_zooms_on_scroll():
-    assert _modal_graph().config["scrollZoom"] is True
+def test_modal_graph_leaves_scroll_zoom_to_the_app():
+    # Plotly's scroll zoom committed views out of order; modal_scroll_zoom.js zooms instead.
+    assert _modal_graph().config["scrollZoom"] is False
 
 
 def test_spectrogram_modal_includes_bbox_editor_and_configured_tags():

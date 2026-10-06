@@ -13,6 +13,7 @@
     itemId: null,
     layout: null, // gd.layout last seen; a new object means Dash sent a new figure
     range: null, // the x range the reviewer is on
+    playheadX: null, // where playback was at the last tick (plot units)
   };
 
   function plot() {
@@ -196,6 +197,7 @@
     if (itemId !== state.itemId) {
       // A new clip opens on its first page.
       state.itemId = itemId;
+      state.playheadX = null;
       state.range = pages.length > 1 ? pages[0].slice() : null;
     } else if (pages.length < 2) {
       state.range = null;
@@ -421,8 +423,10 @@
     moveTo(state.range || pages[0]).then(function () { redrawHandles(gd); });
   });
 
-  // Turn the page as playback reaches the end of the view. Media events do
-  // not bubble, so listen in the capture phase.
+  // Follow playback when it runs off the end of the view: to the next page,
+  // or, zoomed in, on by the view's width at the same zoom. Only a view the
+  // playhead was in follows it; one the reviewer zoomed or moved elsewhere
+  // stays put. Media events do not bubble, so listen in the capture phase.
   document.addEventListener('timeupdate', function (event) {
     const element = event.target;
     if (!element || element.id !== AUDIO_ID || element.paused) {
@@ -430,18 +434,37 @@
     }
     const gd = plot();
     const meta = metaOf(gd);
-    const pages = pagesOf(gd);
     const range = liveRange(gd);
     const x = meta ? playheadX(meta, element) : null;
-    if (pages.length < 2 || !range || x === null || (x >= range[0] && x <= range[1])) {
+    const previous = state.playheadX;
+    state.playheadX = x;
+    if (!range || x === null || (x >= range[0] && x <= range[1])) {
       return;
     }
-    for (let index = 0; index < pages.length; index += 1) {
-      if (pages[index][0] <= x && x < pages[index][1]) {
-        moveTo(pages[index]);
-        return;
-      }
+    if (previous === null || previous < range[0] || previous > range[1]) {
+      return;
     }
+    const pages = pagesOf(gd);
+    if (pages.some(function (page) { return sameRange(range, page); })) {
+      for (let index = 0; index < pages.length; index += 1) {
+        if (pages[index][0] <= x && x < pages[index][1]) {
+          moveTo(pages[index]);
+          return;
+        }
+      }
+      return;
+    }
+    const width = range[1] - range[0];
+    const lowest = Number(meta.x_min);
+    const highest = Number(meta.x_max);
+    let start = range[0] + Math.floor((x - range[0]) / width) * width;
+    if (Number.isFinite(highest)) {
+      start = Math.min(start, highest - width);
+    }
+    if (Number.isFinite(lowest)) {
+      start = Math.max(start, lowest);
+    }
+    moveTo([start, start + width]);
   }, true);
 
   // Play what is on screen: when the playhead is off this page, start from the

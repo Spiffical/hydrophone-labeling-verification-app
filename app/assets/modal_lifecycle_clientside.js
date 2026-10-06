@@ -179,7 +179,7 @@
       window.modalRangePanels.resetBands();
     }
     graph._hydrophoneAxisResetPending = true;
-    restoreFullRaster(graph);
+    hideZoomDetail(graph);
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         // Navigation can commit a different recording while the reset is queued.
@@ -339,39 +339,73 @@
     return `${target.pathname}${target.search}`;
   }
 
-  function applyZoomRaster(graph, source, crop) {
+  // While zoomed in on a single-image figure, a sharper crop of what is on
+  // screen is drawn over the clip's own image as a layout image of its own.
+  // The clip's image never moves: zooming or panning past the crop shows it
+  // rather than blank plot, and hiding the crop goes back to it. Mirrored in
+  // modal_display_clientside.js, which recolours only the clip's images.
+  const ZOOM_DETAIL = '__zoom_detail__';
+
+  function isZoomDetail(image) {
+    return Boolean(image) && image.name === ZOOM_DETAIL;
+  }
+
+  function zoomDetailIndex(graph) {
+    const images = graph && graph.layout && graph.layout.images;
+    return Array.isArray(images) ? images.findIndex(isZoomDetail) : -1;
+  }
+
+  // Long clips come as page-sized tiles; only single-image figures get a crop.
+  function hasSingleRaster(graph) {
+    const images = graph && graph.layout && graph.layout.images;
+    return Array.isArray(images) && images.filter((image) => !isZoomDetail(image)).length === 1;
+  }
+
+  function showZoomDetail(graph, source, crop) {
     if (!window.Plotly || typeof window.Plotly.relayout !== 'function') return;
+    const images = graph.layout.images;
+    const index = zoomDetailIndex(graph);
+    if (index < 0) {
+      // Drawn after the clip's image, so on top of it.
+      const own = images.find((image) => !isZoomDetail(image)) || {};
+      window.Plotly.relayout(graph, {
+        [`images[${images.length}]`]: {
+          name: ZOOM_DETAIL,
+          source,
+          xref: own.xref || 'x',
+          yref: own.yref || 'y',
+          x: crop.x,
+          y: crop.y,
+          sizex: crop.sizex,
+          sizey: crop.sizey,
+          xanchor: 'left',
+          yanchor: 'top',
+          sizing: 'stretch',
+          opacity: 1,
+          layer: own.layer || 'below',
+          visible: true,
+        },
+      });
+      return;
+    }
     window.Plotly.relayout(graph, {
-      'images[0].source': source,
-      'images[0].x': crop.x,
-      'images[0].y': crop.y,
-      'images[0].sizex': crop.sizex,
-      'images[0].sizey': crop.sizey,
+      [`images[${index}].source`]: source,
+      [`images[${index}].x`]: crop.x,
+      [`images[${index}].y`]: crop.y,
+      [`images[${index}].sizex`]: crop.sizex,
+      [`images[${index}].sizey`]: crop.sizey,
+      [`images[${index}].visible`]: true,
     });
   }
 
-  function isCachedZoomRaster(state, source) {
-    if (!state || !source) return false;
-    for (const entry of state.cache.values()) {
-      if (entry && entry.source === source) return true;
-    }
-    return false;
-  }
-
-  // Zoom refinement swaps images[0] for a sharper crop, so it only applies to
-  // single-image figures; long clips come as page-sized tiles instead.
-  function hasSingleRaster(graph) {
-    const images = graph && graph.layout && graph.layout.images;
-    return Array.isArray(images) && images.length === 1;
-  }
-
-  function restoreFullRaster(graph) {
+  function hideZoomDetail(graph) {
     const state = graph && graph._hydrophoneZoomRasterState;
-    const meta = graph && graph.layout && graph.layout.meta;
-    if (!state || !state.fullImage || !hasSingleRaster(graph)
-        || !meta || state.itemId !== String(meta.modal_item_id || '')) return;
-    clearZoomRasterWork(state);
-    applyZoomRaster(graph, state.fullImage.source, state.fullImage);
+    if (state) clearZoomRasterWork(state);
+    const index = zoomDetailIndex(graph);
+    if (index >= 0 && graph.layout.images[index].visible !== false
+        && window.Plotly && typeof window.Plotly.relayout === 'function') {
+      window.Plotly.relayout(graph, { [`images[${index}].visible`]: false });
+    }
   }
 
   function refineZoomRaster(graph) {
@@ -380,13 +414,17 @@
     if (!state || !meta || state.itemId !== String(meta.modal_item_id || '') || !hasSingleRaster(graph)) return;
     const crop = visibleRasterCrop(graph);
     if (!crop) {
-      if (axisRangesAreCanonical(graph)) restoreFullRaster(graph);
+      // Most of the clip, or more, is on screen: its own image is enough.
+      hideZoomDetail(graph);
       return;
     }
     const url = zoomRasterUrl(meta, crop);
     const cached = state.cache.get(url);
     if (cached) {
-      applyZoomRaster(graph, cached.source, crop);
+      // Most recently used last, so the crop on screen is the last to go.
+      state.cache.delete(url);
+      state.cache.set(url, cached);
+      showZoomDetail(graph, cached.source, crop);
       return;
     }
     clearZoomRasterWork(state);
@@ -430,7 +468,7 @@
           state.cache.delete(oldestKey);
           if (oldest && oldest.source) URL.revokeObjectURL(oldest.source);
         }
-        applyZoomRaster(graph, source, crop);
+        showZoomDetail(graph, source, crop);
       })
       .catch((error) => {
         if (error && error.name !== 'AbortError') {
@@ -456,7 +494,7 @@
     const graph = document.querySelector('#modal-image-graph .js-plotly-plot');
     const meta = graph && graph.layout && graph.layout.meta;
     const image = graph && graph.layout && Array.isArray(graph.layout.images)
-      ? graph.layout.images[0] : null;
+      ? graph.layout.images.find((entry) => !isZoomDetail(entry)) : null;
     if (!graph || !meta || !image || !meta.modal_image_url) return;
     const itemId = String(meta.modal_item_id || '');
     let state = graph._hydrophoneZoomRasterState;
@@ -465,10 +503,9 @@
       graph._hydrophoneZoomRasterState = state;
     }
     if (!hasSingleRaster(graph)) {
-      // Tiled: forget the previous clip's image so nothing is swapped in.
+      // Tiled: forget the previous clip's crops.
       clearZoomRasterWork(state);
       state.itemId = '';
-      state.fullImage = null;
       return;
     }
     if (state.itemId !== itemId) {
@@ -478,13 +515,6 @@
       });
       state.cache.clear();
       state.itemId = itemId;
-      state.fullImage = {
-        source: image.source,
-        x: image.x,
-        y: image.y,
-        sizex: image.sizex,
-        sizey: image.sizey,
-      };
     }
     if (graph._hydrophoneZoomRasterListener) return;
     graph._hydrophoneZoomRasterListener = true;
@@ -492,31 +522,38 @@
       if (!updates || !hasSingleRaster(graph)) return;
       if (graph._hydrophoneAxisResetPending) return;
       if (updates['xaxis.autorange'] === true || updates['yaxis.autorange'] === true) {
-        restoreFullRaster(graph);
+        hideZoomDetail(graph);
         return;
       }
-      const rangeChanged = Object.keys(updates).some(function (key) {
+      const keys = Object.keys(updates);
+      const rangeChanged = keys.some(function (key) {
         return key.indexOf('xaxis.range') === 0 || key.indexOf('yaxis.range') === 0;
       });
-      const imageSourceChanged = Object.keys(updates).some(function (key) {
-        return key === 'images[0].source';
+      // The clip's own image recoloured (modal_display_clientside.js): the
+      // crop's colours are stale, so draw it again.
+      const detail = zoomDetailIndex(graph);
+      const recoloured = keys.some(function (key) {
+        const match = /^images\[(\d+)\]\.source$/.exec(key);
+        return Boolean(match) && Number(match[1]) !== detail;
       });
-      if (imageSourceChanged) {
-        const current = graph.layout.images && graph.layout.images[0];
-        if (current && !isCachedZoomRaster(state, current.source)) {
-          const canonical = canonicalAxisRanges(graph);
-          if (!canonical) return;
-          state.fullImage = {
-            source: current.source,
-            x: canonical.x[0],
-            y: canonical.y[1],
-            sizex: canonical.x[1] - canonical.x[0],
-            sizey: canonical.y[1] - canonical.y[0],
-          };
-          if (!axisRangesAreCanonical(graph)) scheduleZoomRasterRefinement(graph);
-        }
+      if (recoloured) hideZoomDetail(graph);
+      if (rangeChanged || (recoloured && !axisRangesAreCanonical(graph))) {
+        scheduleZoomRasterRefinement(graph);
       }
-      if (rangeChanged) scheduleZoomRasterRefinement(graph);
+    });
+    // A figure from Dash (a committed contrast, say) can hide the crop;
+    // draw it again for a zoomed view.
+    graph.on('plotly_afterplot', function () {
+      const zoomState = graph._hydrophoneZoomRasterState;
+      const index = zoomDetailIndex(graph);
+      const shown = index >= 0 && graph.layout.images[index].visible !== false;
+      if (
+        !shown && zoomState && !zoomState.timer && !zoomState.controller
+        && !graph._hydrophoneAxisResetPending && hasSingleRaster(graph)
+        && !axisRangesAreCanonical(graph) && visibleRasterCrop(graph)
+      ) {
+        scheduleZoomRasterRefinement(graph);
+      }
     });
   }
 
@@ -691,7 +728,11 @@
   });
   window.hydrophoneModalLifecycle = Object.assign({}, window.hydrophoneModalLifecycle, {
     beginRender,
-    // For tests: the source columns and placement of a zoomed raster.
+    // For tests: the source columns and placement of a zoomed raster, and the
+    // crop drawn over the clip's image.
     visibleRasterCrop,
+    showZoomDetail,
+    hideZoomDetail,
+    refineZoomRaster,
   });
 })();

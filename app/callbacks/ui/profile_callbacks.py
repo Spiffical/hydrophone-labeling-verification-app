@@ -53,6 +53,22 @@ def register_ui_callbacks(
         logger.warning("[PROFILE_RESET] reset_profile_on_start_applied=true")
         return {"name": "", "email": ""}, True
 
+    # Only drags that edit shapes on the spectrogram need a profile; zooms and
+    # pans (one relayout per frame while scrolling, modal_scroll_zoom.js) stay
+    # in the browser instead of reaching the guard below.
+    app.clientside_callback(
+        """
+        function (relayout) {
+            const keys = relayout && typeof relayout === 'object' ? Object.keys(relayout) : [];
+            const edited = keys.some(function (key) { return key === 'shapes' || key.indexOf('shapes[') === 0; });
+            return edited ? Date.now() : window.dash_clientside.no_update;
+        }
+        """,
+        Output("modal-shape-edit-signal", "data"),
+        Input("modal-image-graph", "relayoutData"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("profile-modal", "is_open", allow_duplicate=True),
         Output("profile-name", "value", allow_duplicate=True),
@@ -82,7 +98,7 @@ def register_ui_callbacks(
         Input({"type": "modal-label-add-box", "label": ALL}, "n_clicks"),
         Input({"type": "modal-label-delete-btn", "label": ALL}, "n_clicks"),
         Input("unsaved-save-btn", "n_clicks"),
-        Input("modal-image-graph", "relayoutData"),
+        Input("modal-shape-edit-signal", "data"),
         Input("modal-image-graph", "clickData"),
         State("user-profile-store", "data"),
         State("mode-tabs", "data"),
@@ -111,7 +127,7 @@ def register_ui_callbacks(
         modal_add_box_clicks,
         modal_delete_label_clicks,
         unsaved_save_clicks,
-        modal_graph_relayout,
+        shape_edit_signal,
         modal_graph_click,
         profile,
         mode,
@@ -139,7 +155,7 @@ def register_ui_callbacks(
             modal_add_box_clicks,
             modal_delete_label_clicks,
             unsaved_save_clicks,
-            modal_graph_relayout,
+            shape_edit_signal,
             modal_graph_click,
         )
         if not ctx.triggered:
@@ -152,14 +168,9 @@ def register_ui_callbacks(
         triggered = ctx.triggered[0] or {}
         prop_id = triggered.get("prop_id", "")
         trigger_value = triggered.get("value")
-        if prop_id.endswith(".relayoutData"):
-            relayout = modal_graph_relayout if isinstance(modal_graph_relayout, dict) else {}
-            keys = set(relayout.keys())
-            has_shape_edit = bool(
-                "shapes" in relayout
-                or any(str(key).startswith("shapes[") for key in keys)
-            )
-            if not has_shape_edit:
+        if prop_id.startswith("modal-shape-edit-signal."):
+            # Set only for shape edits (the clientside callback above).
+            if not shape_edit_signal:
                 raise PreventUpdate
         elif prop_id.endswith(".clickData"):
             click_data = modal_graph_click if isinstance(modal_graph_click, dict) else {}

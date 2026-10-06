@@ -290,13 +290,25 @@
     rasterPreviewState.pending = null;
   }
 
+  // The zoom crop drawn over the clip's image (modal_lifecycle_clientside.js)
+  // is not one of the clip's images: recolouring leaves it out and hides it,
+  // and it is drawn again in the new colours.
+  const ZOOM_DETAIL = '__zoom_detail__';
+
+  function ownImageIndices(images) {
+    return (Array.isArray(images) ? images : [])
+      .map((image, index) => (image && image.name === ZOOM_DETAIL ? -1 : index))
+      .filter((index) => index >= 0);
+  }
+
   function applyRasterPreviewToPlot(objectUrls, zmin, zmax, localSequence) {
     const graph = document.querySelector('#modal-image-graph .js-plotly-plot');
     if (!graph || !window.Plotly || !graph.layout || !Array.isArray(graph.layout.images)) {
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       return;
     }
-    if (objectUrls.length !== graph.layout.images.length) {
+    const own = ownImageIndices(graph.layout.images);
+    if (objectUrls.length !== own.length) {
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       return;
     }
@@ -312,7 +324,10 @@
     }
     const imageUpdates = {};
     objectUrls.forEach((url, index) => {
-      imageUpdates[`images[${index}].source`] = url;
+      imageUpdates[`images[${own[index]}].source`] = url;
+    });
+    graph.layout.images.forEach((image, index) => {
+      if (image && image.name === ZOOM_DETAIL) imageUpdates[`images[${index}].visible`] = false;
     });
     window.Plotly.relayout(graph, imageUpdates);
     window.Plotly.restyle(graph, { zmin: [zmin], zmax: [zmax] }, [0]);
@@ -389,13 +404,17 @@
           objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return noUpdate();
         }
-        if (objectUrls.length !== figure.layout.images.length) {
+        const own = ownImageIndices(figure.layout.images);
+        if (objectUrls.length !== own.length) {
           objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return noUpdate();
         }
         activateRasterObjectUrls(objectUrls);
         objectUrls.forEach((url, index) => {
-          figure.layout.images[index].source = url;
+          figure.layout.images[own[index]].source = url;
+        });
+        figure.layout.images.forEach((image) => {
+          if (image && image.name === ZOOM_DETAIL) image.visible = false;
         });
         updateTraceContrast(figure, zmin, zmax);
         return figure;

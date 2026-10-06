@@ -51,31 +51,35 @@ function load({ panelLeft = 44, panelWidth = 1006, panelSize = { l: 70, r: 36, w
       },
     },
   };
+  const documentListeners = {};
   const document = {
     documentElement: {},
     getElementById: () => null,
     querySelector: selector => (selector.includes('modal-image-graph') ? main : null),
     querySelectorAll: selector => (selector.includes('spectrogram-modal-range-graph') ? [panel] : []),
+    addEventListener: (name, handler) => { documentListeners[name] = handler; },
   };
   class MutationObserver { observe() {} }
-  for (const file of ['bbox_clientside.js', 'modal_range_panels.js']) {
+  for (const file of ['bbox_clientside.js', 'modal_range_panels.js', 'modal_scroll_zoom.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/assets', file), 'utf8'), {
       window, document, MutationObserver,
     });
   }
-  return { window, main, panel, relayouts, targets, added, setDrawing: on => { drawing = on; }, drawSubscriber: () => drawSubscriber };
+  return { window, main, panel, relayouts, targets, added, documentListeners, setDrawing: on => { drawing = on; }, drawSubscriber: () => drawSubscriber };
 }
 
 // A panel lined up with the main plot (plot area 101-946 px across, 112-400 px down).
 const LINED_UP = { panelSize: { l: 57, r: 104, w: 845, t: 12, h: 288 }, panelRange: [2, 4] };
 const STEP_IN = Math.exp(-0.1); // Plotly's largest scroll step, one wheel notch
 
+// A wheel event over the panel, handled by modal_scroll_zoom.js.
 function wheelAt(s, across, up, deltaY) {
   const event = {
+    target: { closest: selector => (selector.includes('spectrogram-modal-range-graph') ? s.panel : null) },
     clientX: 101 + 845 * across, clientY: 400 - 288 * up, deltaY,
     prevented: false, preventDefault() { this.prevented = true; },
   };
-  s.panel.listeners.wheel(event);
+  s.documentListeners.wheel(event);
   return event;
 }
 
@@ -182,7 +186,9 @@ test('a panel zooms out no further than its band, and stays inside it', () => {
   const s = load(LINED_UP);
   s.window.modalRangePanels.sync();
   wheelAt(s, 0.5, 0.5, 120);
-  near(s.relayouts.at(-1)['yaxis.range'], [5, 125]);
+  // Already on the whole band: time zooms out on the main plot, the band stays.
+  assert.deepEqual(s.targets, ['main']);
+  assert.ok(s.relayouts.every(update => !('yaxis.range' in update)));
   // Zoomed in at the top of the band, zooming out moves the window down.
   s.panel._fullLayout.yaxis.range = [100, 125];
   wheelAt(s, 0.5, 0.8, 120);

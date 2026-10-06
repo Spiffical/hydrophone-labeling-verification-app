@@ -266,37 +266,6 @@
         event.stopPropagation();
       }
     }, true);
-    // Scrolling over the plot zooms it about the pointer (scrollZoom in
-    // modal.py). Plotly listens for the wheel on its drag layer, which the
-    // boxes are drawn over, so a wheel on a box is passed down to it.
-    graph.addEventListener('wheel', function (event) {
-      const target = event.target;
-      const area = plotOf(graph).querySelector('.nsewdrag');
-      if (
-        !area || typeof window.WheelEvent !== 'function' ||
-        !target || typeof target.closest !== 'function' || !target.closest('.shapelayer')
-      ) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      area.dispatchEvent(new window.WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        clientX: event.clientX,
-        clientY: event.clientY,
-        screenX: event.screenX,
-        screenY: event.screenY,
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        deltaZ: event.deltaZ,
-        deltaMode: event.deltaMode,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-        altKey: event.altKey,
-        metaKey: event.metaKey,
-      }));
-    }, { capture: true, passive: false });
   }
 
   let lastBoxCount = null;

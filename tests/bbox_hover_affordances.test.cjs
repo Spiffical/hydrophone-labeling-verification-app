@@ -126,30 +126,6 @@ test('the expert outlines let the pointer through; boxes stay draggable', () => 
   assert.equal(s.hover.activeBox, 0);
 });
 
-test('scrolling over a box zooms like scrolling over the plot', () => {
-  // Plotly zooms on wheel events at its drag layer; boxes are drawn above it.
-  const s = load();
-  const sent = [];
-  const area = { getBoundingClientRect: () => rect(0, 0, 600, 400), dispatchEvent: event => sent.push(event) };
-  s.plot.querySelector = selector => (selector === '.nsewdrag' ? area : null);
-  s.window.WheelEvent = class { constructor(type, init) { Object.assign(this, init, { type }); } };
-  const wheel = (inBox) => {
-    const event = {
-      target: { closest: selector => (inBox && selector === '.shapelayer' ? {} : null) },
-      clientX: 170, clientY: 140, deltaX: 0, deltaY: -120, deltaMode: 0,
-      prevented: false, preventDefault() { this.prevented = true; }, stopPropagation() {},
-    };
-    s.fire('wheel', event);
-    return event;
-  };
-
-  assert.equal(wheel(true).prevented, true);
-  assert.equal(sent.length, 1);
-  assert.deepEqual([sent[0].type, sent[0].clientX, sent[0].clientY, sent[0].deltaY, sent[0].bubbles], ['wheel', 170, 140, -120, true]);
-  assert.equal(wheel(false).prevented, false, 'elsewhere Plotly gets the wheel itself');
-  assert.equal(sent.length, 1);
-});
-
 test('only a shown ✎ takes clicks; the × leaves them to Plotly', () => {
   const css = fs.readFileSync(path.join(__dirname, '../app/assets/bbox_panel.css'), 'utf8');
   const rules = css.split('}').filter(rule => rule.includes('modal-bbox-handle-trace') && /pointer-events:\s*auto/.test(rule));

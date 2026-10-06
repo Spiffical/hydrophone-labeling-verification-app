@@ -251,8 +251,10 @@ def create_spectrogram_modal(config=None):
                         config={
                             'displayModeBar': True,
                             'displaylogo': False,
-                            # Scrolling over the plot zooms about the pointer.
-                            'scrollZoom': True,
+                            # Scrolling zooms about the pointer, but not with
+                            # Plotly's scroll zoom, whose commits raced each
+                            # other (modal_scroll_zoom.js).
+                            'scrollZoom': False,
                             # Kept in the DOM for instant programmatic bbox activation.
                             'modeBarButtonsToAdd': ['drawrect'],
                             'modeBarButtonsToRemove': [
@@ -456,6 +458,9 @@ def create_spectrogram_modal(config=None):
                     },
                 ),
                 dcc.Store(id='modal-bbox-list-render-sink', data=None),
+                # Set in the browser when a drag edits shapes on the spectrogram
+                # (profile_callbacks.py), so zooms and pans stay in the browser.
+                dcc.Store(id='modal-shape-edit-signal', data=None),
                 dcc.Store(id='modal-unsaved-store', data={"dirty": False}),
                 dcc.Store(id='modal-snapshot-store', data=None),
                 dcc.Store(id='modal-pending-action-store', data=None),
