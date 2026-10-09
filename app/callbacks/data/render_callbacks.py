@@ -474,6 +474,7 @@ def register_render_callbacks(
         Input("config-store", "data"),
         Input("spectrogram-ranges-store", "data"),
         State("mode-tabs", "data"),
+        State("verify-ui-ready-store", "data"),
     )
     def render_verify(
         verify_cache_key,
@@ -491,6 +492,7 @@ def register_render_callbacks(
         cfg,
         spectrogram_ranges,
         mode,
+        previous_ui_ready=None,
     ):
         # Render even if not in verify mode (to maintain state when switching back)
         pass
@@ -675,19 +677,41 @@ def register_render_callbacks(
             index_available=index_available,
         )
 
-        grid = _build_grid(
-            page_items,
-            "verify",
-            colormap,
-            y_axis_scale,
-            y_axis_min_hz,
-            y_axis_max_hz,
-            color_min,
-            color_max,
-            items_per_page,
-            cfg,
-            spectrogram_ranges,
-            empty_message="No items match the current filters.",
+        # Saving, discarding or toggling a review re-sends the data, thresholds and
+        # class filter even when nothing on the page changed. Dash 4 remounts every
+        # card of a grid sent again, reloading all its spectrograms, so as on the
+        # label page, rebuild only on navigation or display changes and otherwise
+        # replace just the cards whose clip changed.
+        render_state = grid_render_state(page_items, {
+            "cache_key": verify_cache_key, "thresholds": thresholds,
+            "filters": selected_filters, "status": status_filter, "page": current_page,
+            "colormap": colormap, "y_axis_scale": y_axis_scale,
+            "y_min": y_axis_min_hz, "y_max": y_axis_max_hz,
+            "color_min": color_min, "color_max": color_max, "config": cfg,
+            "spectrogram_ranges": spectrogram_ranges,
+        })
+
+        def build_page_grid(items):
+            return _build_grid(
+                items,
+                "verify",
+                colormap,
+                y_axis_scale,
+                y_axis_min_hz,
+                y_axis_max_hz,
+                color_min,
+                color_max,
+                items_per_page,
+                cfg,
+                spectrogram_ranges,
+                empty_message="No items match the current filters.",
+            )
+
+        grid = incremental_grid(
+            (previous_ui_ready or {}).get("grid_render_state"), render_state,
+            lambda: build_page_grid(page_items),
+            lambda index: build_page_grid([page_items[index]]).children[0],
+            update_card=lambda column: set_props(column.id, {"children": column.children}),
         )
         prefetch_enabled = _prefetch_enabled(cfg)
         modal_prefetch_enabled = _modal_prefetch_enabled(cfg)
@@ -811,6 +835,7 @@ def register_render_callbacks(
             {
                 "verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter),
                 "all_dates_request_id": summary.get("all_dates_request_id"),
+                "grid_render_state": render_state,
             },
         )
         if _SPECGEN_DEBUG:
