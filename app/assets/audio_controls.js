@@ -494,15 +494,40 @@ function ensureAudioPlayerEntry(playerId, audio) {
         cleanupAudioPlayer(playerId);
     }
     if (!state.players.has(playerId)) {
+        const cleanupFns = [];
+        // Runs last (cleanups run in reverse): after the Web Audio graph is closed.
+        registerPlayerCleanup(cleanupFns, function () {
+            releaseAudioSource(audio);
+        });
         state.players.set(playerId, {
             audio: audio,
-            cleanupFns: [],
+            cleanupFns: cleanupFns,
             sourceKey: null,
         });
     }
     const entry = state.players.get(playerId);
     entry.audio = audio;
     return entry;
+}
+
+// Stop a player's download. A closed modal or a replaced player leaves its
+// <audio> fetching the whole file until garbage collection, and on a slow link
+// those downloads pile up and starve the clip being played.
+function releaseAudioSource(audio) {
+    if (!audio) return;
+    try {
+        audio.pause();
+    } catch (e) {
+        console.debug('Error pausing audio during release:', e);
+    }
+    if (typeof audio.hasAttribute === 'function' && audio.hasAttribute('src')) {
+        audio.removeAttribute('src');
+        try {
+            audio.load();
+        } catch (e) {
+            console.debug('Error releasing audio source:', e);
+        }
+    }
 }
 
 function updateAudioPlayerSourceKey(playerEntry, audio) {

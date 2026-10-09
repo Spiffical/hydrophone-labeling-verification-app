@@ -128,10 +128,12 @@ def test_modal_audio_player_uses_source_url_without_mp3_transport_query(tmp_path
     audio = _find_component_by_id(player, "modal-player-audio")
     assert audio is not None
     props = audio["props"]
-    assert props["src"].startswith("/audio-file/")
-    assert props["data-audio-src"] == props["src"]
-    assert "transport=mp3_cached" not in props["src"]
-    assert "mp3_bitrate" not in props["src"]
+    # audio_controls.js sets src from data-audio-src, so a briefly remounted
+    # player from the previous clip does not start downloading.
+    assert "src" not in props
+    assert props["data-audio-src"].startswith("/audio-file/")
+    assert "transport=mp3_cached" not in props["data-audio-src"]
+    assert "mp3_bitrate" not in props["data-audio-src"]
 
 
 def test_card_audio_player_uses_shrinkable_timeline_layout(tmp_path):

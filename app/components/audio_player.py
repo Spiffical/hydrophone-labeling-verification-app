@@ -475,10 +475,12 @@ def create_modal_audio_player(
         # Controls row: left stacked speed/gain, right wide EQ
         controls_row,
         
-        # Hidden HTML5 audio element
+        # Hidden HTML5 audio element. No src: audio_controls.js sets it from
+        # data-audio-src when it starts the player. Reopening the modal briefly
+        # mounts the previous clip's player, and a src here would start
+        # downloading that whole file before the new clip's player replaces it.
         html.Audio(
             id=f'{player_id}-audio',
-            src=audio_src,
             preload='auto',
             style={'display': 'none'},
             **{

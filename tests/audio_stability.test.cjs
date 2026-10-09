@@ -147,3 +147,31 @@ test('the playback line sits on the sound: x = 0 is the first frame, half a wind
     s.updateSpectrogramPlaybackMarker(5, 10);
     assert.equal(graph.layout.shapes[0].x0, 5);
 });
+
+test('a replaced or removed player stops downloading but keeps its source for later', () => {
+    const { sandbox: s } = setup();
+    function element(src) {
+        const attrs = { src: src, 'data-audio-src': src };
+        return { attrs, loads: 0, pauses: 0, isConnected: true,
+            hasAttribute(name) { return name in attrs; },
+            getAttribute(name) { return name in attrs ? attrs[name] : null; },
+            removeAttribute(name) { delete attrs[name]; },
+            load() { this.loads += 1; }, pause() { this.pauses += 1; } };
+    }
+    // The modal's next clip replaces the player: the old file stops loading.
+    const first = element('/audio-file/first');
+    const second = element('/audio-file/second');
+    s.ensureAudioPlayerEntry('modal-player', first);
+    s.ensureAudioPlayerEntry('modal-player', second);
+    assert.equal(first.attrs.src, undefined);
+    assert.equal(first.loads, 1);
+    assert.equal(first.attrs['data-audio-src'], '/audio-file/first');
+    assert.equal(second.attrs.src, '/audio-file/second');
+    assert.equal(second.loads, 0);
+    // Closing the modal removes it: same.
+    second.isConnected = false;
+    s.cleanupDetachedAudioPlayers();
+    assert.equal(second.attrs.src, undefined);
+    assert.equal(second.loads, 1);
+    assert.ok(second.pauses >= 1);
+});
