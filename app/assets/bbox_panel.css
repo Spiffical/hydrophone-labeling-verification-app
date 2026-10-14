@@ -596,3 +596,24 @@
 .modal-bbox-hints[hidden] {
     display: none;
 }
+
+/* Box edges and corners resize at any zoom (bbox_edge_resize.js); show where. */
+.js-plotly-plot.bbox-edge-ew,
+.js-plotly-plot.bbox-edge-ew * {
+    cursor: ew-resize !important;
+}
+
+.js-plotly-plot.bbox-edge-ns,
+.js-plotly-plot.bbox-edge-ns * {
+    cursor: ns-resize !important;
+}
+
+.js-plotly-plot.bbox-edge-nwse,
+.js-plotly-plot.bbox-edge-nwse * {
+    cursor: nwse-resize !important;
+}
+
+.js-plotly-plot.bbox-edge-nesw,
+.js-plotly-plot.bbox-edge-nesw * {
+    cursor: nesw-resize !important;
+}

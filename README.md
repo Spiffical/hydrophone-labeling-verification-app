@@ -107,6 +107,7 @@ In the spectrogram modal:
 
 - Click the **+** button beside a label to start drawing a box for that label.
 - Drag on the spectrogram to create the time-frequency box.
+- Drag a box's edge or corner (or just outside it) to resize it, at any zoom; drag its middle to move it. **Esc** cancels a resize.
 - Click **+** again to add another box for the same label.
 - Use the box list to assign a tag or open the box editor.
 - Use the editor to adjust label, tag, time limits, or frequency limits.
