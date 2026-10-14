@@ -766,7 +766,18 @@
     return nextFigure;
   }
 
-  function updateBoxesFromRelayout(relayoutData, boxes, activeTarget, axisMeta, tagForNewBoxes) {
+  // The box a shape on the plot stands for: the figure builders name box
+  // shapes bbox-<index> (applyBoxesToFigure, apply_modal_boxes_to_figure).
+  function boxIndexOfShape(shape) {
+    const match = shape && typeof shape.name === 'string' ? /^bbox-(\d+)$/.exec(shape.name) : null;
+    return match ? Number(match[1]) : null;
+  }
+
+  function extentKey(extent) {
+    return JSON.stringify(normalizedBoxes([{ annotation_extent: extent }])[0].annotation_extent);
+  }
+
+  function updateBoxesFromRelayout(relayoutData, boxes, activeTarget, axisMeta, tagForNewBoxes, figureShapes) {
     if (!relayoutData || typeof relayoutData !== 'object') {
       return null;
     }
@@ -785,17 +796,26 @@
       : null;
 
     if (payloadShapes && addMode) {
+      // Plotly reports every shape after a drag. The drawn box is the one
+      // without a bbox-<index> name; a box resized while drawing is still its
+      // own box, not a new one.
       const existingSignatures = new Set(boxes.map(function (box) { return boxSignature(box, axisMeta); }).filter(Boolean));
-      const newShape = payloadShapes.find(function (shape) {
+      const existingExtents = new Set(boxes.map(function (box) { return extentKey(box && box.annotation_extent); }));
+      payloadShapes.forEach(function (shape) {
         const signature = shapeSignature(shape);
-        return signature && !existingSignatures.has(signature);
-      });
-      const extent = shapeToExtent(newShape, axisMeta);
-      if (extent && extent.type !== 'clip') {
+        if (boxIndexOfShape(shape) !== null || !signature || existingSignatures.has(signature)) {
+          return;
+        }
+        const extent = shapeToExtent(shape, axisMeta);
+        if (!extent || extent.type === 'clip' || existingExtents.has(extentKey(extent))) {
+          return;
+        }
         boxes.push(newBox(target.label, extent, tagForNewBoxes));
+        existingSignatures.add(signature);
+        existingExtents.add(extentKey(extent));
         updated = true;
         clearActive = true;
-      }
+      });
     } else if (payloadShapes && !addMode) {
       const payloadCounts = {};
       payloadShapes.forEach(function (shape) {
@@ -823,21 +843,45 @@
       }
     }
 
+    // Resizing or moving a shape reports shapes[<position>].x0 etc. Map the
+    // position to its box by the shape's name: boxes in another band are not
+    // drawn, so positions can skip boxes. Without the figure's shapes, fall
+    // back to positions (the playback marker comes first).
+    const shown = Array.isArray(figureShapes) ? figureShapes : [];
     const coordUpdates = {};
     keys.forEach(function (key) {
       const match = String(key).match(/^shapes\[(\d+)\]\.(x0|x1|y0|y1)$/);
-      if (!match || Number(match[1]) <= 0) {
+      if (!match) {
         return;
       }
-      const boxIndex = Number(match[1]) - 1;
+      const position = Number(match[1]);
+      let boxIndex;
+      if (!shown.length) {
+        if (position <= 0) {
+          return;
+        }
+        boxIndex = position - 1;
+      } else if (position < shown.length) {
+        boxIndex = boxIndexOfShape(shown[position]);
+        if (boxIndex === null) {
+          return;
+        }
+      } else {
+        // Not a shape of this figure: one just drawn.
+        boxIndex = boxes.length + position - shown.length;
+      }
       coordUpdates[boxIndex] = coordUpdates[boxIndex] || {};
       coordUpdates[boxIndex][match[2]] = safeNumber(relayoutData[key], null);
     });
     Object.keys(coordUpdates).forEach(function (rawIndex) {
       const boxIndex = Number(rawIndex);
       const updates = coordUpdates[rawIndex];
-      if (addMode) {
-        if (boxIndex < boxes.length || !target.label || !['x0', 'x1', 'y0', 'y1'].every(function (key) { return updates[key] !== null && updates[key] !== undefined; })) {
+      if (boxIndex >= boxes.length) {
+        if (!addMode) {
+          forceResync = true;
+          return;
+        }
+        if (!['x0', 'x1', 'y0', 'y1'].every(function (key) { return updates[key] !== null && updates[key] !== undefined; })) {
           return;
         }
         const extent = shapeToExtent(Object.assign({ type: 'rect' }, updates), axisMeta);
@@ -848,10 +892,7 @@
         }
         return;
       }
-      if (boxIndex >= boxes.length) {
-        forceResync = true;
-        return;
-      }
+      // An existing box resized or moved, also while drawing boxes.
       const shape = extentToShape(boxes[boxIndex].annotation_extent, axisMeta) || { type: 'rect' };
       ['x0', 'x1', 'y0', 'y1'].forEach(function (key) {
         if (updates[key] !== null && updates[key] !== undefined) {
@@ -983,7 +1024,8 @@
           boxes,
           activeBoxLabel,
           axisMetaFromFigure(figure),
-          newBoxTag(activeTag, listConfig, parseActiveTarget(activeBoxLabel).label)
+          newBoxTag(activeTag, listConfig, parseActiveTarget(activeBoxLabel).label),
+          figure && figure.layout && Array.isArray(figure.layout.shapes) ? figure.layout.shapes : null
         );
         if (!result) {
           return noChange;

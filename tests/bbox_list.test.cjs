@@ -642,3 +642,69 @@ test('with reference boxes on the plot, a drag adds the drawn box and a deletion
   const deleted = run({ shapes: shapes.filter(shape => shape.name !== 'bbox-1') }, null);
   assert.deepEqual(Array.from(deleted.boxes, b => b.annotation_extent.time_start_sec), [10.5]);
 });
+
+test('in draw mode a resized box keeps its new size and the next drawn box is added as drawn', () => {
+  // A reviewer on a correction dashboard: with Draw on, she tightens a box and
+  // then draws a missed call. The resize was dropped and the drawn box was
+  // replaced by a copy of the resized one.
+  const { window } = load();
+  const { updateBoxesFromGraph, applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  window.bboxDraw.sticky = true;
+  const extent = (start, end, low, high) => ({ type: 'time_freq_box', time_start_sec: start, time_end_sec: end, freq_min_hz: low, freq_max_hz: high });
+  const base = { data: [], layout: { meta: { x_min: 0, x_max: 20, y_min: 5, y_max: 100 }, shapes: [] } };
+  const target = { label: 'Bio > Fin whale', allow_existing: true };
+  const run = (payload, store, figure) => updateBoxesFromGraph(payload, store, figure, target, 'clip-1', 'verify', PROFILE, null, null, { tag_options: OPTIONS });
+
+  let store = { item_id: 'clip-1', boxes: [box('20Hz', { annotation_extent: extent(2.73, 3.32, 19.06, 37.97) })] };
+  let figure = applyBoxesToFigure(base, store.boxes);
+  const position = figure.layout.shapes.findIndex(shape => shape.name === 'bbox-0');
+
+  const [resized, resizedFigure, , unsaved] = run({ [`shapes[${position}].x0`]: 2.73, [`shapes[${position}].x1`]: 3.11 }, store, figure);
+  assert.deepEqual(JSON.parse(JSON.stringify(resized.boxes[0].annotation_extent)), extent(2.73, 3.11, 19.06, 37.97));
+  assert.deepEqual(JSON.parse(JSON.stringify(unsaved)), { dirty: true, item_id: 'clip-1' });
+  assert.equal(resizedFigure.layout.dragmode, 'drawrect', 'still drawing');
+
+  store = resized;
+  figure = resizedFigure;
+  const onPlot = Array.from(figure.layout.shapes, shape => ({ ...shape }));
+  const drawn = { type: 'rect', x0: 15.123456, x1: 16.654321, y0: 16.2, y1: 26.4 };
+  const [added] = run({ shapes: onPlot.concat([drawn]) }, store, figure);
+  assert.deepEqual(JSON.parse(JSON.stringify(added.boxes.map(b => b.annotation_extent))),
+    [extent(2.73, 3.11, 19.06, 37.97), extent(15.123, 16.654, 16.2, 26.4)]);
+
+  // Before the resize reached the box list, Plotly already showed it; such a
+  // shape is still the same box, and the drawn box is the one added.
+  const stale = { item_id: 'clip-1', boxes: [box('20Hz', { annotation_extent: extent(2.73, 3.32, 19.06, 37.97) })] };
+  const staleFigure = applyBoxesToFigure(base, stale.boxes);
+  const shownResized = Array.from(staleFigure.layout.shapes, shape => (shape.name === 'bbox-0' ? { ...shape, x1: 3.11 } : { ...shape }));
+  const [fromStale] = run({ shapes: shownResized.concat([drawn]) }, stale, staleFigure);
+  assert.equal(fromStale.boxes.length, 2);
+  assert.equal(fromStale.boxes[1].annotation_extent.time_start_sec, 15.123);
+});
+
+test('a box drawn twice in one report is added once', () => {
+  const { window } = load();
+  const { updateBoxesFromGraph, applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  const base = { data: [], layout: { meta: { x_min: 0, x_max: 20, y_min: 5, y_max: 100 }, shapes: [] } };
+  const store = { item_id: 'clip-1', boxes: [box('20Hz', { annotation_extent: { type: 'time_freq_box', time_start_sec: 15.123, time_end_sec: 16.654, freq_min_hz: 16.2, freq_max_hz: 26.4 } })] };
+  const figure = applyBoxesToFigure(base, store.boxes);
+  // The box just added, still unrounded and unnamed on the plot.
+  const unnamed = { type: 'rect', x0: 15.123456, x1: 16.654321, y0: 16.2, y1: 26.4 };
+  const result = updateBoxesFromGraph({ shapes: [figure.layout.shapes[0], unnamed] }, store, figure,
+    { label: 'Bio > Fin whale', allow_existing: true }, 'clip-1', 'verify', PROFILE, null, null, { tag_options: OPTIONS });
+  assert.equal(result[0], window.dash_clientside.no_update);
+});
+
+test('a resized shape is matched to its box by name when other boxes are not drawn', () => {
+  // A box in another band is left off the plot, so plot positions skip it.
+  const { window } = load();
+  const { updateBoxesFromGraph, applyBoxesToFigure } = window.dash_clientside.bboxInteractions;
+  const base = { data: [], layout: { meta: { x_min: 0, x_max: 20, y_min: 5, y_max: 100 }, shapes: [] } };
+  const offBand = box(null, { annotation_extent: { type: 'time_freq_box', time_start_sec: 4, time_end_sec: 5, freq_min_hz: 300, freq_max_hz: 900 } });
+  const store = { item_id: 'clip-1', boxes: [offBand, box('20Hz')] };
+  const figure = applyBoxesToFigure(base, store.boxes);
+  assert.deepEqual(Array.from(figure.layout.shapes, shape => shape.name), ['playback-marker', 'bbox-1']);
+  const [next] = updateBoxesFromGraph({ 'shapes[1].x1': 1.5 }, store, figure, null, 'clip-1', 'verify', PROFILE, null, null, { tag_options: OPTIONS });
+  assert.equal(next.boxes[0].annotation_extent.time_end_sec, 5, 'the box in another band is untouched');
+  assert.equal(next.boxes[1].annotation_extent.time_end_sec, 1.5);
+});
