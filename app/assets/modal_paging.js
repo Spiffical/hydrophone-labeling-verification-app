@@ -199,9 +199,9 @@
       state.itemId = itemId;
       state.playheadX = null;
       state.range = pages.length > 1 ? pages[0].slice() : null;
-    } else if (pages.length < 2) {
-      state.range = null;
     }
+    // The same clip re-plotted (after a box edit, say) keeps the page or zoom
+    // on screen, also when the clip fits on one page.
     const live = liveRange(gd);
     const target = state.range || (pages.length === 1 ? pages[0] : null);
     const moved = target && live && !sameRange(live, target) ? moveTo(target) : Promise.resolve(false);

@@ -181,3 +181,31 @@ test('a view the reviewer moved away from the playhead stays put', async () => {
   await s.flush();
   assert.equal(s.relayouts.length, 0);
 });
+
+test('a clip that fits on one page keeps the reviewer\'s zoom when a box edit re-plots it', async () => {
+  const s = load({ xMax: 143.3 });
+  s.gd._fullLayout.xaxis.range = [0, 143.3];
+  s.gd.layout = Object.assign({}, s.gd.layout);
+  s.handlers.plotly_afterplot();
+  await s.flush();
+  const opened = s.relayouts.length;
+  // Zoomed in with the wheel on one call.
+  s.gd._fullLayout.xaxis.range = [100, 120];
+  s.handlers.plotly_relayout({ 'xaxis.range[0]': 100, 'xaxis.range[1]': 120 });
+  // A resized box re-plots the figure (a new layout object) at that zoom.
+  s.gd.layout = Object.assign({}, s.gd.layout);
+  s.handlers.plotly_afterplot();
+  await s.flush();
+  assert.equal(s.relayouts.length, opened, 'the zoom stays');
+  // A re-plot that shows the whole clip again puts the zoom back.
+  s.gd._fullLayout.xaxis.range = [0, 143.3];
+  s.gd.layout = Object.assign({}, s.gd.layout);
+  s.handlers.plotly_afterplot();
+  await s.flush();
+  assert.deepEqual(s.relayouts.at(-1).update['xaxis.range'], [100, 120]);
+  // The next clip opens whole.
+  s.gd.layout = Object.assign({}, s.gd.layout, { meta: Object.assign({}, s.gd.layout.meta, { modal_item_id: 'clip-b' }) });
+  s.handlers.plotly_afterplot();
+  await s.flush();
+  assert.deepEqual(s.relayouts.at(-1).update['xaxis.range'], [0, 143.3]);
+});
