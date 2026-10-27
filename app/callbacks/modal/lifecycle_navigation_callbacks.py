@@ -14,6 +14,7 @@ from app.callbacks.modal.display_helpers import (
 from app.components.audio_player import (
     EQ_BAND_FREQUENCIES,
     EQ_LOW_FOCUS_MAX_HZ,
+    _build_audio_src,
     create_modal_audio_player,
 )
 from app.services.modal_boxes import reference_box_extents
@@ -36,6 +37,9 @@ from app.utils.image_utils import (
 
 MODAL_PREFETCH_NEXT_ITEMS = 6
 MODAL_PREFETCH_PREVIOUS_ITEMS = 2
+# Clips whose audio is warmed on the server and preloaded by the browser ahead
+# of the reviewer (whole files, so fewer than the spectrogram images).
+AUDIO_PREFETCH_NEXT_ITEMS = 2
 
 
 def _coerce_float(value):
@@ -656,13 +660,19 @@ def register_modal_lifecycle_navigation_callbacks(
             else html.P("No audio available for this item.", className="text-muted italic")
         )
 
-        # Warm the current item plus one neighbor on each side without slowing the modal render.
+        # Warm the current item, the one before and the next AUDIO_PREFETCH_NEXT_ITEMS without
+        # slowing the modal render; the browser preloads the next ones' audio (prefetchImages).
         candidate_items = []
+        next_items = []
         if item_id in page_item_ids:
             current_index = page_item_ids.index(item_id)
-            nearby_ids = page_item_ids[max(0, current_index - 1) : min(len(page_item_ids), current_index + 2)]
+            nearby_ids = page_item_ids[
+                max(0, current_index - 1) : min(len(page_item_ids), current_index + 1 + AUDIO_PREFETCH_NEXT_ITEMS)
+            ]
+            next_ids = set(page_item_ids[current_index + 1 : current_index + 1 + AUDIO_PREFETCH_NEXT_ITEMS])
         else:
             nearby_ids = [item_id]
+            next_ids = set()
 
         for candidate_id in nearby_ids:
             if candidate_id == item_id:
@@ -685,6 +695,8 @@ def register_modal_lifecycle_navigation_callbacks(
                     )
             if isinstance(candidate_item, dict):
                 candidate_items.append(candidate_item)
+                if candidate_id in next_ids:
+                    next_items.append(candidate_item)
 
         prewarm_audio_delivery_paths(
             (candidate.get("audio_path") for candidate in candidate_items),
@@ -692,6 +704,21 @@ def register_modal_lifecycle_navigation_callbacks(
             mp3_bitrate=audio_mp3_bitrate,
             cache_dir=audio_cache_dir,
         )
+        prefetch_audio_urls = [
+            url
+            for url in (
+                _build_audio_src(candidate.get("audio_path"), transport=audio_transport, mp3_bitrate=audio_mp3_bitrate)
+                for candidate in next_items
+            )
+            if url
+        ]
+        if prefetch_audio_urls:
+            # _apply_modal_boxes_to_figure has turned the figure into a dict.
+            if isinstance(fig, dict):
+                layout = fig.setdefault("layout", {})
+                layout["meta"] = {**(layout.get("meta") or {}), "prefetch_audio_urls": prefetch_audio_urls}
+            else:
+                fig.update_layout(meta={**dict(fig.layout.meta or {}), "prefetch_audio_urls": prefetch_audio_urls})
 
         modal_actions = _build_modal_item_actions(
             source_item,

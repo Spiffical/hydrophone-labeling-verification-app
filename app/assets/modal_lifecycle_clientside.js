@@ -4,6 +4,79 @@
   const modalRenderState = {
     generation: 0,
   };
+  // The next clips' audio (figure meta prefetch_audio_urls), fetched one at a time
+  // at low priority once the open clip's audio is in, so the browser cache holds
+  // it when the reviewer moves on; on a slow link each clip otherwise starts its
+  // download only when it opens.
+  const AUDIO_PREFETCH_WAIT_MS = 8000;
+  const audioPrefetched = new Set();
+  const audioPrefetch = { queue: [], busy: false, timer: null };
+
+  function audioFullyLoaded(audio) {
+    if (audio.readyState >= 4) {
+      return true;
+    }
+    try {
+      const buffered = audio.buffered;
+      return Boolean(audio.duration) && buffered.length > 0
+        && buffered.end(buffered.length - 1) >= audio.duration - 0.25;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function pumpAudioPrefetch() {
+    if (audioPrefetch.busy || !audioPrefetch.queue.length || typeof window.fetch !== 'function') {
+      return;
+    }
+    const url = audioPrefetch.queue.shift();
+    if (audioPrefetched.has(url)) {
+      pumpAudioPrefetch();
+      return;
+    }
+    audioPrefetch.busy = true;
+    audioPrefetched.add(url);
+    window.fetch(url, { credentials: 'same-origin', priority: 'low' })
+      .then(function (response) {
+        return response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)));
+      })
+      .catch(function () {
+        audioPrefetched.delete(url);
+      })
+      .finally(function () {
+        audioPrefetch.busy = false;
+        while (audioPrefetched.size > 32) {
+          audioPrefetched.delete(audioPrefetched.values().next().value);
+        }
+        pumpAudioPrefetch();
+      });
+  }
+
+  function prefetchAudio(urls) {
+    audioPrefetch.queue = urls.filter(function (url) {
+      return typeof url === 'string' && url && !audioPrefetched.has(url);
+    });
+    if (audioPrefetch.timer) {
+      window.clearTimeout(audioPrefetch.timer);
+      audioPrefetch.timer = null;
+    }
+    if (!audioPrefetch.queue.length) {
+      return;
+    }
+    const started = Date.now();
+    (function waitForOpenClip() {
+      // The player sets src from data-audio-src when it starts; until then it has not loaded.
+      const audio = document.getElementById('modal-player-audio');
+      const waiting = audio && (audio.getAttribute('data-audio-src') || audio.getAttribute('src'))
+        && !(audio.getAttribute('src') && audioFullyLoaded(audio));
+      if (waiting && Date.now() - started < AUDIO_PREFETCH_WAIT_MS) {
+        audioPrefetch.timer = window.setTimeout(waitForOpenClip, 250);
+        return;
+      }
+      audioPrefetch.timer = null;
+      pumpAudioPrefetch();
+    }());
+  }
 
   function noUpdate() {
     return (window.dash_clientside || {}).no_update;
@@ -722,6 +795,7 @@
         } else {
           preloadImages();
         }
+        prefetchAudio(meta && Array.isArray(meta.prefetch_audio_urls) ? meta.prefetch_audio_urls : []);
         return { count: urls.length, ts: Date.now() };
       },
     }),

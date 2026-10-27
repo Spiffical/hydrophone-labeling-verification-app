@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -224,7 +225,10 @@ def _ensure_cached_mp3(audio_path: str, *, bitrate: str, cache_dir: str) -> Opti
         ]
 
         try:
-            subprocess.run(command, check=True, timeout=300)
+            if shutil.which("ffmpeg"):
+                subprocess.run(command, check=True, timeout=300)
+            elif not _encode_mp3_with_soundfile(source_path, tmp_path, bitrate=resolved_bitrate):
+                raise RuntimeError("no MP3 encoder")
             os.replace(tmp_path, target_path)
         except Exception:
             try:
@@ -235,6 +239,47 @@ def _ensure_cached_mp3(audio_path: str, *, bitrate: str, cache_dir: str) -> Opti
             return source_path
 
     return target_path if os.path.exists(target_path) else source_path
+
+
+# Sample rates MPEG layer III allows.
+_MP3_RATES = (8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
+# Longer files are served as they are rather than read whole into memory.
+_SOUNDFILE_MP3_MAX_SECONDS = 900.0
+
+
+def _bitrate_kbps(bitrate: str) -> float:
+    try:
+        return float(str(bitrate).strip().lower().rstrip("k"))
+    except ValueError:
+        return 128.0
+
+
+def _encode_mp3_with_soundfile(source_path: str, target_path: str, *, bitrate: str) -> bool:
+    """MP3 without ffmpeg (hosts like oncvm have none): libsndfile 1.1+ encodes
+    MPEG layer III. Audio above 48 kHz is resampled to 48 kHz first. At constant
+    bitrate libsndfile's compression level runs from about 320 kb/s (0.0) down
+    by about 320 kb/s per unit, so the level follows the requested bitrate."""
+    import numpy as np
+    import soundfile as sf
+    from fractions import Fraction
+    from scipy import signal
+
+    if "MP3" not in sf.available_formats():
+        return False
+    info = sf.info(source_path)
+    if info.frames / max(info.samplerate, 1) > _SOUNDFILE_MP3_MAX_SECONDS:
+        return False
+    audio, rate = sf.read(source_path, dtype="float32", always_2d=True)
+    if rate not in _MP3_RATES:
+        target_rate = 48000 if rate > 48000 else max((r for r in _MP3_RATES if r <= rate), default=8000)
+        ratio = Fraction(target_rate, rate).limit_denominator(1000)
+        audio = signal.resample_poly(audio, ratio.numerator, ratio.denominator, axis=0).astype("float32")
+        rate = target_rate
+    np.clip(audio, -1.0, 1.0, out=audio)
+    level = min(1.0, max(0.0, (320.0 - _bitrate_kbps(bitrate)) / 320.0))
+    sf.write(target_path, audio, rate, format="MP3", subtype="MPEG_LAYER_III",
+             compression_level=level, bitrate_mode="CONSTANT")
+    return True
 
 
 def _get_lock(cache_key: str) -> threading.Lock:
