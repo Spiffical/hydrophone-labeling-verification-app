@@ -104,7 +104,14 @@ def register_verify_filter_callbacks(
                 seen.add(root)
             expanded_paths = roots
 
-        return option_values, selected_values, expanded_paths
+        # Saving a clip refreshes the data without changing its classes. Sending the
+        # same filter again would read downstream as a filter change: the slider and
+        # thresholds echo it and the grid shows "Updating spectrograms" over the clip.
+        return (
+            option_values if option_values != previous_option_values else no_update,
+            selected_values if selected_values != current_value else no_update,
+            expanded_paths if expanded_paths != expanded_value else no_update,
+        )
 
     @app.callback(
         Output("verify-class-filter-tree", "children"),

@@ -39,6 +39,23 @@ def triggered(target, count=1):
     return patch.object(class_filter_callbacks, "ctx", SimpleNamespace(triggered_id=target, triggered=[{}] * count))
 
 
+def test_a_data_refresh_with_the_same_classes_sends_no_filter_update(callbacks):
+    # Each save refreshes the data store; an unchanged filter sent again set off the
+    # grid's "Updating spectrograms" notice over the open clip.
+    sync = callbacks["sync_verify_class_filter_state"]
+
+    def apply(outputs, stores):  # as Dash does: no_update keeps the store's value
+        return tuple(old if new is no_update else new for new, old in zip(outputs, stores))
+
+    data = {"items": [{"predictions": {"model_outputs": [{"class_hierarchy": FIN, "score": 0.8}]}}]}
+    stores = apply(sync(data, None, None, None), (None, None, None))
+    assert FIN in stores[0] and stores[2]
+    assert sync(data, *stores) == (no_update, no_update, no_update)
+    # New classes still come through.
+    more = {"items": data["items"] + [{"predictions": {"model_outputs": [{"class_hierarchy": VESSEL, "score": 0.6}]}}]}
+    assert VESSEL in sync(more, *stores)[0]
+
+
 def test_select_all_is_left_alone_while_classes_load(callbacks):
     # Unticking it here used to clear every class as the page opened.
     assert callbacks["render_verify_class_filter_tree"]([], None, [])[2] is no_update
