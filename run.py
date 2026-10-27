@@ -1,4 +1,6 @@
+import faulthandler
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -18,7 +20,15 @@ def find_free_port(preferred: int = 8050) -> int:
         return s.getsockname()[1]
 
 
+def enable_thread_dumps() -> None:
+    """`kill -USR1 <pid>` prints every thread's stack to stderr (the server log)
+    and the server carries on: shows what a hung dashboard is waiting on."""
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+
+
 def main():
+    enable_thread_dumps()
     config = get_config()
 
     if config.get("reset_mock"):

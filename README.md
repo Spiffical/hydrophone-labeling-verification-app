@@ -63,6 +63,8 @@ Useful startup flags:
 
 The same spectrogram settings are also available from the gear icon in the app and in `config/default.yaml`.
 
+If a running server seems stuck, `kill -USR1 <server pid>` prints every thread's stack to its stderr (the server log) and the server keeps running.
+
 ## Data
 
 Supported spectrogram files: `.mat`, `.npy`, `.png`, `.jpg`, `.jpeg`.
