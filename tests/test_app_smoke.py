@@ -167,6 +167,8 @@ def test_modal_display_limit_updates_are_clientside(mock_config):
     }
     assert "modal-busy-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
     assert "modal-render-ready-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
+    # It compares the toggles with the figure on screen (modal_display_refresh.test.cjs).
+    assert {"id": "modal-image-graph", "property": "figure"} in modal_display_callbacks["startViewRefresh"]["state"]
 
     server_view_callbacks = [
         entry

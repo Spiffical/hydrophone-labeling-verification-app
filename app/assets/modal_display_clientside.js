@@ -27,9 +27,28 @@
     return context && context.triggered_id;
   }
 
-  function startViewRefresh(_colormap, _yAxisScale) {
+  // Whether the clip figure on screen was drawn with this colormap and y-axis scale.
+  function drawnWith(figure, colormap, yAxisScale) {
+    const layout = figure && figure.layout;
+    const meta = layout && layout.meta;
+    if (!meta || !meta.modal_item_id || !meta.display_colormap) {
+      return false;
+    }
+    const drawnScale = layout.yaxis && layout.yaxis.type === 'log' ? 'log' : 'linear';
+    return meta.display_colormap === colormap && drawnScale === (yAxisScale || 'linear');
+  }
+
+  // "Updating spectrogram" while the server redraws the clip for a new colormap or y-axis
+  // scale; finishLoading clears it once the redrawn figure is in. Opening or moving to a
+  // clip sets both toggles too, in the same answer as a figure already drawn with them, and
+  // no redraw follows (update_modal_view skips it): an overlay set then, after the figure's
+  // own finishLoading, would never be cleared.
+  function startViewRefresh(colormap, yAxisScale, figure) {
     const trigger = triggeredId();
     if (trigger !== 'modal-colormap-toggle' && trigger !== 'modal-y-axis-toggle') {
+      return [noUpdate(), noUpdate()];
+    }
+    if (drawnWith(figure, colormap, yAxisScale)) {
       return [noUpdate(), noUpdate()];
     }
     cancelRasterPreviews();

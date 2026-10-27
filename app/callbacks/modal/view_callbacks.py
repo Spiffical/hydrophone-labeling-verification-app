@@ -450,6 +450,7 @@ def register_modal_view_callbacks(
         Output("modal-render-ready-store", "data", allow_duplicate=True),
         Input("modal-colormap-toggle", "value"),
         Input("modal-y-axis-toggle", "value"),
+        State("modal-image-graph", "figure"),
         prevent_initial_call=True,
     )
 
