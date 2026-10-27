@@ -160,6 +160,20 @@ def _score_track_config(section: Any, repo_root: str) -> Optional[Dict[str, Any]
     }
 
 
+def _evidence_figures_config(section: Any, repo_root: str) -> Optional[Dict[str, Any]]:
+    """A figure per clip beside its labels (app/services/evidence_figures.py).
+    Off unless the config names a folder.
+
+    - ``folder``: where ``<item_id>.png`` files live (relative paths start at the app folder).
+    """
+    if not isinstance(section, dict) or section.get("enabled") is False:
+        return None
+    folder = section.get("folder")
+    if not isinstance(folder, str) or not folder.strip():
+        return None
+    return {"folder": resolve_path(folder.strip(), repo_root)}
+
+
 def _coerce_bool(value: Any, default: bool) -> bool:
     if value is None:
         return bool(default)
@@ -446,6 +460,8 @@ def get_config() -> Dict[str, Any]:
         "box_checks": _box_checks_config(config.get("box_checks")),
         # A detector's score along each clip, under the main plot; None unless set.
         "score_track": _score_track_config(config.get("score_track"), repo_root),
+        # A figure per clip beside its labels; None unless set.
+        "evidence_figures": _evidence_figures_config(config.get("evidence_figures"), repo_root),
         "server": {
             "host": args.host,
             "port": args.port,

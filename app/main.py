@@ -8,6 +8,7 @@ from flask import Response, abort, redirect, request, send_file, url_for
 
 from app.layouts.main_layout import create_main_layout
 from app.callbacks import register_callbacks
+from app.services.evidence_figures import evidence_figure_path
 from app.defaults import (
     DEFAULT_AUDIO_CACHE_MAX_AGE,
     DEFAULT_AUDIO_LEGACY_FILENAME_ROUTE,
@@ -311,6 +312,16 @@ def create_app(config: Dict) -> dash.Dash:
                 "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
             },
         )
+
+    @app.server.route("/evidence-figure/<item_id>")
+    def serve_evidence_figure(item_id):
+        # A clip's evidence figure (config evidence_figures); read-only.
+        path = evidence_figure_path(config.get("evidence_figures"), item_id)
+        if path is None:
+            abort(404)
+        response = send_file(path, mimetype="image/png", conditional=True)
+        response.headers["Cache-Control"] = "private, max-age=300"
+        return response
 
     @app.server.route("/modal-image/<token>")
     def serve_modal_image(token):

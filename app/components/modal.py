@@ -426,6 +426,29 @@ def create_spectrogram_modal(config=None):
                                             id="modal-item-actions",
                                             className="modal-item-actions",
                                         ),
+                                        # The clip's evidence caption and a button that opens its
+                                        # figure (config evidence_figures) in modal-evidence-viewer;
+                                        # hidden without one.
+                                        html.Div(
+                                            [
+                                                html.Div(id="modal-evidence-caption", className="modal-evidence-caption"),
+                                                html.Button(
+                                                    [
+                                                        html.I(className="bi bi-bar-chart-line", **{"aria-hidden": "true"}),
+                                                        html.Span("Evidence"),
+                                                    ],
+                                                    id="modal-evidence-open",
+                                                    type="button",
+                                                    n_clicks=0,
+                                                    className="btn btn-sm btn-outline-primary modal-evidence-button",
+                                                    title="Why this label is suggested",
+                                                    **{"aria-haspopup": "dialog"},
+                                                ),
+                                            ],
+                                            id="modal-evidence",
+                                            className="modal-evidence",
+                                            hidden=True,
+                                        ),
                                         # Box list lives outside modal-item-actions: that panel is
                                         # rebuilt on many events, which reset the list's scroll.
                                         html.Section(
@@ -642,6 +665,43 @@ def create_spectrogram_modal(config=None):
         keyboard=False,
     )
 
+    # The clip's evidence figure, from the sidebar's Evidence button
+    # (evidence_figure_callbacks.py), over the review window, which it dims.
+    # Esc, × or a click outside closes it.
+    evidence_modal = dbc.Modal(
+        [
+            dbc.ModalHeader(
+                [
+                    dbc.ModalTitle("Evidence"),
+                    html.A(
+                        [
+                            html.I(className="bi bi-box-arrow-up-right", **{"aria-hidden": "true"}),
+                            html.Span("Open in a new tab"),
+                        ],
+                        id="modal-evidence-link",
+                        className="modal-evidence-link",
+                        target="_blank",
+                        rel="noopener",
+                    ),
+                ]
+            ),
+            dbc.ModalBody(
+                html.Img(
+                    id="modal-evidence-image",
+                    className="modal-evidence-image",
+                    alt="Evidence for the suggested label",
+                )
+            ),
+        ],
+        id="modal-evidence-viewer",
+        is_open=False,
+        centered=True,
+        scrollable=True,
+        class_name="modal-evidence-window",
+        backdrop_class_name="modal-evidence-backdrop",
+        dialog_class_name="modal-evidence-dialog",
+    )
+
     plotly_preload_graph = html.Div(
         dcc.Graph(
             id="plotly-preload-graph",
@@ -659,4 +719,4 @@ def create_spectrogram_modal(config=None):
         **{"aria-hidden": "true"},
     )
 
-    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal, bbox_editor_modal])
+    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal, bbox_editor_modal, evidence_modal])

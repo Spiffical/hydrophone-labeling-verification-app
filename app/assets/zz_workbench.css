@@ -514,6 +514,78 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
     height: auto;
 }
 
+/* The Evidence button (evidence_figure_callbacks.py), between the labels and
+   the box list; the figure opens in its own dialog. */
+.modal-workbench-side > .modal-evidence {
+    flex: 0 0 auto;
+}
+
+.modal-workbench-side > .modal-evidence[hidden] {
+    display: none;
+}
+
+.modal-evidence-caption {
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--text-secondary);
+}
+
+.modal-evidence-caption:empty {
+    display: none;
+}
+
+.modal-evidence-caption-line + .modal-evidence-caption-line {
+    margin-top: 2px;
+}
+
+.modal-evidence-button {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* Above the review window (another .modal), which its backdrop dims. */
+.modal.modal-evidence-window {
+    z-index: 1065;
+}
+
+.modal-backdrop.modal-evidence-backdrop {
+    z-index: 1060;
+}
+
+/* The dialog fits the figure, up to the window; a tall one scrolls. */
+.modal-dialog.modal-evidence-dialog {
+    width: fit-content;
+    max-width: min(1720px, calc(100vw - 2rem));
+}
+
+.modal-evidence-dialog .modal-body {
+    padding: 8px;
+}
+
+.modal-evidence-dialog .modal-header .btn-close {
+    margin-left: 0;
+}
+
+.modal-evidence-link {
+    margin-left: auto;
+    margin-right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+}
+
+.modal-evidence-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+}
+
 /* In a window too short for all of it, the card scrolls rather than cut off
    the end of the list. */
 .modal-workbench-side > .modal-bbox-panel {
