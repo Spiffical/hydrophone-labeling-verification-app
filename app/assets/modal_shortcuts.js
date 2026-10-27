@@ -6,6 +6,18 @@
             window.getComputedStyle(element).visibility !== 'hidden';
     }
 
+    // Whether focus was last moved with the keyboard (Tab) rather than a pointer.
+    // :focus-visible cannot tell: Chrome makes the focused element match it as
+    // soon as any key goes down, so a button clicked with the mouse (✓, play)
+    // would keep Enter for itself and be clicked again instead of saving.
+    let keyboardFocus = false;
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Tab') keyboardFocus = true;
+    }, true);
+    document.addEventListener('pointerdown', function () {
+        keyboardFocus = false;
+    }, true);
+
     document.addEventListener('keydown', function (event) {
         if (event.defaultPrevented || event.repeat || event.isComposing ||
             event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -47,9 +59,9 @@
 
         if (event.key === 'Enter') {
             // A button or link reached with the keyboard keeps Enter for itself.
-            // One that only holds focus from a mouse click (say, play) does not.
+            // One that only holds focus from a mouse click (say, ✓ or play) does not.
             const control = target && target.closest && target.closest('button, a, summary, [role="button"]');
-            if (control && (typeof control.matches !== 'function' || control.matches(':focus-visible'))) return;
+            if (control && keyboardFocus) return;
             const workbench = window.modalWorkbench;
             if (!workbench) return;
             event.preventDefault();

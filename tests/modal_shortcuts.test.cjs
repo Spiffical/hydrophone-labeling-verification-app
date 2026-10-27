@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 function setup() {
-    let handler;
+    const handlers = {};
     const element = () => ({ clicks: 0, getClientRects() { return this.hidden ? [] : [{}]; },
         getAttribute() { return null; }, contains() { return false; }, click() { this.clicks++; } });
     const prev = element(), next = element(), edit = element(), modal = element(), other = element(), busy = element();
@@ -16,14 +16,15 @@ function setup() {
     const win = { getComputedStyle: () => ({ visibility: 'visible' }) };
     vm.runInNewContext(fs.readFileSync(`${__dirname}/../app/assets/modal_shortcuts.js`, 'utf8'), {
         window: win,
-        document: { addEventListener: (_, h) => { handler = h; }, getElementById: id => ids[id],
-            querySelectorAll: () => [wrapper, other] },
+        document: { addEventListener: (type, h) => { (handlers[type] = handlers[type] || []).push(h); },
+            getElementById: id => ids[id], querySelectorAll: () => [wrapper, other] },
     });
     const press = (key, props = {}) => {
         const event = { key, target: { closest: () => null }, preventDefault() { this.prevented = true; }, ...props };
-        handler(event); return event;
+        handlers.keydown.forEach(h => h(event)); return event;
     };
-    return { press, prev, next, edit, modal, other, busy, win };
+    const pointer = () => handlers.pointerdown.forEach(h => h({}));
+    return { press, pointer, prev, next, edit, modal, other, busy, win };
 }
 
 test('arrows and E invoke existing modal buttons', () => {
@@ -68,14 +69,14 @@ test('B toggles draw mode, Esc stops it, and Enter saves and moves on', () => {
     assert.equal(s.press('b').prevented, true);
     assert.equal(s.press('Escape').prevented, true);
     assert.equal(s.press('Enter').prevented, true);
-    // A button reached with the keyboard keeps Enter for itself...
-    const keyboardFocused = { matches: selector => selector === ':focus-visible' };
-    const onButton = s.press('Enter', { target: { closest: selector => (selector.startsWith('button') ? keyboardFocused : null) } });
-    assert.equal(onButton.prevented, undefined);
-    // ...but one that only kept focus after a mouse click (such as play) does not.
-    const mouseFocused = { matches: () => false };
-    const afterClick = s.press('Enter', { target: { closest: selector => (selector.startsWith('button') ? mouseFocused : null) } });
-    assert.equal(afterClick.prevented, true);
+    // A button reached with the keyboard (Tab) keeps Enter for itself...
+    const onButton = { target: { closest: selector => (selector.startsWith('button') ? {} : null) } };
+    s.press('Tab');
+    assert.equal(s.press('Enter', onButton).prevented, undefined);
+    // ...but one that only kept focus after a mouse click (✓, play) does not, although
+    // Chrome makes it match :focus-visible once a key goes down.
+    s.pointer();
+    assert.equal(s.press('Enter', onButton).prevented, true);
     assert.deepEqual(actions, ['toggle', 'off', 'save-next', 'save-next']);
 });
 
