@@ -18,8 +18,11 @@ from app.defaults import (
 )
 from app.services.bbox_tags import load_bbox_tag_options
 from app.services.spectrogram_grid import normalize_spectrogram_grid
+from app.utils.audio_transport import AUDIO_TRANSPORTS
 from app.utils.audio_transport import DEFAULT_AUDIO_CACHE_DIR
+from app.utils.audio_transport import DEFAULT_AUDIO_FLAC_SAMPLE_RATE
 from app.utils.audio_transport import normalize_audio_transport
+from app.utils.audio_transport import normalize_flac_sample_rate
 
 
 def get_repo_root() -> str:
@@ -286,7 +289,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--audio-transport",
         type=str,
-        choices=["direct", "mp3_cached"],
+        choices=list(AUDIO_TRANSPORTS),
         help="Playback transport for audio players",
     )
     parser.add_argument(
@@ -337,6 +340,9 @@ def get_config() -> Dict[str, Any]:
         args.audio_transport or audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
     )
     audio_mp3_bitrate = str(args.audio_mp3_bitrate or audio_cfg.get("mp3_bitrate", DEFAULT_AUDIO_MP3_BITRATE))
+    audio_flac_sample_rate = normalize_flac_sample_rate(
+        audio_cfg.get("flac_sample_rate", DEFAULT_AUDIO_FLAC_SAMPLE_RATE)
+    )
     audio_cache_dir = resolve_path(audio_cfg.get("cache_dir", DEFAULT_AUDIO_CACHE_DIR), repo_root)
     audio_cache_max_age = _coerce_non_negative_int(
         audio_cfg.get("cache_max_age", DEFAULT_AUDIO_CACHE_MAX_AGE),
@@ -446,6 +452,7 @@ def get_config() -> Dict[str, Any]:
         "audio": {
             "transport": audio_transport,
             "mp3_bitrate": audio_mp3_bitrate,
+            "flac_sample_rate": audio_flac_sample_rate,
             "cache_dir": audio_cache_dir,
             "cache_max_age": audio_cache_max_age,
             "stale_while_revalidate": audio_stale_while_revalidate,

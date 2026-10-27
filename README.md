@@ -119,6 +119,8 @@ Cards include play/pause and seek controls when matching audio is found. The det
 
 Use `--audio-transport mp3_cached` only if browser seeking is unreliable with original audio files.
 
+For high-rate recordings (such as 256 kHz hydrophone files) over a slow link, set `transport: flac_resampled` in the `audio` section. Players then get a lossless 24-bit FLAC resampled to `flac_sample_rate` (default 16000), cached in `cache_dir`, with the next clips prepared in advance. Everything below 7/8 of half that rate (7 kHz at 16000) plays unchanged, and the file is about 12 times smaller than a 256 kHz original. Use it only for low-frequency calls such as fin whales and knocks: clicks and whistles need the original. Spectrograms are always made from the original files.
+
 ## Prediction Format
 
 Predictions and saved labels use the unified JSON format. See:

@@ -37,8 +37,11 @@ cache:
 
 audio:
   # direct: serve the original source file; mp3_cached is an explicit fallback for browser seeking.
+  # flac_resampled: a lossless FLAC at flac_sample_rate (unchanged up to 7/8 of half
+  # that rate), several times smaller than high-rate originals; low-frequency calls only.
   transport: direct
   mp3_bitrate: 128k
+  flac_sample_rate: 16000
   cache_dir: /tmp/hydrophone_audio_transport
   cache_max_age: 300
   stale_while_revalidate: 60

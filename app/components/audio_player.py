@@ -37,11 +37,12 @@ def _build_audio_src(
     *,
     transport: str = "direct",
     mp3_bitrate: Optional[str] = None,
+    flac_sample_rate: Optional[int] = None,
 ) -> Optional[str]:
     token = encode_audio_request(audio_file_path)
     if not token:
         return None
-    query = build_audio_transport_query(transport=transport, mp3_bitrate=mp3_bitrate)
+    query = build_audio_transport_query(transport=transport, mp3_bitrate=mp3_bitrate, flac_sample_rate=flac_sample_rate)
     return f"/audio-file/{token}{query}"
 
 
@@ -209,6 +210,7 @@ def create_modal_audio_player(
     visible_filter_enabled: bool = False,
     transport: str = "direct",
     mp3_bitrate: Optional[str] = None,
+    flac_sample_rate: Optional[int] = None,
 ) -> html.Div:
     """
     Create an enhanced audio player for the modal with pitch shift controls.
@@ -251,7 +253,9 @@ def create_modal_audio_player(
         player_id = f"audio-{hash(spectrogram_filename) % 10000}"
     
     audio_filename = os.path.basename(audio_file_path)
-    audio_src = _build_audio_src(audio_file_path, transport=transport, mp3_bitrate=mp3_bitrate)
+    audio_src = _build_audio_src(
+        audio_file_path, transport=transport, mp3_bitrate=mp3_bitrate, flac_sample_rate=flac_sample_rate
+    )
     try:
         pitch_value = max(0.1, min(4.0, float(pitch_value)))
     except (TypeError, ValueError):

@@ -641,6 +641,7 @@ def register_modal_lifecycle_navigation_callbacks(
         audio_cfg = (cfg or {}).get("audio", {}) if isinstance(cfg, dict) else {}
         audio_transport = audio_cfg.get("transport", "direct")
         audio_mp3_bitrate = audio_cfg.get("mp3_bitrate")
+        audio_flac_sample_rate = audio_cfg.get("flac_sample_rate")
         audio_cache_dir = audio_cfg.get("cache_dir")
 
         audio_path = source_item.get("audio_path")
@@ -655,6 +656,7 @@ def register_modal_lifecycle_navigation_callbacks(
                 visible_filter_enabled=visible_filter_enabled,
                 transport=audio_transport,
                 mp3_bitrate=audio_mp3_bitrate,
+                flac_sample_rate=audio_flac_sample_rate,
             )
             if audio_path
             else html.P("No audio available for this item.", className="text-muted italic")
@@ -702,12 +704,18 @@ def register_modal_lifecycle_navigation_callbacks(
             (candidate.get("audio_path") for candidate in candidate_items),
             transport=audio_transport,
             mp3_bitrate=audio_mp3_bitrate,
+            flac_sample_rate=audio_flac_sample_rate,
             cache_dir=audio_cache_dir,
         )
         prefetch_audio_urls = [
             url
             for url in (
-                _build_audio_src(candidate.get("audio_path"), transport=audio_transport, mp3_bitrate=audio_mp3_bitrate)
+                _build_audio_src(
+                    candidate.get("audio_path"),
+                    transport=audio_transport,
+                    mp3_bitrate=audio_mp3_bitrate,
+                    flac_sample_rate=audio_flac_sample_rate,
+                )
                 for candidate in next_items
             )
             if url

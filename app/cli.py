@@ -11,7 +11,7 @@ from app.defaults import (
     DEFAULT_CACHE_MAX_SIZE,
     DEFAULT_ITEMS_PER_PAGE,
 )
-from app.utils.audio_transport import normalize_audio_transport
+from app.utils.audio_transport import AUDIO_TRANSPORTS, normalize_audio_transport
 from app.main import create_app
 
 
@@ -164,7 +164,7 @@ def main():
     )
     parser.add_argument(
         '--audio-transport',
-        choices=['direct', 'mp3_cached'],
+        choices=list(AUDIO_TRANSPORTS),
         default=None,
         help='Playback transport for audio players'
     )

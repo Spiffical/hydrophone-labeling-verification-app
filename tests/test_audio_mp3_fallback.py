@@ -40,7 +40,7 @@ def test_mp3_transport_encodes_with_libsndfile_without_ffmpeg(tmp_path, no_ffmpe
 
 
 def test_long_files_are_served_as_they_are_without_ffmpeg(tmp_path, no_ffmpeg, monkeypatch):
-    monkeypatch.setattr(audio_transport, "_SOUNDFILE_MP3_MAX_SECONDS", 0.5)
+    monkeypatch.setattr(audio_transport, "_SOUNDFILE_MAX_SECONDS", 0.5)
     source = tmp_path / "clip.flac"
     _write_flac(source)
     delivered = resolve_audio_delivery_path(str(source), transport="mp3_cached", mp3_bitrate="128k",

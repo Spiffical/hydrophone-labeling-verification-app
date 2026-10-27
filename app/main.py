@@ -191,6 +191,7 @@ def create_app(config: Dict) -> dash.Dash:
         audio_cfg.get("transport", DEFAULT_AUDIO_TRANSPORT)
     )
     audio_mp3_bitrate = str(audio_cfg.get("mp3_bitrate", DEFAULT_AUDIO_MP3_BITRATE))
+    audio_flac_sample_rate = audio_cfg.get("flac_sample_rate")
     audio_cache_max_age = _coerce_non_negative_int(
         audio_cfg.get("cache_max_age", DEFAULT_AUDIO_CACHE_MAX_AGE),
         DEFAULT_AUDIO_CACHE_MAX_AGE,
@@ -226,6 +227,7 @@ def create_app(config: Dict) -> dash.Dash:
         query = build_audio_transport_query(
             transport=request.args.get("transport") or audio_transport,
             mp3_bitrate=request.args.get("mp3_bitrate") or audio_mp3_bitrate,
+            flac_sample_rate=request.args.get("sample_rate") or audio_flac_sample_rate,
         )
         return redirect(url_for("serve_audio_file", token=token) + query, code=308)
 
@@ -254,6 +256,7 @@ def create_app(config: Dict) -> dash.Dash:
             audio_path,
             transport=requested_transport,
             mp3_bitrate=requested_bitrate,
+            flac_sample_rate=request.args.get("sample_rate") or audio_flac_sample_rate,
             cache_dir=cache_dir,
         )
         if not delivery_path or not os.path.exists(delivery_path):
