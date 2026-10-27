@@ -29,7 +29,7 @@ def register_modal_audio_callbacks(app):
 
     app.clientside_callback(
         """
-        function(prevClicks, nextClicks, confirmClicks, editClicks, isOpen, modalItem) {
+        function(prevClicks, nextClicks, confirmClicks, editClicks, isOpen, modalItem, unsavedStore, currentItemId) {
             if (!isOpen) {
                 return [false, true];
             }
@@ -41,6 +41,14 @@ def register_modal_audio_callbacks(app):
             var triggered = Array.isArray(ctx.triggered) && ctx.triggered.length ? ctx.triggered[0] : null;
             var propId = triggered && triggered.prop_id ? triggered.prop_id : '';
             if (!propId) {
+                return [false, window.dash_clientside.no_update];
+            }
+            // With unsaved edits the move stops at the unsaved-changes prompt (modal_state.is_modal_dirty)
+            // and nothing loads, so the busy overlay would stay over the clip after "Stay".
+            var dirtyItem = unsavedStore && unsavedStore.dirty ? String(unsavedStore.item_id || '').trim() : null;
+            var openItem = String(currentItemId || modalItem.item_id || '').trim();
+            var navigating = propId === 'modal-nav-prev.n_clicks' || propId === 'modal-nav-next.n_clicks';
+            if (navigating && dirtyItem !== null && (!dirtyItem || !openItem || dirtyItem === openItem)) {
                 return [false, window.dash_clientside.no_update];
             }
             if (propId === 'modal-nav-prev.n_clicks') {
@@ -62,9 +70,8 @@ def register_modal_audio_callbacks(app):
                 return [false, window.dash_clientside.no_update];
             }
             if (propId.indexOf('modal-action-confirm') !== -1) {
-                return [Array.isArray(confirmClicks) && confirmClicks.some(function(value) {
-                    return typeof value === 'number' && value > 0;
-                }), window.dash_clientside.no_update];
+                // Saving leaves the spectrogram as it is: no "Updating spectrogram" over it.
+                return [window.dash_clientside.no_update, window.dash_clientside.no_update];
             }
             if (propId.indexOf('modal-action-edit') !== -1) {
                 return [Array.isArray(editClicks) && editClicks.some(function(value) {
@@ -82,6 +89,25 @@ def register_modal_audio_callbacks(app):
         Input({"type": "modal-action-edit", "scope": ALL}, "n_clicks"),
         State("image-modal", "is_open"),
         State("modal-player-item-store", "data"),
+        State("modal-unsaved-store", "data"),
+        State("current-filename", "data"),
+        prevent_initial_call=True,
+    )
+
+    # "Stay" in the unsaved-changes prompt keeps the open clip: no load is coming,
+    # so nothing may stay covered by the busy overlay.
+    app.clientside_callback(
+        """
+        function(stayClicks) {
+            if (!stayClicks) {
+                return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+            }
+            return [false, true];
+        }
+        """,
+        Output("modal-busy-store", "data", allow_duplicate=True),
+        Output("modal-render-ready-store", "data", allow_duplicate=True),
+        Input("unsaved-stay-btn", "n_clicks"),
         prevent_initial_call=True,
     )
 
