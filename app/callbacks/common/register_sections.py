@@ -38,6 +38,7 @@ def register_all_callback_sections(app, *, config, deps):
     d = deps
     d["set_cache_sizes"]((config or {}).get("cache", {}).get("max_size", DEFAULT_CACHE_MAX_SIZE))
     d["set_auto_contrast"](((config or {}).get("display") or {}).get("auto_contrast"))
+    d["set_display_processing"]((config or {}).get("display"))
     register_review_preferences_callbacks(app)
     register_mode_tab_callbacks(app)
     register_pagination_callbacks(app)

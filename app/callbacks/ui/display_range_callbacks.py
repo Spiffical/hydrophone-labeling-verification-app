@@ -312,6 +312,24 @@ def _frequency_slider_state(prefix, summary, current_min, current_max, triggered
     )
 
 
+def _auto_contrast_note(display_cfg):
+    """How automatic contrast is set (config display.auto_contrast), for the
+    contrast menu; None for the page's percentiles. Equalized spectrograms
+    (display.equalize_frequencies) hold levels over each frequency's own
+    background, so the range applies to every frequency."""
+    auto_contrast = (display_cfg or {}).get("auto_contrast") or {}
+    if auto_contrast.get("mode") != "background":
+        return None
+    shown, own = ("each frequency", "its own") if (display_cfg or {}).get("equalize_frequencies") else (
+        "each spectrogram", "its")
+    below = float(auto_contrast.get("below_db", 3.0))
+    start = f"{below:g} dB below {own}" if below else own
+    return (
+        f"Auto: {shown} from {start} background level to "
+        f"{auto_contrast.get('above_db', 12.0):g} dB above it."
+    )
+
+
 def _color_slider_state(prefix, summary, current_min, current_max, triggered_id, default_range=None, auto_note=None):
     """``default_range``: the dashboard's own contrast (config display
     colorbar_min/max), which its reset returns to instead of automatic.
@@ -423,13 +441,7 @@ def _build_display_range_outputs(
     display_cfg = (cfg or {}).get("display") or {}
     default_color = (display_cfg.get("colorbar_min"), display_cfg.get("colorbar_max"))
     default_color = default_color if None not in default_color else None
-    auto_contrast = display_cfg.get("auto_contrast") or {}
-    auto_note = (
-        f"Auto: each spectrogram from {auto_contrast.get('below_db', 3.0):g} dB below its "
-        f"background level to {auto_contrast.get('above_db', 12.0):g} dB above it."
-        if auto_contrast.get("mode") == "background"
-        else None
-    )
+    auto_note = _auto_contrast_note(display_cfg)
     y_state = _frequency_slider_state(
         prefix,
         summary,

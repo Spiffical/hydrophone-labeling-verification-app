@@ -100,6 +100,21 @@ def _auto_contrast_config(display_cfg: Any) -> Dict[str, Any]:
     return {"mode": mode, "below_db": decibels("below_db", 3.0), "above_db": decibels("above_db", 12.0)}
 
 
+def _display_processing_config(display_cfg: Any) -> Dict[str, Any]:
+    """``equalize_frequencies`` (true/false) and ``shrink`` (``average`` or
+    ``peak``) (display): how spectrograms are prepared for display
+    (app/utils/image_processing.py). Equalizing shows each frequency row
+    against its own background level; ``shrink: peak`` keeps each screen
+    pixel's loudest frame when a clip has more frames than pixels, so short
+    clicks stay visible. Both are off unless set."""
+    display_cfg = display_cfg if isinstance(display_cfg, dict) else {}
+    equalize = display_cfg.get("equalize_frequencies", False)
+    if isinstance(equalize, str):
+        equalize = equalize.strip().lower() in {"1", "true", "yes", "on"}
+    shrink = str(display_cfg.get("shrink") or "").strip().lower()
+    return {"equalize_frequencies": equalize is True, "shrink": "peak" if shrink == "peak" else "average"}
+
+
 def _box_checks_config(section: Any) -> Optional[Dict[str, Any]]:
     """Checks that flag boxes to fix in the box list (bbox_list.js), for a
     dashboard of boxes to correct. Off unless the config has this section.
@@ -444,6 +459,8 @@ def get_config() -> Dict[str, Any]:
             **_default_contrast(display_cfg),
             # How automatic contrast is chosen (percentile or background).
             "auto_contrast": _auto_contrast_config(display_cfg),
+            # Frequency equalization and how clips are shrunk to the screen.
+            **_display_processing_config(display_cfg),
         },
         "cache": {
             "max_size": cache_max_size,

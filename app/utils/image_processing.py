@@ -6,6 +6,7 @@ import math
 import os
 import re
 import threading
+import warnings
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import matplotlib
@@ -52,6 +53,9 @@ MODAL_TRANSPORT_FLOAT32 = "float32"
 MODAL_TRANSPORT_UINT16 = "uint16"
 MODAL_RASTER_TILE_MAX_DIMENSION = 4096
 MODAL_RASTER_TILE_OVERLAP_CELLS = 128
+# Grid card spectrograms: 1.5 x 1.5 inches at 72 dpi (108 x 108 pixels).
+GRID_IMAGE_INCHES = 1.5
+GRID_IMAGE_DPI = 72
 # Long clips open a page at a time (display.modal_page_seconds); reviewers can
 # also pick a closer page, and the modal image is tiled finely enough for it.
 MODAL_PAGE_SECONDS_CLOSE = 120.0
@@ -91,7 +95,10 @@ def fit_modal_matrix_to_pixel_bounds(
     max_width: Any = None,
     max_height: Any = None,
 ) -> np.ndarray:
-    """Downsample a display raster without ever upscaling source data."""
+    """Downsample a display raster without ever upscaling source data.
+
+    How cells are combined follows config display.shrink (set_display_processing):
+    averaged (Lanczos) by default, or each pixel's loudest cell ("peak")."""
     source = np.asarray(matrix)
     if source.ndim != 2 or source.size == 0:
         return source
@@ -102,6 +109,8 @@ def fit_modal_matrix_to_pixel_bounds(
     target_rows = min(rows, requested_height or rows)
     if (target_rows, target_columns) == (rows, columns):
         return source
+    if _DISPLAY_PROCESSING["shrink"] == "peak":
+        return _shrink_to_peaks(source, target_rows, target_columns)
 
     float_image = Image.fromarray(np.ascontiguousarray(source, dtype=np.float32))
     resized = float_image.resize(
@@ -109,6 +118,47 @@ def fit_modal_matrix_to_pixel_bounds(
         resample=Image.Resampling.LANCZOS,
     )
     return np.asarray(resized, dtype=source.dtype)
+
+
+def _heard_levels(matrix: np.ndarray, axis: Optional[int], percentile: float = 50.0) -> np.ndarray:
+    """A percentile (the median by default) of the cells above digital silence,
+    per row (axis=1) or over the whole matrix (axis=None); 0 where every cell
+    is silent."""
+    heard = matrix > _SILENT_DB
+    if heard.all():
+        levels = np.percentile(matrix, percentile, axis=axis)
+    else:
+        masked = np.where(heard, matrix, np.nan)
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # all-silent rows
+            levels = np.nanpercentile(masked, percentile, axis=axis)
+    return np.nan_to_num(np.asarray(levels, dtype=np.float64), nan=0.0)
+
+
+def _shrink_to_peaks(source: np.ndarray, target_rows: int, target_columns: int) -> np.ndarray:
+    """Shrink a dB raster by keeping each pixel's loudest cell.
+
+    Averaging spreads a click lasting one frame over the whole pixel, so short
+    sounds fade as more frames share a pixel (a 20 s clip on a screen packs
+    about 10 frames into each); the loudest cell keeps them. The loudest of
+    several noise cells is also louder than a typical one, so the shrunk
+    background is moved back to the level it had: row by row when frequencies
+    are equalized (set_display_processing), otherwise over the whole raster,
+    so the colour scale chosen from the full spectrogram still fits."""
+    shrunk = np.asarray(source, dtype=np.float32)
+    for axis, target in ((1, target_columns), (0, target_rows)):
+        size = shrunk.shape[axis]
+        if target < size:
+            # Pixel i covers cells [i * size // target, (i + 1) * size // target).
+            starts = (np.arange(target, dtype=np.int64) * size) // target
+            shrunk = np.maximum.reduceat(shrunk, starts, axis=axis)
+    per_row = _DISPLAY_PROCESSING["equalize_frequencies"] and shrunk.shape[0] == source.shape[0]
+    axis = 1 if per_row else None
+    lift = _heard_levels(shrunk, axis) - _heard_levels(np.asarray(source, dtype=np.float32), axis)
+    if per_row:
+        lift = lift[:, np.newaxis]
+    shrunk = np.where(shrunk > _SILENT_DB, shrunk - lift, shrunk)
+    return np.asarray(shrunk, dtype=source.dtype)
 
 
 def _get_or_compute_cached(
@@ -439,6 +489,29 @@ def _prepare_spectrogram_plot_axes(spectrogram_data: Dict[str, np.ndarray]) -> D
 _AUTO_CONTRAST = {"mode": "percentile", "below_db": 3.0, "above_db": 12.0}
 # Power floored at 1e-10 of the clip's loudest bin: digital silence.
 _SILENT_DB = -100.0
+# How spectrograms are prepared for display (config display.equalize_frequencies
+# and display.shrink), set once at start-up like the contrast.
+# - equalize_frequencies: each frequency row is shown against its own
+#   background (its quieter quarter over the clip, EQUALIZE_PERCENTILE), so
+#   ocean noise that is louder at some frequencies than others no longer
+#   washes out calls in the loud band.
+# - shrink: how a spectrogram with more frames than screen pixels is shrunk,
+#   "average" (Lanczos) or "peak" (each pixel's loudest frame, so clicks stay).
+_DISPLAY_PROCESSING = {"equalize_frequencies": False, "shrink": "average"}
+# A row's background for equalizing: its 25th percentile over time, as the
+# detectors' front end removes, so a call filling up to three quarters of the
+# clip at its frequency (a long tonal call) is not taken for background.
+EQUALIZE_PERCENTILE = 25.0
+
+
+def _clear_render_caches() -> None:
+    for lock, cache in (
+        (_SPECTROGRAM_CACHE_LOCK, spectrogram_cache),
+        (_AUDIO_SPECTROGRAM_CACHE_LOCK, audio_spectrogram_cache),
+        (_IMAGE_CACHE_LOCK, image_cache),
+    ):
+        with lock:
+            cache.clear()
 
 
 def set_auto_contrast(settings: Optional[Dict[str, Any]]) -> None:
@@ -454,13 +527,34 @@ def set_auto_contrast(settings: Optional[Dict[str, Any]]) -> None:
     if updated == _AUTO_CONTRAST:
         return
     _AUTO_CONTRAST.update(updated)
-    for lock, cache in (
-        (_SPECTROGRAM_CACHE_LOCK, spectrogram_cache),
-        (_AUDIO_SPECTROGRAM_CACHE_LOCK, audio_spectrogram_cache),
-        (_IMAGE_CACHE_LOCK, image_cache),
-    ):
-        with lock:
-            cache.clear()
+    _clear_render_caches()
+
+
+def set_display_processing(settings: Optional[Dict[str, Any]]) -> None:
+    """Use ``settings`` (``{"equalize_frequencies", "shrink"}``, app/config.py
+    display section) for every spectrogram drawn from here on. Cached
+    spectrograms and images were drawn the old way, so the caches are emptied
+    when the setting changes."""
+    settings = settings if isinstance(settings, dict) else {}
+    updated = {
+        "equalize_frequencies": bool(settings.get("equalize_frequencies", False)),
+        "shrink": "peak" if settings.get("shrink") == "peak" else "average",
+    }
+    if updated == _DISPLAY_PROCESSING:
+        return
+    _DISPLAY_PROCESSING.update(updated)
+    _clear_render_caches()
+
+
+def equalize_frequency_rows(psd: np.ndarray) -> np.ndarray:
+    """Each frequency row less its background (the row's EQUALIZE_PERCENTILE
+    level over time), so every row's noise sits at the same level and a call
+    shows as its height over the noise at its own frequency. Digital silence
+    stays at _SILENT_DB, below any colour scale."""
+    levels = np.asarray(psd, dtype=np.float32)
+    background = _heard_levels(levels, 1, EQUALIZE_PERCENTILE)[:, np.newaxis]
+    equalized = np.where(levels > _SILENT_DB, levels - background, _SILENT_DB)
+    return np.asarray(equalized, dtype=np.float32)
 
 
 def _compute_color_limit_summary(psd: np.ndarray) -> Dict[str, float]:
@@ -496,8 +590,12 @@ def _compute_color_limit_summary(psd: np.ndarray) -> Dict[str, float]:
 
 
 def _prepare_cached_spectrogram(spec):
-    """Compute exact contrast statistics once for a cached, immutable PSD."""
+    """Compute exact contrast statistics once for a cached, immutable PSD,
+    equalizing its frequency rows first when the display asks for it."""
     if isinstance(spec, dict) and isinstance(spec.get("psd"), np.ndarray):
+        if _DISPLAY_PROCESSING["equalize_frequencies"]:
+            spec["psd"] = equalize_frequency_rows(spec["psd"])
+            spec["_frequencies_equalized"] = True
         spec["_color_summary"] = _compute_color_limit_summary(spec["psd"])
     return spec
 
@@ -2010,7 +2108,7 @@ def _generate_image_from_spectrogram_data(
         return None
 
     with _MATPLOTLIB_RENDER_LOCK:
-        fig = Figure(figsize=(1.5, 1.5), facecolor="none")
+        fig = Figure(figsize=(GRID_IMAGE_INCHES, GRID_IMAGE_INCHES), facecolor="none")
         FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
 
@@ -2022,6 +2120,9 @@ def _generate_image_from_spectrogram_data(
 
         plot_axes = _prepare_spectrogram_plot_axes(spectrogram)
         psd = plot_axes["psd"]
+        if _DISPLAY_PROCESSING["shrink"] == "peak":
+            # Shrunk here, not by imshow's smoothing, so clicks survive the small card.
+            psd = fit_modal_matrix_to_pixel_bounds(psd, max_width=int(GRID_IMAGE_INCHES * GRID_IMAGE_DPI))
         time_plot = plot_axes["time_plot"]
         freq_plot = np.asarray(plot_axes["freq_plot"], dtype=np.float64)
         color_summary = _spectrogram_color_summary(spectrogram)
@@ -2098,7 +2199,7 @@ def _generate_image_from_spectrogram_data(
             pad_inches=0,
             facecolor="none",
             edgecolor="none",
-            dpi=72,
+            dpi=GRID_IMAGE_DPI,
         )
         data = base64.b64encode(buf.getbuffer()).decode("utf8")
         return f"data:image/png;base64,{data}"
