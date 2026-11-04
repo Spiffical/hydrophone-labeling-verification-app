@@ -1,10 +1,8 @@
 from app.services.verify_filter_tree import (
-    build_verify_filter_paths,
-    build_verify_leaf_paths,
+    class_selection_state,
     extract_verify_leaf_classes,
-    expand_verify_filter_selection,
     predicted_labels_match_filter,
-    toggle_verify_filter_selection,
+    toggle_class_selection,
 )
 from app.services.verify_modal_cache import (
     get_filtered_verify_items_page,
@@ -21,7 +19,6 @@ from app.callbacks.data.render_callbacks import (
     _prefetch_enabled,
     _verify_page_info,
 )
-from app.callbacks.verify.class_filter_callbacks import preserve_dynamic_all_selection
 from app.utils.unified_format_converter import convert_unified_v2_to_internal
 
 
@@ -39,111 +36,45 @@ def test_modal_prefetch_defaults_on_for_existing_mat_spectrograms():
     assert _modal_prefetch_enabled({"cache": {"modal_prefetch_enabled": False}}) is False
 
 
-def test_build_verify_leaf_paths_returns_only_leaf_nodes():
-    paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Anthrophony > Vessel > Tug",
-            "Biophony > Whale",
-        ]
-    )
+def test_selecting_classes_adds_them_and_clearing_the_last_shows_everything():
+    vessel = "Anthropophony > Vessel"
+    rain = "Geophony > Weather > Precipitation > Rain"
 
-    assert build_verify_leaf_paths(paths) == [
-        "Anthrophony > Vessel > Cargo",
-        "Anthrophony > Vessel > Tug",
-        "Biophony > Whale",
-    ]
+    selected = toggle_class_selection(None, vessel)
+    assert selected == [vessel]
+    selected = toggle_class_selection(selected, rain)
+    assert selected == [vessel, rain]
+    selected = toggle_class_selection(selected, vessel)
+    assert selected == [rain]
+    assert toggle_class_selection(selected, rain) is None
 
 
-def test_expand_verify_filter_selection_expands_parent_to_descendant_leaves():
-    paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Anthrophony > Vessel > Tug",
-            "Biophony > Whale",
-        ]
-    )
+def test_picking_inside_a_selected_category_narrows_and_picking_the_category_widens():
+    vessel = "Anthropophony > Vessel"
+    tug = "Anthropophony > Vessel > Tug"
 
-    assert expand_verify_filter_selection(paths, ["Anthrophony > Vessel"]) == [
-        "Anthrophony > Vessel > Cargo",
-        "Anthrophony > Vessel > Tug",
-    ]
+    assert toggle_class_selection(["Anthropophony"], vessel) == [vessel]
+    assert toggle_class_selection([vessel], tug) == [tug]
+    assert toggle_class_selection([tug, "Other"], "Anthropophony") == ["Other", "Anthropophony"]
 
 
-def test_dynamic_all_selection_includes_classes_discovered_after_preview():
-    preview_paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Biophony > Whale",
-        ]
-    )
-    complete_paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Biophony > Whale",
-            "Geophony > Earthquake",
-        ]
-    )
-
-    assert preserve_dynamic_all_selection(
-        complete_paths,
-        build_verify_leaf_paths(preview_paths),
-        preview_paths,
-        build_verify_leaf_paths=build_verify_leaf_paths,
-        expand_verify_filter_selection=expand_verify_filter_selection,
-    ) is None
+def test_a_selected_branch_keeps_the_model_label_on_it():
+    # The model outputs "Vessel", which has subclasses: selecting the branch must
+    # still match it, which a selection of its leaves would not.
+    vessel = "Anthropophony > Vessel"
+    assert predicted_labels_match_filter([vessel], ["Anthropophony"])
+    assert predicted_labels_match_filter([vessel], [vessel])
+    assert not predicted_labels_match_filter([vessel], ["Anthropophony > Vessel > Tug"])
 
 
-def test_dynamic_class_subset_remains_explicit_after_dataset_change():
-    preview_paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Biophony > Whale",
-        ]
-    )
-    complete_paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Biophony > Whale",
-            "Geophony > Earthquake",
-        ]
-    )
+def test_class_selection_state_covers_a_branch_and_what_surrounds_it():
+    selected = ["Anthropophony > Vessel"]
 
-    assert preserve_dynamic_all_selection(
-        complete_paths,
-        ["Biophony > Whale"],
-        preview_paths,
-        build_verify_leaf_paths=build_verify_leaf_paths,
-        expand_verify_filter_selection=expand_verify_filter_selection,
-    ) == ["Biophony > Whale"]
-
-
-def test_toggle_verify_filter_selection_cascades_to_descendants():
-    paths = build_verify_filter_paths(
-        [
-            "Anthrophony > Vessel > Cargo",
-            "Anthrophony > Vessel > Tug",
-            "Biophony > Whale",
-        ]
-    )
-
-    selected = toggle_verify_filter_selection(paths, [], "Anthrophony", True)
-    assert selected == [
-        "Anthrophony > Vessel > Cargo",
-        "Anthrophony > Vessel > Tug",
-    ]
-
-    selected = toggle_verify_filter_selection(paths, selected, "Anthrophony > Vessel > Cargo", False)
-    assert selected == ["Anthrophony > Vessel > Tug"]
-
-    selected = toggle_verify_filter_selection(paths, selected, "Anthrophony > Vessel", True)
-    assert selected == [
-        "Anthrophony > Vessel > Cargo",
-        "Anthrophony > Vessel > Tug",
-    ]
-
-    selected = toggle_verify_filter_selection(paths, selected, "Anthrophony", False)
-    assert selected == []
+    assert class_selection_state(selected, "Anthropophony > Vessel") == "on"
+    assert class_selection_state(selected, "Anthropophony > Vessel > Tug") == "implied"
+    assert class_selection_state(selected, "Anthropophony") == "partial"
+    assert class_selection_state(selected, "Anthropophony > Sonar") == "off"
+    assert class_selection_state(None, "Anthropophony") == "off"
 
 
 def test_predicted_labels_match_filter_works_with_leaf_only_selection():
@@ -247,13 +178,13 @@ def test_verify_modal_cache_filters_thresholds_classes_and_pages():
     assert get_verify_filter_leaf_classes(cache_key) == [blue, fin]
 
     page = get_filtered_verify_items_page(cache_key, {"__global__": 0.5}, None, 0, 10)
-    assert page["visible_item_ids"] == ["clip-fin", "clip-reviewed"]
-    assert [item["predictions"]["labels"] for item in page["items"]] == [[fin], []]
+    assert page["visible_item_ids"] == ["clip-fin"]
+    assert [item["predictions"]["labels"] for item in page["items"]] == [[fin]]
 
     fin_page = get_filtered_verify_items_page(cache_key, {"__global__": 0.5}, [fin], 0, 10)
     assert fin_page["visible_item_ids"] == ["clip-fin"]
 
-    low_threshold_page_two = get_filtered_verify_items_page(cache_key, {"__global__": 0.3}, None, 1, 1)
+    low_threshold_page_two = get_filtered_verify_items_page(cache_key, {"__global__": 0.1}, None, 1, 1)
     assert low_threshold_page_two["total_items"] == 3
     assert low_threshold_page_two["page_index"] == 1
     assert [item["item_id"] for item in low_threshold_page_two["items"]] == ["clip-blue"]

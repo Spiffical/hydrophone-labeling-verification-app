@@ -25,7 +25,8 @@ data:
     hydrophone: null       # Specific device folder to load (or select in app)
 
 display:
-  items_per_page: 25
+  grid_rows: 3
+  grid_columns: 3
   y_axis_scale: linear   # linear or log
   colormap: default      # default = Viridis; hydrophone = O3.0
   # Long clips open this many seconds at a time in the spectrogram modal, with a

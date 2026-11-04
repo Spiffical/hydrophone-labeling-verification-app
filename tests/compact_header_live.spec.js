@@ -55,46 +55,8 @@ test("compact command bar preserves the complete verify workflow", async ({ page
   await expect(page.locator("#verify-grid .spectrogram-card").first()).toBeVisible({
     timeout: 120_000,
   });
-  await expect(
-    page.locator("details[data-command-panel] > summary .command-panel-caret"),
-  ).toHaveCount(3);
-
-  const reviewTool = page.locator(".command-tool--review");
-  await reviewTool.locator(":scope > summary").click();
-  await expect(reviewTool.locator(".command-popover--review")).toBeVisible();
-  await expect(page.locator("#verify-status-filter")).toBeVisible();
-  await expect(page.locator("#verify-threshold-slider")).toBeVisible();
-  const statusTrigger = await page.locator("#verify-status-filter").boundingBox();
-  const classTrigger = await page.locator("#verify-class-filter-toggle").boundingBox();
-  expect(statusTrigger).not.toBeNull();
-  expect(classTrigger).not.toBeNull();
-  expect(Math.abs(statusTrigger.width - classTrigger.width)).toBeLessThanOrEqual(1);
-  expect(Math.abs(statusTrigger.height - classTrigger.height)).toBeLessThanOrEqual(1);
-  const triggerStyles = await page.locator(
-    "#verify-status-filter, #verify-class-filter-toggle",
-  ).evaluateAll((elements) => elements.map((element) => {
-    const style = window.getComputedStyle(element);
-    return {
-      borderRadius: style.borderRadius,
-      borderColor: style.borderColor,
-      backgroundColor: style.backgroundColor,
-      fontSize: style.fontSize,
-    };
-  }));
-  expect(triggerStyles[0]).toEqual(triggerStyles[1]);
-  await page.screenshot({
-    path: "output/playwright/compact-header-review.png",
-    fullPage: false,
-  });
-
-  await page.locator(".command-filter-context").click({ position: { x: 2, y: 2 } });
-  await expect(reviewTool).not.toHaveAttribute("open", "");
-  await reviewTool.locator(":scope > summary").click();
-  await expect(reviewTool).toHaveAttribute("open", "");
-
   const displayTool = page.locator("#verify-display-settings-details");
   await displayTool.locator(":scope > summary").click();
-  await expect(reviewTool).not.toHaveAttribute("open", "");
   await expect(displayTool).toHaveAttribute("open", "");
   await expect(displayTool.locator(".display-range-content")).toBeVisible();
   await expect(page.getByRole("radio", { name: "Existing files" })).toBeChecked();
@@ -148,11 +110,8 @@ test("compact command bar preserves the complete verify workflow", async ({ page
     path: "output/playwright/compact-header-data.png",
     fullPage: false,
   });
-  await reviewTool.locator(":scope > summary").click();
+  await dataTool.locator(":scope > summary").click();
   await expect(dataTool).not.toHaveAttribute("open", "");
-  await expect(reviewTool).toHaveAttribute("open", "");
-  await reviewTool.locator(":scope > summary").click();
-  await expect(reviewTool).not.toHaveAttribute("open", "");
 
   await expect(page.locator("#app-config-btn")).toBeVisible();
   await page.locator("#app-config-btn").click();
@@ -170,12 +129,6 @@ test("compact command bar preserves the complete verify workflow", async ({ page
   const pageJump = page.locator(".command-page-jump");
   await pageJump.locator(":scope > summary").click();
   await expect(pageJump).toHaveAttribute("open", "");
-  await reviewTool.locator(":scope > summary").click();
-  await expect(pageJump).not.toHaveAttribute("open", "");
-  await expect(reviewTool).toHaveAttribute("open", "");
-  await pageJump.locator(":scope > summary").click();
-  await expect(reviewTool).not.toHaveAttribute("open", "");
-  await expect(pageJump).toHaveAttribute("open", "");
   await page.locator(".command-filter-context").click({ position: { x: 2, y: 2 } });
   await expect(pageJump).not.toHaveAttribute("open", "");
 
@@ -187,11 +140,6 @@ test("compact command bar preserves the complete verify workflow", async ({ page
   expect(await page.evaluate(() => window.__qaObservedTitles)).not.toContain("undefined");
 
   await page.setViewportSize({ width: 1180, height: 800 });
-  const deviceBounds = await page.locator(".command-select--device").boundingBox();
-  const reviewBounds = await reviewTool.locator(":scope > summary").boundingBox();
-  expect(deviceBounds).not.toBeNull();
-  expect(reviewBounds).not.toBeNull();
-  expect(deviceBounds.x + deviceBounds.width).toBeLessThanOrEqual(reviewBounds.x - 5);
   const overlaps = await page.locator("#app-command-bar > *:visible").evaluateAll((elements) => {
     const boxes = elements.map((element) => ({
       name: element.id || element.className,

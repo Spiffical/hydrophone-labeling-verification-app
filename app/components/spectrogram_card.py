@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
 import os
 from dash import html
 import dash_bootstrap_components as dbc
 from app.components.audio_player import create_audio_player
 from app.components.label_attributes import render_label_attribute_chips
 from app.components.note_editor import create_note_editor
+from app.services.annotations import split_hierarchy_label
+from app.services.review_view import review_category
 from app.services.verification import (
     get_item_rejected_labels,
     get_latest_verification_label_sets,
@@ -161,125 +164,39 @@ def _verify_badge_models(
     return models
 
 
-def _render_verify_badges(
-    item_id,
-    item,
-    predicted_labels,
-    accepted_labels,
-    rejected_labels,
-    assume_verified=False,
-    prediction_sources=None,
-):
-    models = _verify_badge_models(
-        predicted_labels,
-        accepted_labels,
-        rejected_labels,
-        assume_verified=assume_verified,
-        prediction_sources=prediction_sources,
+def _model_scores(predictions):
+    scores = {}
+    for output in (predictions or {}).get("model_outputs") or []:
+        if isinstance(output, dict) and isinstance(output.get("score"), (int, float)):
+            scores[output.get("class_hierarchy")] = output["score"]
+    return scores
+
+
+def _review_label(model, scores):
+    label = model["label"]
+    score = scores.get(label)
+    description = label if score is None else f"{label} · {score:.0%} confidence"
+    return html.Span(
+        (split_hierarchy_label(label) or [label])[-1],
+        className=(
+            f"review-label review-label--{model['state']} "
+            f"review-label--{review_category(label).lower()}"
+        ),
+        title=description,
     )
-    if not models:
-        return html.Div("No labels", className="text-muted small")
 
-    badges = []
-    for model in models:
-        label = model["label"]
-        source = model["source"]
-        state = model["state"]
-        is_model = source == "model"
-        is_human_provisional = source == "human-provisional"
 
-        if is_model:
-            icon = html.I(className="bi bi-robot verify-label-source-icon", title="Model-derived label")
-        elif is_human_provisional:
-            icon = html.I(
-                className="bi bi-person-check-fill verify-label-source-icon",
-                title="Human-provisional review label",
-            )
-        else:
-            icon = html.I(className="bi bi-person-fill verify-label-source-icon", title="Human-added label")
-        state_text = {
-            "model-unreviewed": "provisional" if is_human_provisional else "unverified",
-            "model-accepted": "accepted",
-            "model-rejected": "rejected",
-            "human-added": "",
-        }.get(state, "")
-
-        action_controls = None
-        target = f"{item_id}||{label}"
-        if model.get("actions") == "accept_reject":
-            accept_disabled = state == "model-accepted"
-            reject_disabled = state == "model-rejected"
-            action_controls = html.Div(
-                [
-                    html.Button(
-                        "✓",
-                        id={"type": "verify-label-accept", "target": target},
-                        className="verify-inline-action verify-inline-action--accept",
-                        title=f"Accept: {label}",
-                        n_clicks=0,
-                        disabled=accept_disabled,
-                    ),
-                    html.Button(
-                        "×",
-                        id={"type": "verify-label-reject", "target": target},
-                        className="verify-inline-action verify-inline-action--reject",
-                        title=f"Reject: {label}",
-                        n_clicks=0,
-                        disabled=reject_disabled,
-                    ),
-                ],
-                className="verify-inline-actions",
-            )
-        elif model.get("actions") == "delete":
-            action_controls = html.Div(
-                [
-                    html.Button(
-                        "×",
-                        id={"type": "verify-label-delete", "target": target},
-                        className="verify-inline-action verify-inline-action--reject",
-                        title=f"Delete: {label}",
-                        n_clicks=0,
-                    ),
-                ],
-                className="verify-inline-actions",
-            )
-
-        badges.append(
+def _review_label_column(heading, labels):
+    return html.Div(
+        [
+            html.Div(heading, className="review-card-heading"),
             html.Div(
-                [
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    icon,
-                                    html.Span(
-                                        state_text,
-                                        id={"type": "verify-label-state", "target": target},
-                                        className="verify-label-state",
-                                    ),
-                                ],
-                                className="verify-label-row-meta",
-                            ),
-                            action_controls,
-                        ],
-                        className="verify-label-row-header",
-                    ),
-                    html.Span(label, className="verify-label-text verify-label-text--multiline"),
-                    render_label_attribute_chips(
-                        item,
-                        label,
-                        include_model=is_model,
-                        include_human=label in set(accepted_labels or []),
-                    ),
-                ],
-                id={"type": "verify-label-badge", "target": target},
-                className=(
-                    f"verify-label-badge verify-label-badge--{state} "
-                    f"verify-label-badge--{source} verify-label-badge--row"
-                ),
-            )
-        )
-    return html.Div(badges, className="verify-badge-list")
+                labels or html.Span("None", className="review-label-none"),
+                className="review-label-list",
+            ),
+        ],
+        className="review-card-label-column",
+    )
 
 
 def create_verify_label_block_children(item_id, item, predicted_labels=None):
@@ -301,17 +218,35 @@ def create_verify_label_block_children(item_id, item, predicted_labels=None):
         ui_rejected if isinstance(ui_rejected, list) else get_item_rejected_labels(item)
     )
     has_pending_edits = _has_pending_label_edits(annotations_data)
-    assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
+    # Only a review with no decisions on record says nothing about each label. With
+    # decisions, a label below the threshold of the day was never put to the reviewer.
+    assume_verified = (
+        bool(annotations_data.get("verified"))
+        and not has_pending_edits
+        and not annotations
+        and not rejected
+    )
+    models = _verify_badge_models(
+        predicted,
+        annotations,
+        rejected,
+        assume_verified=assume_verified,
+        prediction_sources=_prediction_sources_by_label(predictions),
+    )
+    scores = _model_scores(predictions)
+    suggested = sorted(
+        (model for model in models if model["source"] != "human"),
+        key=lambda model: scores.get(model["label"], 0.0),
+        reverse=True,
+    )
     return [
-        html.Small("Predictions / labels", className="text-muted mb-1 d-block"),
-        _render_verify_badges(
-            item_id,
-            item,
-            predicted,
-            annotations,
-            rejected,
-            assume_verified=assume_verified,
-            prediction_sources=_prediction_sources_by_label(predictions),
+        _review_label_column(
+            "Suggested label(s)",
+            [_review_label(model, scores) for model in suggested],
+        ),
+        _review_label_column(
+            "Your label(s)",
+            [_review_label(model, scores) for model in models if model["source"] == "human"],
         ),
     ]
 
@@ -323,32 +258,9 @@ def create_label_label_block_children(item_id, item, labels):
     ]
 
 
-def _recommended_spectrogram_label(item):
-    metadata = item.get("metadata") if isinstance(item, dict) else {}
-    if not isinstance(metadata, dict):
-        return None
-    recommendation = metadata.get("recommended_spectrogram")
-    if not isinstance(recommendation, dict):
-        return None
-    label = str(recommendation.get("label") or "").strip()
-    if label:
-        return label
-    try:
-        freq_min = float(recommendation["freq_min_hz"])
-        freq_max = float(recommendation["freq_max_hz"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    return f"{freq_min:g}-{freq_max:g} Hz"
-
-
-def _spectrogram_view(item_id, view, index):
+def _spectrogram_view(item_id, view, index, *, clickable=True):
     image_src = view.get("image_src")
     image_props = {
-        "id": {
-            "type": "spectrogram-image",
-            "item_id": item_id,
-            "range_id": str(view.get("id") or index),
-        },
         "src": _TRANSPARENT_IMAGE_SRC,
         "alt": f"{view.get('label') or 'Spectrogram'} for {item_id}",
         "className": "spectrogram-image spectrogram-range-image",
@@ -356,6 +268,12 @@ def _spectrogram_view(item_id, view, index):
         "data-lazy-spectrogram": "true",
         "style": {"width": "100%", "cursor": "pointer"},
     }
+    if clickable:
+        image_props["id"] = {
+            "type": "spectrogram-image",
+            "item_id": item_id,
+            "range_id": str(view.get("id") or index),
+        }
     image = (
         html.Img(**image_props)
         if image_src
@@ -386,6 +304,49 @@ def _spectrogram_view(item_id, view, index):
     )
 
 
+def _clip_time_label(item):
+    start = (item.get("timestamps") or {}).get("start")
+    try:
+        moment = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    # A day's folder runs across two UTC dates, so the time alone is not enough.
+    return f"{moment.astimezone(timezone.utc):%Y-%m-%d · %H:%M} UTC"
+
+
+def _create_review_card(item, item_id, image_views):
+    """A spectrogram with its labels; the whole card opens the clip for review."""
+    predicted = _ordered_unique_labels((item.get("predictions") or {}).get("labels", []))
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Span(_clip_time_label(item), className="review-card-time", title=item_id),
+                    html.Div(
+                        [
+                            _spectrogram_view(item_id, view, index, clickable=False)
+                            for index, view in enumerate(image_views)
+                        ],
+                        className="spectrogram-range-stack",
+                    ),
+                ],
+                className="review-card-media",
+            ),
+            html.Div(
+                create_verify_label_block_children(item_id, item, predicted_labels=predicted),
+                id={"type": "verify-label-block", "item_id": item_id},
+                className="review-card-labels",
+            ),
+        ],
+        id={"type": "spectrogram-image", "item_id": item_id, "range_id": "card"},
+        n_clicks=0,
+        role="button",
+        tabIndex=0,
+        className="spectrogram-card review-card",
+        **{"aria-label": f"Review {_clip_time_label(item) or item_id}"},
+    )
+
+
 def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "label", image_views=None) -> dbc.Card:
     item_id = item.get("item_id") or os.path.basename(item.get("spectrogram_path", ""))
     audio_path = item.get("audio_path")
@@ -402,12 +363,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         if explicit_label_state
         else _ordered_unique_labels(annotation_labels or verification_labels)
     )
-    ui_rejected = item.get("ui_rejected_labels")
-    rejected = _ordered_unique_labels(
-        ui_rejected if isinstance(ui_rejected, list) else get_item_rejected_labels(item)
-    )
     has_pending_edits = _has_pending_label_edits(annotations_data)
-    assume_verified = bool(annotations_data.get("verified")) and not has_pending_edits
 
     if not image_views:
         image_views = [
@@ -418,6 +374,9 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
                 "image_src": image_src,
             }
         ]
+    if mode == "verify":
+        return _create_review_card(item, item_id, image_views)
+
     image = html.Div(
         [
             _spectrogram_view(item_id, view, index)
@@ -433,14 +392,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     ]) if audio_path else None
 
     badges = []
-    if mode == "verify":
-        badges.append(
-            html.Div(
-                create_verify_label_block_children(item_id, item, predicted_labels=predicted),
-                id={"type": "verify-label-block", "item_id": item_id},
-            )
-        )
-    elif mode == "label":
+    if mode == "label":
         label_display = annotations if explicit_label_state else annotations or predicted
         badges.append(
             html.Div(
@@ -456,24 +408,7 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         ]))
 
     actions = []
-    if mode == "verify":
-        actions = [
-            dbc.Button(
-                "Save",
-                id={"type": "confirm-btn", "item_id": item_id},
-                size="sm",
-                color="success" if has_pending_edits else "secondary",
-                disabled=not has_pending_edits,
-                outline=not has_pending_edits,
-            ),
-            dbc.Button(
-                "Edit labels",
-                id={"type": "edit-btn", "item_id": item_id},
-                size="sm",
-                color="secondary",
-            ),
-        ]
-    elif mode == "label":
+    if mode == "label":
         actions = [
             dbc.Button(
                 "Save",
@@ -489,7 +424,6 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
         actions = []
 
     actions_block = html.Div(actions, className="mt-3 d-flex gap-2 flex-wrap") if actions else None
-    recommended_label = _recommended_spectrogram_label(item) if mode == "verify" else None
     note_block = (
         create_note_editor(
             note_text,
@@ -504,14 +438,6 @@ def create_spectrogram_card(item: dict, image_src: str = None, mode: str = "labe
     return dbc.Card([
         dbc.CardHeader(html.Div([
             html.Span(item_id, className="fw-semibold small", style={"word-break": "break-all"}),
-            (
-                html.Small(
-                    f"Recommended: {recommended_label}",
-                    className="text-muted",
-                )
-                if recommended_label
-                else None
-            ),
         ], className="d-flex flex-column gap-1")),
         dbc.CardBody([
             image,

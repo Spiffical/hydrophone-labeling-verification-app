@@ -5,7 +5,8 @@ from math import log10
 from dash import Input, Output, State, ctx, no_update
 
 from app.services.spectrogram_ranges import uses_visible_ranges
-from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
+from app.services.review_view import active_class_filter
+from app.services.verify_modal_cache import get_filtered_verify_items_page
 from app.utils.image_processing import (
     get_spectrogram_render_settings,
     resolve_item_spectrogram,
@@ -644,8 +645,6 @@ def register_display_range_callbacks(
     _filter_predictions,
     _predicted_labels_match_filter,
     _extract_verify_leaf_classes,
-    _build_verify_filter_paths,
-    _normalize_verify_class_filter,
 ):
     def _outputs(prefix):
         return (
@@ -731,6 +730,7 @@ def register_display_range_callbacks(
         Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-view-store", "data"),
         Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-yaxis-reset-btn", "n_clicks"),
@@ -749,6 +749,7 @@ def register_display_range_callbacks(
         verify_cache_revision,
         thresholds,
         class_filter,
+        view,
         status_filter,
         current_page,
         y_reset_clicks,
@@ -767,13 +768,7 @@ def register_display_range_callbacks(
             return (no_update,) * (_DISPLAY_RANGE_OUTPUT_COUNT + 1)
         cfg = cfg or {}
         thresholds = thresholds or {"__global__": 0.5}
-        available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
-        available_value_set = set(available_values)
-        selected_filters = _normalize_verify_class_filter(class_filter)
-        if not available_values:
-            selected_filters = None
-        if selected_filters is not None:
-            selected_filters = [value for value in selected_filters if value in available_value_set]
+        selected_filters = active_class_filter(class_filter)
 
         items_per_page = (cfg.get("display", {}) or {}).get("items_per_page", 25)
         page_items = get_filtered_verify_items_page(
@@ -783,6 +778,7 @@ def register_display_range_callbacks(
             current_page,
             items_per_page,
             status_filter,
+            view,
         )["items"]
         return (
             *_build_display_range_outputs(

@@ -194,12 +194,11 @@ def test_label_startup_uses_label_folder_for_data_root(mock_config):
     assert load_trigger.data["config"] == mock_config
 
 
-def test_verify_confidence_tooltip_is_only_visible_during_interaction(mock_config):
+def test_confidence_range_keeps_its_values_on_the_slider(mock_config):
     layout = create_main_layout(mock_config)
 
-    threshold_slider = _find_component(layout, "verify-threshold-slider")
+    range_slider = _find_component(layout, "verify-threshold-slider")
 
-    assert threshold_slider.tooltip == {
-        "placement": "top",
-        "always_visible": False,
-    }
+    assert range_slider.value == [50, 100]
+    # The values are drawn inside the thumbs, so there is nothing else to read them from.
+    assert range_slider.tooltip["always_visible"] is True

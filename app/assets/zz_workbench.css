@@ -180,7 +180,7 @@
 }
 
 .theme-dark .modal-bbox-draw.is-active {
-    color: #0d1117;
+    color: #000000;
 }
 
 .modal-bbox-draw:disabled {

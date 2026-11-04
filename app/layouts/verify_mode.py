@@ -2,6 +2,7 @@ from dash import dcc, html
 import dash_bootstrap_components as dbc
 
 from app.components.folder_browser import create_browse_button
+from app.layouts.review_dashboard import create_review_dashboard
 from app.services.spectrogram_grid import (
     normalize_spectrogram_grid,
     spectrogram_grid_class,
@@ -25,200 +26,6 @@ def _create_spectrogram_grid_placeholder(config=None) -> html.Div:
         ],
         className=f"spec-grid-placeholder {spectrogram_grid_class(layout['columns'])}",
         style={"--spectrogram-grid-columns": str(layout["columns"])},
-    )
-
-
-def create_verify_review_menu() -> html.Details:
-    return html.Details(
-        [
-            html.Summary(
-                [
-                    html.I(className="bi bi-check2-circle"),
-                    html.Span("Review"),
-                    html.I(className="bi bi-chevron-down command-panel-caret"),
-                ],
-                className="command-tool-trigger",
-                title="Review filters",
-            ),
-            html.Div(
-                [
-                    html.Div("Review filters", className="command-popover-title"),
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Small("Status", className="command-control-label"),
-                                    html.Div(
-                                        [
-                                            dbc.Select(
-                                                id="verify-status-filter",
-                                                value="all",
-                                                options=[
-                                                    {"label": "All statuses", "value": "all"},
-                                                    {
-                                                        "label": "Unverified only",
-                                                        "value": "unverified",
-                                                    },
-                                                    {
-                                                        "label": "Accepted only",
-                                                        "value": "accepted_only",
-                                                    },
-                                                    {
-                                                        "label": "Rejected only",
-                                                        "value": "rejected_only",
-                                                    },
-                                                    {
-                                                        "label": "Mixed accepted/rejected",
-                                                        "value": "mixed",
-                                                    },
-                                                    {
-                                                        "label": "Contains accepted",
-                                                        "value": "contains_accepted",
-                                                    },
-                                                    {
-                                                        "label": "Contains rejected",
-                                                        "value": "contains_rejected",
-                                                    },
-                                                    {
-                                                        "label": "Verified only",
-                                                        "value": "verified",
-                                                    },
-                                                ],
-                                                className="verify-status-filter-select",
-                                            ),
-                                            html.I(
-                                                className=(
-                                                    "bi bi-chevron-down "
-                                                    "verify-review-select-caret"
-                                                )
-                                            ),
-                                        ],
-                                        className="verify-review-select-shell",
-                                    ),
-                                ],
-                                className="command-control-group",
-                            ),
-                            html.Div(
-                                [
-                                    html.Small(
-                                        "Class / diagnostics",
-                                        className="command-control-label",
-                                    ),
-                                    html.Div(
-                                        [
-                                            dbc.Button(
-                                                [
-                                                    html.Span(
-                                                        "All filters selected",
-                                                        className="verify-class-filter-toggle-label",
-                                                    ),
-                                                    html.I(
-                                                        className=(
-                                                            "bi bi-chevron-down "
-                                                            "verify-class-filter-toggle-caret"
-                                                        )
-                                                    ),
-                                                ],
-                                                id="verify-class-filter-toggle",
-                                                color="secondary",
-                                                outline=True,
-                                                n_clicks=0,
-                                                className=(
-                                                    "w-100 text-start verify-class-filter-toggle"
-                                                ),
-                                            ),
-                                            dbc.Collapse(
-                                                html.Div(
-                                                    [
-                                                        html.Div(
-                                                            [
-                                                                dbc.Checkbox(
-                                                                    id=(
-                                                                        "verify-class-filter-"
-                                                                        "select-all"
-                                                                    ),
-                                                                    label=(
-                                                                        "Select all / "
-                                                                        "deselect all"
-                                                                    ),
-                                                                    value=True,
-                                                                    className=(
-                                                                        "verify-class-filter-"
-                                                                        "select-all mb-0"
-                                                                    ),
-                                                                ),
-                                                                dbc.Button(
-                                                                    "Done",
-                                                                    id=(
-                                                                        "verify-class-filter-"
-                                                                        "done"
-                                                                    ),
-                                                                    color="link",
-                                                                    size="sm",
-                                                                    className=(
-                                                                        "verify-class-filter-"
-                                                                        "done-btn"
-                                                                    ),
-                                                                ),
-                                                            ],
-                                                            className=(
-                                                                "verify-class-filter-"
-                                                                "menu-header"
-                                                            ),
-                                                        ),
-                                                        html.Div(
-                                                            id="verify-class-filter-tree",
-                                                            className="verify-class-filter-tree",
-                                                        ),
-                                                    ],
-                                                    className="verify-class-filter-menu",
-                                                ),
-                                                id="verify-class-filter-collapse",
-                                                is_open=False,
-                                                className="verify-class-filter-collapse",
-                                            ),
-                                        ],
-                                        className="verify-class-filter-dropdown",
-                                    ),
-                                ],
-                                className="command-control-group",
-                            ),
-                            html.Div(
-                                [
-                                    html.Div(
-                                        [
-                                            html.Small(
-                                                "Confidence threshold",
-                                                className="command-control-label",
-                                            ),
-                                        ],
-                                        className="command-control-heading",
-                                    ),
-                                    dcc.Slider(
-                                        id="verify-threshold-slider",
-                                        min=0,
-                                        max=1,
-                                        value=0.5,
-                                        step=0.01,
-                                        marks={0: "0%", 0.5: "50%", 1: "100%"},
-                                        tooltip={
-                                            "placement": "top",
-                                            "always_visible": False,
-                                        },
-                                        className="control-slider",
-                                    ),
-                                ],
-                                className="command-control-group command-threshold-group",
-                            ),
-                        ],
-                        className="command-review-controls",
-                    ),
-                ],
-                className="command-popover command-popover--review",
-            ),
-        ],
-        className="command-tool command-tool--review verify-only",
-        **{"data-command-panel": "review"},
     )
 
 
@@ -435,19 +242,13 @@ def create_verify_result_controls() -> html.Div:
                 className="command-pagination",
             ),
         ],
-        className="verify-result-controls verify-only",
+        className="verify-result-controls",
     )
 
 
 def create_verify_layout(config: dict) -> html.Div:
     return html.Div(
         [
-            html.Div(
-                id="verify-class-filter-dismiss-overlay",
-                n_clicks=0,
-                className="verify-class-filter-dismiss-overlay",
-                style={"display": "none"},
-            ),
             dbc.Modal(
                 [
                     dbc.ModalHeader(dbc.ModalTitle("Unsaved Verification Changes")),
@@ -489,6 +290,8 @@ def create_verify_layout(config: dict) -> html.Div:
                 data=[],
                 storage_type="memory",
             ),
+            create_review_dashboard(),
+            create_verify_result_controls(),
             html.Div(
                 _create_spectrogram_grid_placeholder(config),
                 id="verify-grid",

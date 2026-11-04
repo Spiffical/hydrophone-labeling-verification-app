@@ -2,27 +2,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from dash import no_update
 from dash.exceptions import PreventUpdate
 
 import app.callbacks.verify.class_filter_callbacks as class_filter_callbacks
+from app.callbacks.verify.class_filter_callbacks import selection_summary
+from app.layouts.main_layout import create_main_layout
 from app.main import create_app
+from taxonomy.hierarchical_labels import get_all_paths, path_to_string
 
-# Classes as the fin whale dashboard lists them once its review added vessel,
-# humpback and instrumentation labels to fin whale.
-OPTIONS = [
-    "Anthropophony",
-    "Anthropophony > Vessel",
-    "Biophony",
-    "Biophony > Marine mammal",
-    "Biophony > Marine mammal > Cetacean",
-    "Biophony > Marine mammal > Cetacean > Baleen whale",
-    "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale",
-    "Biophony > Marine mammal > Cetacean > Baleen whale > Humpback whale",
-]
 FIN = "Biophony > Marine mammal > Cetacean > Baleen whale > Fin whale"
 VESSEL = "Anthropophony > Vessel"
-BOXES = [{"type": "verify-filter-checkbox", "path": path} for path in OPTIONS]
 
 
 @pytest.fixture
@@ -35,49 +24,94 @@ def callbacks(mock_config):
     }
 
 
-def triggered(target, count=1):
-    return patch.object(class_filter_callbacks, "ctx", SimpleNamespace(triggered_id=target, triggered=[{}] * count))
+def clicked(target, value=1):
+    return patch.object(
+        class_filter_callbacks,
+        "ctx",
+        SimpleNamespace(triggered_id=target, triggered=[{"value": value}]),
+    )
 
 
-def test_a_data_refresh_with_the_same_classes_sends_no_filter_update(callbacks):
-    # Each save refreshes the data store; an unchanged filter sent again set off the
-    # grid's "Updating spectrograms" notice over the open clip.
-    sync = callbacks["sync_verify_class_filter_state"]
-
-    def apply(outputs, stores):  # as Dash does: no_update keeps the store's value
-        return tuple(old if new is no_update else new for new, old in zip(outputs, stores))
-
-    data = {"items": [{"predictions": {"model_outputs": [{"class_hierarchy": FIN, "score": 0.8}]}}]}
-    stores = apply(sync(data, None, None, None), (None, None, None))
-    assert FIN in stores[0] and stores[2]
-    assert sync(data, *stores) == (no_update, no_update, no_update)
-    # New classes still come through.
-    more = {"items": data["items"] + [{"predictions": {"model_outputs": [{"class_hierarchy": VESSEL, "score": 0.6}]}}]}
-    assert VESSEL in sync(more, *stores)[0]
+def components_with_id_type(component, id_type):
+    found = []
+    if isinstance(component, (list, tuple)):
+        for child in component:
+            found.extend(components_with_id_type(child, id_type))
+    elif component is not None and not isinstance(component, str):
+        component_id = getattr(component, "id", None)
+        if isinstance(component_id, dict) and component_id.get("type") == id_type:
+            found.append(component_id)
+        found.extend(components_with_id_type(getattr(component, "children", None), id_type))
+    return found
 
 
-def test_select_all_is_left_alone_while_classes_load(callbacks):
-    # Unticking it here used to clear every class as the page opened.
-    assert callbacks["render_verify_class_filter_tree"]([], None, [])[2] is no_update
+def test_the_selection_offers_the_whole_hierarchy_whatever_the_model_outputs(mock_config):
+    # Reviewers label from the full list, so it must not shrink to the model's classes.
+    layout = create_main_layout(mock_config)
+
+    categories = {entry["category"] for entry in components_with_id_type(layout, "verify-category-toggle")}
+    nodes = {entry["path"] for entry in components_with_id_type(layout, "verify-filter-node")}
+    every_path = {path_to_string(path) for path in get_all_paths()}
+
+    assert categories == {path for path in every_path if " > " not in path}
+    assert nodes == {path for path in every_path if " > " in path}
+    assert FIN in nodes
 
 
-def test_select_all_acts_only_when_it_disagrees_with_the_selection(callbacks):
-    update = callbacks["update_verify_filter_selection"]
-    with triggered("verify-class-filter-select-all"):
+def test_a_category_pill_turns_its_category_on_and_off(callbacks):
+    update = callbacks["update_class_selection"]
+    pill = {"type": "verify-category-toggle", "category": "Biophony"}
+
+    with clicked(pill):
+        assert update([1], [], 0, None) == (["Biophony"], 0)
+        assert update([2], [], 0, ["Biophony"]) == (None, 0)
+        assert update([1], [], 0, [VESSEL]) == ([VESSEL, "Biophony"], 0)
+
+
+def test_a_class_in_a_menu_narrows_its_selected_category(callbacks):
+    update = callbacks["update_class_selection"]
+    node = {"type": "verify-filter-node", "path": VESSEL}
+
+    with clicked(node):
+        assert update([], [1], 0, ["Anthropophony"]) == ([VESSEL], 0)
+
+
+def test_clear_shows_every_class_again(callbacks):
+    with clicked("verify-selection-clear"):
+        assert callbacks["update_class_selection"]([], [], 1, [VESSEL, FIN]) == (None, 0)
+
+
+def test_a_redrawn_control_is_not_a_click(callbacks):
+    with clicked({"type": "verify-filter-node", "path": VESSEL}, value=0):
         with pytest.raises(PreventUpdate):
-            update([], True, [], OPTIONS, None)  # shows "all", which it is
-        with pytest.raises(PreventUpdate):
-            update([], False, [], OPTIONS, [FIN])  # shows a partial selection
-        assert update([], False, [], OPTIONS, None) == []  # reviewer cleared it
-        assert update([], True, [], OPTIONS, [FIN]) is None  # reviewer selected all
+            callbacks["update_class_selection"]([], [0], 0, None)
 
 
-def test_a_redrawn_tree_does_not_narrow_the_filter_to_its_first_class(callbacks):
-    update = callbacks["update_verify_filter_selection"]
-    ticked = [True] * len(BOXES)
-    with triggered(BOXES[0], count=len(BOXES)):
-        with pytest.raises(PreventUpdate):
-            update(ticked, True, BOXES, OPTIONS, [])
-    # A click on one class still toggles it.
-    with triggered(BOXES[1]):
-        assert update([box["path"] == VESSEL for box in BOXES], False, BOXES, OPTIONS, []) == [VESSEL]
+def test_the_selection_shows_on_the_pills_and_in_the_menus(callbacks):
+    pills = [{"category": "Anthropophony"}, {"category": "Biophony"}, {"category": "Geophony"}]
+    nodes = [{"path": VESSEL}, {"path": f"{VESSEL} > Tug"}, {"path": "Anthropophony > Sonar"}]
+
+    pill_classes, node_classes, summary, clear_style = callbacks["render_class_selection"](
+        [VESSEL, "Biophony"], pills, nodes
+    )
+
+    assert [value.split("--")[-1] for value in pill_classes] == ["partial", "on", "off"]
+    assert [value.split("--")[-1] for value in node_classes] == ["on", "implied", "off"]
+    assert summary == "2 selected"
+    assert clear_style == {}
+
+
+def test_with_nothing_selected_clear_is_hidden(callbacks):
+    pill_classes, _, summary, clear_style = callbacks["render_class_selection"](
+        None, [{"category": "Biophony"}], []
+    )
+
+    assert pill_classes == ["review-category-toggle review-category-toggle--off"]
+    assert summary == "All classes"
+    assert clear_style == {"display": "none"}
+
+
+def test_selection_summary_names_a_single_class():
+    assert selection_summary(None) == "All classes"
+    assert selection_summary([FIN]) == "Fin whale"
+    assert selection_summary([FIN, VESSEL]) == "2 selected"

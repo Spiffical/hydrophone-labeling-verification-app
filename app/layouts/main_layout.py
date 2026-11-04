@@ -5,12 +5,7 @@ import os
 from app.components.modal import create_spectrogram_modal
 from app.components.folder_browser import create_folder_browser_modal
 from app.layouts.label_mode import create_label_layout
-from app.layouts.verify_mode import (
-    create_verify_data_menu,
-    create_verify_layout,
-    create_verify_result_controls,
-    create_verify_review_menu,
-)
+from app.layouts.verify_mode import create_verify_data_menu, create_verify_layout
 from app.layouts.explore_mode import create_explore_layout
 from app.layouts.display_controls import (
     create_display_range_bar,
@@ -56,9 +51,9 @@ def create_main_layout(config: dict) -> html.Div:
         else None
     )
 
-    initial_theme = str(os.getenv("HYDROPHONE_UI_THEME", "light")).strip().lower()
+    initial_theme = str(os.getenv("HYDROPHONE_UI_THEME", "dark")).strip().lower()
     if initial_theme not in {"light", "dark"}:
-        initial_theme = "light"
+        initial_theme = "dark"
 
     return html.Div([
         # ── Stores ──────────────────────────────────────────────────
@@ -73,7 +68,9 @@ def create_main_layout(config: dict) -> html.Div:
         dcc.Store(id="review-preferences-store", data={}, storage_type="local"),
         dcc.Store(id="review-preferences-owner-store", data=None, storage_type="memory"),
         dcc.Store(id="profile-reset-applied-store", data=False, storage_type="session"),
-        dcc.Store(id="theme-store", data=initial_theme, storage_type="local"),
+        # Named apart from "theme-store": browsers have "light" saved there from
+        # when it was the default, not from anyone choosing it.
+        dcc.Store(id="theme-preference-store", data=initial_theme, storage_type="local"),
         dcc.Store(
             id="spectrogram-ranges-store",
             data=initial_spectrogram_range_state(config),
@@ -81,8 +78,11 @@ def create_main_layout(config: dict) -> html.Div:
         ),
         dcc.Store(id="verify-thresholds-store", data={"__global__": 0.5}, storage_type="memory"),
         dcc.Store(id="verify-class-filter", data=None, storage_type="memory"),
-        dcc.Store(id="verify-class-filter-options", data=[], storage_type="memory"),
-        dcc.Store(id="verify-class-filter-expanded", data=[], storage_type="memory"),
+        dcc.Store(
+            id="verify-view-store",
+            data={"exclude_ambient": True, "order": "precision", "seed": 0},
+            storage_type="memory",
+        ),
         dcc.Store(
             id="tab-filter-state-store",
             data={
@@ -149,7 +149,7 @@ def create_main_layout(config: dict) -> html.Div:
                     html.Div(
                         [
                             html.I(className="bi bi-soundwave command-brand-icon"),
-                            html.Span("Unified Labeling Tool", className="command-brand-title"),
+                            html.Span("Unified Labelling Tool", className="command-brand-title"),
                         ],
                         className="command-brand",
                     ),
@@ -189,39 +189,46 @@ def create_main_layout(config: dict) -> html.Div:
                         [
                             html.Div(
                                 [
-                                    html.I(className="bi bi-calendar3 command-select-icon"),
-                                    dcc.Dropdown(
-                                        id="global-date-selector",
-                                        placeholder="Date",
-                                        className="control-dropdown command-dropdown",
-                                    ),
-                                ],
-                                className="command-select command-select--date",
-                            ),
-                            html.Div(
-                                [
                                     html.I(className="bi bi-broadcast-pin command-select-icon"),
+                                    html.Span("Hydrophone", className="command-select-title"),
                                     dcc.Dropdown(
                                         id="global-device-selector",
                                         placeholder="Device",
+                                        clearable=False,
                                         className="control-dropdown command-dropdown",
                                     ),
                                 ],
                                 className="command-select command-select--device",
                             ),
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-calendar3 command-select-icon"),
+                                    html.Span("Date", className="command-select-title"),
+                                    dcc.Dropdown(
+                                        id="global-date-selector",
+                                        placeholder="Date",
+                                        clearable=False,
+                                        className="control-dropdown command-dropdown",
+                                    ),
+                                ],
+                                className="command-select command-select--date",
+                            ),
                         ],
                         id="global-selector-container",
                         className="command-source-selectors",
                     ),
-                    create_verify_review_menu(),
-                    create_display_range_bar(
-                        "verify",
-                        display_cfg=config.get("display", {}),
-                        compact=True,
-                        config=config,
+                    html.Div(
+                        [
+                            create_display_range_bar(
+                                "verify",
+                                display_cfg=config.get("display", {}),
+                                compact=True,
+                                config=config,
+                            ),
+                            create_verify_data_menu(config),
+                        ],
+                        className="command-tools",
                     ),
-                    create_verify_data_menu(config),
-                    create_verify_result_controls(),
                     html.Div(
                         [
                             html.Button(

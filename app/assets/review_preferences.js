@@ -2,6 +2,7 @@
     const modes = ['label', 'verify', 'explore'];
     const statuses = ['all', 'unverified', 'accepted_only', 'rejected_only', 'mixed',
         'contains_accepted', 'contains_rejected', 'verified'];
+    const orders = ['precision', 'shuffle'];
     const object = value => value && typeof value === 'object' && !Array.isArray(value);
     const copy = value => JSON.parse(JSON.stringify(value));
     function reviewerKey(profile) {
@@ -25,12 +26,25 @@
                 }
             });
         }
+        const view = object(saved.view) ? saved.view : {};
+        const classes = Array.isArray(saved.classes)
+            ? [...new Set(saved.classes.filter(value => typeof value === 'string' && value.trim()))] : [];
         return { tabs, thresholds,
-            status: statuses.includes(saved.status) ? saved.status : 'all',
-            // null means all classes, while [] intentionally means no classes.
-            classes: Array.isArray(saved.classes)
-                ? [...new Set(saved.classes.filter(value => typeof value === 'string' && value.trim()))] : null,
+            status: statuses.includes(saved.status) ? saved.status : 'unverified',
+            // null means every class is in view.
+            classes: classes.length ? classes : null,
+            view: {
+                exclude_ambient: view.exclude_ambient !== false,
+                order: orders.includes(view.order) ? view.order : 'precision',
+                seed: Number.isInteger(view.seed) ? view.seed : 0,
+            },
+            allCategories: saved.allCategories !== false,
         };
+    }
+    function sliderRange(thresholds) {
+        const lower = thresholds.__range_min__ ?? thresholds.__global__;
+        const upper = thresholds.__range_max__ ?? 1;
+        return [Math.round(lower * 100), Math.round(upper * 100)];
     }
     window.dash_clientside = Object.assign({}, window.dash_clientside, {
         reviewPreferences: {
@@ -47,14 +61,15 @@
                 const key = reviewerKey(profile);
                 const saved = normalize(object(preferences) && Object.hasOwn(preferences, key) ? preferences[key] : null);
                 return [saved.tabs, saved.thresholds, saved.classes, saved.status,
-                    saved.thresholds.__global__, key];
+                    sliderRange(saved.thresholds), key, saved.view, saved.view.exclude_ambient,
+                    saved.allCategories];
             },
-            remember: function (tabs, thresholds, classes, status, profile, owner, preferences) {
+            remember: function (tabs, thresholds, classes, status, view, allCategories, profile, owner, preferences) {
                 const dc = window.dash_clientside;
                 const key = reviewerKey(profile);
                 // Do not let pre-hydration defaults or another profile's state overwrite saved settings.
                 if (owner !== key) return dc.no_update;
-                const saved = normalize({ tabs, thresholds, classes, status });
+                const saved = normalize({ tabs, thresholds, classes, status, view, allCategories });
                 const previous = object(preferences) ? preferences : {};
                 if (Object.hasOwn(previous, key) && JSON.stringify(previous[key]) === JSON.stringify(saved)) {
                     return dc.no_update;

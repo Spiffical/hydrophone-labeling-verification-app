@@ -199,6 +199,7 @@ def register_loading_overlay_callbacks(app):
                 var trigger = String((req || {}).trigger_id || "");
                 return trigger === "verify-thresholds-store" ||
                     trigger === "verify-class-filter" ||
+                    trigger === "verify-view-store" ||
                     trigger === "verify-status-filter";
             }
             function requestRequiresCompletePageImages(req) {
@@ -212,7 +213,19 @@ def register_loading_overlay_callbacks(app):
             function sameVerifyFilterState(a, b) {
                 a = a || {};
                 b = b || {};
-                if (Math.abs(asFloat(a.threshold, 0.5) - asFloat(b.threshold, 0.5)) > 1e-9) {
+                if (
+                    Math.abs(asFloat(a.range_min, 0.5) - asFloat(b.range_min, 0.5)) > 1e-9 ||
+                    Math.abs(asFloat(a.range_max, 1.0) - asFloat(b.range_max, 1.0)) > 1e-9
+                ) {
+                    return false;
+                }
+                var aView = a.view || {};
+                var bView = b.view || {};
+                if (
+                    Boolean(aView.exclude_ambient) !== Boolean(bView.exclude_ambient) ||
+                    String(aView.order || "") !== String(bView.order || "") ||
+                    Number(aView.seed || 0) !== Number(bView.seed || 0)
+                ) {
                     return false;
                 }
                 if (String(a.status_filter || "all") !== String(b.status_filter || "all")) {
@@ -492,6 +505,7 @@ def register_loading_overlay_callbacks(app):
             verifyGotoClicks,
             verifyThresholds,
             verifyClassFilter,
+            verifyView,
             verifyStatusFilter,
             explorePrevClicks,
             exploreNextClicks,
@@ -536,6 +550,7 @@ def register_loading_overlay_callbacks(app):
                 triggerId !== "verify-goto-page" &&
                 triggerId !== "verify-thresholds-store" &&
                 triggerId !== "verify-class-filter" &&
+                triggerId !== "verify-view-store" &&
                 triggerId !== "verify-status-filter" &&
                 triggerId !== "explore-prev-page" &&
                 triggerId !== "explore-next-page" &&
@@ -546,6 +561,7 @@ def register_loading_overlay_callbacks(app):
             var isVerifyFilterTrigger = (
                 triggerId === "verify-thresholds-store" ||
                 triggerId === "verify-class-filter" ||
+                triggerId === "verify-view-store" ||
                 triggerId === "verify-status-filter"
             );
             var pendingDatasetRequest = window.__specgenOverlayLatestRequest || null;
@@ -584,15 +600,17 @@ def register_loading_overlay_callbacks(app):
                 }
                 return eligible;
             }
-            function verifyFilterState(thresholds, classFilter, statusFilter) {
-                var threshold = asFloat(((thresholds || {}).__global__), 0.5);
-                var filterValues = Array.isArray(classFilter)
+            function verifyFilterState(thresholds, classFilter, statusFilter, view) {
+                var global = asFloat(((thresholds || {}).__global__), 0.5);
+                var filterValues = Array.isArray(classFilter) && classFilter.length
                     ? classFilter.map(function(value) { return String(value || ""); }).filter(Boolean).sort()
                     : null;
                 return {
-                    threshold: threshold,
+                    range_min: asFloat(((thresholds || {}).__range_min__), global),
+                    range_max: asFloat(((thresholds || {}).__range_max__), 1.0),
                     class_filter: filterValues,
-                    status_filter: String(statusFilter || "all")
+                    status_filter: String(statusFilter || "all"),
+                    view: view || {}
                 };
             }
             function invalidateCurrentSpectrograms(modeName) {
@@ -626,6 +644,7 @@ def register_loading_overlay_callbacks(app):
                 var isVerifyFilter = (
                     trigger === "verify-thresholds-store" ||
                     trigger === "verify-class-filter" ||
+                    trigger === "verify-view-store" ||
                     trigger === "verify-status-filter"
                 );
                 var requestSource = String((request || {}).source || "existing");
@@ -785,6 +804,7 @@ def register_loading_overlay_callbacks(app):
                 (
                     triggerId === "verify-thresholds-store" ||
                     triggerId === "verify-class-filter" ||
+                    triggerId === "verify-view-store" ||
                     triggerId === "verify-status-filter"
                 ) &&
                 activeMode !== "verify"
@@ -871,7 +891,7 @@ def register_loading_overlay_callbacks(app):
                 update_kind: isColormapTrigger ? "colormap" : null,
                 colormap_label: activeColormap === "hydrophone" ? "O3.0" : "default",
                 verify_filter_state: activeMode === "verify"
-                    ? verifyFilterState(verifyThresholds, verifyClassFilter, verifyStatusFilter)
+                    ? verifyFilterState(verifyThresholds, verifyClassFilter, verifyStatusFilter, verifyView)
                     : null
             };
             window.__specgenOverlayDomReady = null;
@@ -914,6 +934,7 @@ def register_loading_overlay_callbacks(app):
         Input("verify-goto-page", "n_clicks"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-view-store", "data"),
         Input("verify-status-filter", "value"),
         Input("explore-prev-page", "n_clicks"),
         Input("explore-next-page", "n_clicks"),
@@ -1420,6 +1441,7 @@ def register_loading_overlay_callbacks(app):
                     var trigger = String((req || {}).trigger_id || "");
                     return trigger === "verify-thresholds-store" ||
                         trigger === "verify-class-filter" ||
+                        trigger === "verify-view-store" ||
                         trigger === "verify-status-filter";
                 }
                 function isDatasetSelectionRequest(req) {
@@ -1459,7 +1481,19 @@ def register_loading_overlay_callbacks(app):
                 function sameVerifyFilterState(a, b) {
                     a = a || {};
                     b = b || {};
-                    if (Math.abs(asFloat(a.threshold, 0.5) - asFloat(b.threshold, 0.5)) > 1e-9) {
+                    if (
+                        Math.abs(asFloat(a.range_min, 0.5) - asFloat(b.range_min, 0.5)) > 1e-9 ||
+                        Math.abs(asFloat(a.range_max, 1.0) - asFloat(b.range_max, 1.0)) > 1e-9
+                    ) {
+                        return false;
+                    }
+                    var aView = a.view || {};
+                    var bView = b.view || {};
+                    if (
+                        Boolean(aView.exclude_ambient) !== Boolean(bView.exclude_ambient) ||
+                        String(aView.order || "") !== String(bView.order || "") ||
+                        Number(aView.seed || 0) !== Number(bView.seed || 0)
+                    ) {
                         return false;
                     }
                     if (String(a.status_filter || "all") !== String(b.status_filter || "all")) {

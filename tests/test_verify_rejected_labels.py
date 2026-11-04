@@ -167,8 +167,8 @@ def test_verify_card_reads_rejected_labels_from_verifications_when_annotations_a
 
     card = create_spectrogram_card(item, image_src="/assets/example.png", mode="verify")
 
-    assert _component_tree_contains_class(card, "verify-label-badge--model-rejected")
-    assert not _component_tree_contains_class(card, "verify-label-badge--model-accepted")
+    assert _component_tree_contains_class(card, "review-label--model-rejected")
+    assert not _component_tree_contains_class(card, "review-label--model-accepted")
 
 
 def test_modal_label_sets_exclude_rejected_labels_from_latest_verification():
@@ -332,8 +332,8 @@ def test_verify_card_does_not_restore_deleted_human_label_from_latest_verificati
 
     card = create_spectrogram_card(item, image_src="/assets/example.png", mode="verify")
 
-    assert _component_tree_contains_class(card, "verify-label-badge--model-rejected")
-    assert not _component_tree_contains_text(card, HUMAN_LABEL)
+    assert _component_tree_contains_class(card, "review-label--model-rejected")
+    assert not _component_tree_contains_text(card, HUMAN_LABEL.split(" > ")[-1])
 
 
 def test_rejected_labels_respect_explicit_empty_review_state():
@@ -571,7 +571,7 @@ def test_scoreless_human_provisional_prediction_is_not_thresholded():
     assert filter_pagination_predictions(predictions, {"__global__": 1.0}) == [FIN_WHALE]
 
 
-def test_verify_card_renders_human_provisional_prediction_with_accept_reject_actions():
+def test_verify_card_suggests_a_human_provisional_prediction():
     item = {
         "item_id": "clip-provisional",
         "predictions": {
@@ -589,8 +589,6 @@ def test_verify_card_renders_human_provisional_prediction_with_accept_reject_act
 
     card = create_spectrogram_card(item, image_src="/assets/example.png", mode="verify")
 
-    assert _component_tree_contains_class(card, "verify-label-badge--human-provisional")
-    assert _component_tree_contains_text(card, "Predictions / labels")
-    assert _component_tree_contains_text(card, "provisional")
-    assert _component_tree_contains_text(card, "✓")
-    assert _component_tree_contains_text(card, "×")
+    assert _component_tree_contains_class(card, "review-label--model-unreviewed")
+    assert _component_tree_contains_text(card, "Suggested label(s)")
+    assert _component_tree_contains_text(card, FIN_WHALE.split(" > ")[-1])

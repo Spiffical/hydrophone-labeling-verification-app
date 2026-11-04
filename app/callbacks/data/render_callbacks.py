@@ -7,7 +7,9 @@ from dash import Input, Output, State, ctx, html, no_update, set_props
 from dash.exceptions import PreventUpdate
 
 from app.defaults import DEFAULT_CACHE_MAX_SIZE
+from app.layouts.review_dashboard import status_filter_options
 from app.services.grid_updates import grid_render_state, incremental_grid
+from app.services.review_view import active_class_filter, confidence_range, normalize_review_view
 from app.services.spectrogram_grid import (
     normalize_spectrogram_grid,
     spectrogram_grid_class,
@@ -16,7 +18,6 @@ from app.services.spectrogram_ranges import uses_visible_ranges
 from app.services.verify_modal_cache import (
     ensure_verify_modal_items,
     get_filtered_verify_items_page,
-    get_verify_filter_leaf_classes,
     get_verify_modal_summary,
     has_verify_modal_items,
 )
@@ -123,6 +124,7 @@ def _collect_verify_future_page_items(
     total_pages,
     items_per_page,
     pages_ahead,
+    view=None,
 ):
     future_items = []
     last_page = min(int(total_pages) - 1, int(current_page) + int(pages_ahead))
@@ -134,6 +136,7 @@ def _collect_verify_future_page_items(
             page_index,
             items_per_page,
             status_filter,
+            view,
         )
         if filtered_page.get("page_index") != page_index:
             break
@@ -149,8 +152,6 @@ def register_render_callbacks(
     _filter_predictions,
     _predicted_labels_match_filter,
     _extract_verify_leaf_classes,
-    _build_verify_filter_paths,
-    _normalize_verify_class_filter,
     _schedule_specgen_prefetch_for_current_page_images,
     _schedule_specgen_prefetch_for_future_pages,
     _schedule_modal_prefetch_for_current_page_spectrograms,
@@ -204,31 +205,17 @@ def register_render_callbacks(
             payload.update(extra)
         return payload
 
-    def _verify_filter_state(thresholds, selected_filters, status_filter):
-        try:
-            threshold = float((thresholds or {}).get("__global__", 0.5))
-        except (TypeError, ValueError):
-            threshold = 0.5
+    def _verify_filter_state(thresholds, selected_filters, status_filter, view):
+        range_min, range_max = confidence_range(thresholds)
         return {
-            "threshold": threshold,
+            "range_min": range_min,
+            "range_max": range_max,
             "class_filter": sorted(str(value) for value in selected_filters)
             if selected_filters is not None
             else None,
             "status_filter": str(status_filter or "all"),
+            "view": normalize_review_view(view),
         }
-
-    def _verify_status_filter_text(status_filter):
-        labels = {
-            "all": "All statuses",
-            "unverified": "Unverified only",
-            "accepted_only": "Accepted only",
-            "rejected_only": "Rejected only",
-            "mixed": "Mixed",
-            "contains_accepted": "Contains accepted",
-            "contains_rejected": "Contains rejected",
-            "verified": "Verified only",
-        }
-        return labels.get(str(status_filter or "all"), "All statuses")
 
     @app.callback(
         Output("verify-data-cache-key-store", "data"),
@@ -459,10 +446,12 @@ def register_render_callbacks(
         Output("verify-data-root-display", "children"),
         Output("verify-ui-ready-store", "data"),
         Output("verify-visible-item-ids-store", "data"),
+        Output("verify-status-filter", "options"),
         Input("verify-data-cache-key-store", "data"),
         Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-view-store", "data"),
         Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
@@ -481,6 +470,7 @@ def register_render_callbacks(
         verify_cache_revision,
         thresholds,
         class_filter,
+        view,
         status_filter,
         current_page,
         use_hydrophone_colormap,
@@ -555,26 +545,10 @@ def register_render_callbacks(
                 data_root,
                 loading_ui_ready,
                 [],
+                no_update,
             )
         thresholds = thresholds or {"__global__": 0.5}
-        leaf_class_values = get_verify_filter_leaf_classes(verify_cache_key)
-        available_values = _build_verify_filter_paths(leaf_class_values)
-        available_value_set = set(available_values)
-        selected_filters = _normalize_verify_class_filter(class_filter)
-        if not available_values:
-            selected_filters = None
-        if selected_filters is not None:
-            selected_filters = [value for value in selected_filters if value in available_value_set]
-        current_threshold = float(thresholds.get("__global__", 0.5))
-
-        if selected_filters is None:
-            filter_text = "All selected"
-        elif not selected_filters:
-            filter_text = "None selected"
-        elif leaf_class_values and len(selected_filters) == len(leaf_class_values):
-            filter_text = "All selected"
-        else:
-            filter_text = f"{len(selected_filters)} selected"
+        selected_filters = active_class_filter(class_filter)
 
         colormap = "hydrophone" if use_hydrophone_colormap else cfg.get("display", {}).get("colormap", "default")
         y_axis_scale = "log" if use_log_y_axis else cfg.get("display", {}).get("y_axis_scale", "linear")
@@ -586,6 +560,7 @@ def register_render_callbacks(
             current_page,
             items_per_page,
             status_filter,
+            view,
         )
         filtered_total = filtered_page["total_items"]
         total_pages = filtered_page["total_pages"]
@@ -630,31 +605,6 @@ def register_render_callbacks(
                     className="command-filter-detail",
                 ),
             ]
-        context_children.extend(
-            [
-                html.Span(
-                    f"Threshold {current_threshold*100:.0f}%",
-                    className="command-filter-detail",
-                ),
-                html.Span(
-                    [
-                        html.Span("Class", className="command-filter-label"),
-                        html.Span(filter_text, className="command-filter-value"),
-                    ],
-                    className="command-filter-detail",
-                ),
-                html.Span(
-                    [
-                        html.Span("Status", className="command-filter-label"),
-                        html.Span(
-                            _verify_status_filter_text(status_filter),
-                            className="command-filter-value",
-                        ),
-                    ],
-                    className="command-filter-detail",
-                ),
-            ]
-        )
         if is_partial_selection:
             context_children.append(
                 html.Span(
@@ -685,6 +635,7 @@ def register_render_callbacks(
         render_state = grid_render_state(page_items, {
             "cache_key": verify_cache_key, "thresholds": thresholds,
             "filters": selected_filters, "status": status_filter, "page": current_page,
+            "view": normalize_review_view(view),
             "colormap": colormap, "y_axis_scale": y_axis_scale,
             "y_min": y_axis_min_hz, "y_max": y_axis_max_hz,
             "color_min": color_min, "color_max": color_max, "config": cfg,
@@ -704,7 +655,12 @@ def register_render_callbacks(
                 items_per_page,
                 cfg,
                 spectrogram_ranges,
-                empty_message="No items match the current filters.",
+                empty_message=(
+                    "No clips match these filters. Classes the model does not score "
+                    "appear once a reviewer has labelled them."
+                    if selected_filters
+                    else "No clips match these filters."
+                ),
             )
 
         grid = incremental_grid(
@@ -758,6 +714,7 @@ def register_render_callbacks(
                 total_pages=total_pages,
                 items_per_page=items_per_page,
                 pages_ahead=prefetch_pages,
+                view=view,
             )
             submitted = _schedule_specgen_prefetch_for_current_page_images(
                 future_page_items,
@@ -833,7 +790,7 @@ def register_render_callbacks(
             page_items,
             current_page,
             {
-                "verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter),
+                "verify_filter_state": _verify_filter_state(thresholds, selected_filters, status_filter, view),
                 "all_dates_request_id": summary.get("all_dates_request_id"),
                 "grid_render_state": render_state,
             },
@@ -856,6 +813,7 @@ def register_render_callbacks(
             data_root,
             ui_ready,
             visible_item_ids,
+            status_filter_options(filtered_page["status_counts"]),
         )
     @app.callback(
         Output("explore-summary", "children"),

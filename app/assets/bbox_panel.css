@@ -148,7 +148,7 @@
 .theme-dark .modal-bbox-tag.is-active,
 .theme-dark .modal-bbox-tag.is-active:hover:not(:disabled),
 .theme-dark .modal-bbox-tag.is-active kbd {
-    color: #0d1117;
+    color: #000000;
 }
 
 .theme-dark .modal-bbox-tag.is-active kbd {

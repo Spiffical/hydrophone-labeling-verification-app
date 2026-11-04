@@ -1,0 +1,1247 @@
+/* ============================================
+   ANOMALY REVIEW PAGE
+   Header band, Progress / Selection / Display Mode panels, review cards.
+   ============================================ */
+.app-shell {
+    --review-band: #eef1f4;
+    --review-well: #ffffff;
+    --review-outline: #c3cad2;
+    --review-ring: #d5dae0;
+    --review-hover: #dcefff;
+    --review-hover-border: #0a84d6;
+    --review-selected: #1a1f24;
+    --review-pill-text: #1a1f24;
+    --review-pill-dots: rgba(26, 31, 36, 0.55);
+    --review-range: #e8772e;
+    --review-range-rail: #d5dae0;
+    --cat-biophony: #03a454;
+    --cat-geophony: #119dbf;
+    --cat-anthropophony: #e8772e;
+    --cat-instrumentation: #b93726;
+    --cat-other: #c9962e;
+    padding: 12px 20px 32px;
+}
+
+.app-shell.theme-dark {
+    --review-band: #1b1b1b;
+    --review-well: #000000;
+    --review-outline: #4b4b4b;
+    --review-ring: #636564;
+    --review-hover: #133253;
+    --review-hover-border: #37b6ff;
+    --review-selected: #ffffff;
+    --review-pill-text: #ffffff;
+    --review-pill-dots: rgba(255, 255, 255, 0.6);
+    --review-range: #ff914d;
+    --review-range-rail: #242830;
+    --cat-biophony: #03bf62;
+    --cat-geophony: #119dbf;
+    --cat-anthropophony: #ff914d;
+    --cat-instrumentation: #b93726;
+    --cat-other: #ffd17c;
+}
+
+.review-category--biophony,
+.review-label--biophony,
+.review-bar-segment--biophony,
+.review-tip-key--biophony { --cat: var(--cat-biophony); }
+
+.review-category--geophony,
+.review-label--geophony,
+.review-bar-segment--geophony,
+.review-tip-key--geophony { --cat: var(--cat-geophony); }
+
+.review-category--anthropophony,
+.review-label--anthropophony,
+.review-bar-segment--anthropophony,
+.review-tip-key--anthropophony { --cat: var(--cat-anthropophony); }
+
+.review-category--instrumentation,
+.review-label--instrumentation,
+.review-bar-segment--instrumentation,
+.review-tip-key--instrumentation { --cat: var(--cat-instrumentation); }
+
+.review-category--other,
+.review-label--other,
+.review-bar-segment--other,
+.review-tip-key--other { --cat: var(--cat-other); }
+
+.app-inner {
+    max-width: 1800px;
+}
+
+/* ---------- Header band ---------- */
+.app-command-bar,
+.app-command-bar--verify {
+    gap: 18px;
+    min-height: 76px;
+    margin-bottom: 14px;
+    padding: 10px 28px;
+    border: 0;
+    border-radius: 38px;
+    background: var(--review-band);
+    /* Cards scrolling under the sticky bar would show around its rounded corners. */
+    box-shadow: 0 0 0 8px var(--bg);
+    backdrop-filter: none;
+}
+
+body.theme-dark .app-command-bar {
+    border: 0;
+    background: var(--review-band);
+    box-shadow: 0 0 0 8px var(--bg);
+}
+
+.command-brand {
+    min-width: 0;
+    padding: 0;
+}
+
+.command-brand-icon {
+    font-size: 30px;
+}
+
+.command-brand-title {
+    font-size: 18px;
+}
+
+.command-mode-tabs.tab-buttons {
+    gap: 4px;
+    padding: 6px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--review-well);
+}
+
+.command-mode-tabs .mode-tab {
+    min-width: 96px;
+    padding: 9px 18px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.command-mode-tabs .mode-tab--active,
+.command-mode-tabs .mode-tab--active:hover {
+    background: var(--review-band);
+    color: var(--accent);
+}
+
+.command-source-selectors {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 22px;
+    min-width: 0;
+}
+
+.command-select {
+    display: grid;
+    flex: 0 1 230px;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 10px;
+}
+
+.command-select-icon {
+    position: static;
+    grid-row: 1 / span 2;
+    transform: none;
+    color: var(--accent);
+    font-size: 26px;
+}
+
+.command-select-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.command-select .dash-dropdown-wrapper {
+    grid-column: 2;
+    min-width: 0;
+}
+
+.command-select .dash-dropdown.command-dropdown {
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+}
+
+.command-select .dash-dropdown-trigger {
+    min-height: 0;
+    padding: 0;
+}
+
+.command-select .dash-dropdown-value,
+.command-select .dash-dropdown-value-item {
+    padding: 0 !important;
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.3;
+    text-align: left;
+}
+
+.command-tools {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+}
+
+.app-command-bar .icon-btn,
+.app-command-bar .profile-summary {
+    width: 42px;
+    height: 42px;
+}
+
+.app-command-bar .icon-btn i {
+    font-size: 19px;
+}
+
+.app-shell .app-command-bar .profile-summary {
+    border: 3px solid var(--accent) !important;
+    background: var(--accent-subtle) !important;
+    color: var(--accent) !important;
+}
+
+.app-shell .app-command-bar .profile-summary i {
+    font-size: 22px;
+}
+
+.app-shell .app-command-bar .theme-btn,
+.app-shell .app-command-bar .theme-btn.icon-btn--active {
+    border-color: transparent !important;
+    background: none !important;
+    color: var(--text-secondary) !important;
+}
+
+.app-shell .app-command-bar .theme-btn i {
+    color: inherit;
+}
+
+/* ---------- Panels ---------- */
+.review-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 25%);
+    gap: 14px;
+    margin-bottom: 14px;
+    padding: 14px;
+    border-radius: 38px;
+    background: var(--review-band);
+}
+
+.review-panel {
+    min-width: 0;
+    padding: 18px 26px 20px;
+    border-radius: 28px;
+    background: var(--review-well);
+}
+
+.review-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 32px;
+}
+
+.review-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 32px;
+    margin-bottom: 12px;
+}
+
+.review-panel-title {
+    margin: 0;
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.2;
+}
+
+.review-switch.form-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.review-switch .form-check-input {
+    float: none;
+    width: 40px;
+    height: 22px;
+    margin: 0;
+    border: 0;
+    background-color: var(--review-ring);
+    cursor: pointer;
+}
+
+.review-switch .form-check-input:checked {
+    background-color: var(--accent);
+}
+
+.review-switch .form-check-input:focus {
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+.review-switch .form-check-label {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+/* ---------- Progress ---------- */
+.review-progress,
+.review-selection {
+    min-width: 0;
+}
+
+.review-progress-body {
+    display: flex;
+    gap: 14px;
+    min-width: 0;
+}
+
+.review-chart {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.review-bars {
+    display: grid;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    height: 188px;
+}
+
+.review-bar {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+    border-radius: 6px;
+    outline: none;
+}
+
+.review-bar:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+.review-bar-plot {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    min-height: 0;
+    padding-top: 15px;
+    border-bottom: 1px solid var(--review-outline);
+}
+
+.review-bar-count {
+    color: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    line-height: 14px;
+    white-space: nowrap;
+}
+
+.review-bar-stack {
+    display: flex;
+    flex-direction: column-reverse;
+    flex: 0 0 auto;
+    gap: 2px;
+    width: min(24px, 72%);
+    overflow: hidden;
+    border-radius: 4px 4px 0 0;
+}
+
+.review-bar-segment {
+    display: block;
+    flex-shrink: 1;
+    flex-basis: 0;
+    min-height: 2px;
+}
+
+.review-bar-segment--verified {
+    background: var(--cat);
+}
+
+.review-bar-segment--unverified {
+    background: color-mix(in srgb, var(--cat) 42%, var(--review-well));
+}
+
+.review-bar:hover .review-bar-stack {
+    filter: brightness(1.2);
+}
+
+.review-bar-tick {
+    flex: 0 0 auto;
+    padding-top: 3px;
+    color: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    line-height: 12px;
+    text-align: center;
+}
+
+.review-tip {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    z-index: 30;
+    display: none;
+    width: max-content;
+    max-width: 280px;
+    padding: 8px 10px;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+}
+
+.review-bar:hover .review-tip,
+.review-bar:focus-visible .review-tip {
+    display: block;
+}
+
+.review-bar--tip-left .review-tip {
+    right: 0;
+    left: auto;
+    transform: none;
+}
+
+.review-tip-title {
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.review-tip-row {
+    display: grid;
+    grid-template-columns: 12px auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.review-tip-key {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--cat);
+}
+
+.review-tip-row strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.review-tip-muted {
+    padding-left: 10px;
+    color: var(--muted);
+}
+
+.review-chart-key {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.review-chart-key > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.review-key-swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--text-secondary);
+}
+
+.review-key-swatch--dim {
+    background: color-mix(in srgb, var(--text-secondary) 42%, var(--review-well));
+}
+
+.review-key-note {
+    margin-left: auto;
+}
+
+.review-total {
+    display: flex;
+    flex: 0 0 84px;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+}
+
+.review-total-title {
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.review-total-ring {
+    position: relative;
+    display: grid;
+    width: 76px;
+    height: 76px;
+    place-items: center;
+}
+
+.review-total-ring::before {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent) var(--review-progress, 0%), var(--review-ring) 0);
+    content: "";
+    mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px));
+}
+
+.review-total-percent {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.review-total-count {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* ---------- Selection ---------- */
+.review-selection-summary {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-selection-clear {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.review-categories {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px;
+}
+
+.review-category-column {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.review-category {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    min-height: 52px;
+    padding-right: 6px;
+    border: 3px solid var(--review-outline);
+    border-radius: 999px;
+    transition: border-color var(--transition);
+}
+
+.review-category:has(.review-category-toggle--on),
+.review-category:has(.review-category-toggle--partial) {
+    border-color: var(--review-selected);
+}
+
+.review-category:has(.review-category-toggle--partial) {
+    border-style: dashed;
+}
+
+.review-category-toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 4px 8px 12px;
+    border: 0;
+    border-radius: 999px 0 0 999px;
+    background: none;
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 700;
+    text-align: left;
+}
+
+.review-category-toggle > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-category-dot {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--cat);
+}
+
+.review-category-menu > summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    list-style: none;
+    cursor: pointer;
+}
+
+.review-category-menu > summary::-webkit-details-marker,
+.review-tree-branch > summary::-webkit-details-marker {
+    display: none;
+}
+
+.review-category-menu > summary:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.review-category-menu .command-panel-caret {
+    margin: 0;
+    color: inherit;
+    font-size: 16px;
+}
+
+.review-tree {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 400;
+    width: min(330px, calc(100vw - 48px));
+    max-height: 340px;
+    padding: 8px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+}
+
+.review-tree-leaf,
+.review-tree-branch > summary {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    list-style: none;
+}
+
+.review-tree-leaf {
+    padding-left: 18px;
+}
+
+.review-tree-branch > summary {
+    cursor: pointer;
+}
+
+.review-tree-caret {
+    flex: 0 0 18px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    transition: transform var(--transition);
+}
+
+.review-tree-branch[open] > summary .review-tree-caret {
+    transform: rotate(90deg);
+}
+
+.review-tree-children {
+    margin-left: 9px;
+    padding-left: 9px;
+    border-left: 1px solid var(--border-subtle);
+}
+
+.review-tree-node {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.3;
+    text-align: left;
+}
+
+.review-tree-node:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.review-tree-check {
+    flex: 0 0 14px;
+    color: var(--accent);
+    font-size: 14px;
+    visibility: hidden;
+}
+
+.review-tree-node--on,
+.review-tree-node--implied,
+.review-tree-node--partial {
+    color: var(--text);
+}
+
+.review-tree-node--on {
+    font-weight: 700;
+}
+
+.review-tree-node--on .review-tree-check,
+.review-tree-node--implied .review-tree-check {
+    visibility: visible;
+}
+
+.review-tree-node--implied .review-tree-check {
+    opacity: 0.55;
+}
+
+/* ---------- Display mode ---------- */
+.review-display {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: stretch;
+}
+
+.review-display .review-panel-title {
+    text-align: center;
+}
+
+.review-status {
+    position: relative;
+}
+
+.review-status .review-status-select {
+    padding: 5px 34px 5px 18px;
+    border: 3px solid var(--review-outline);
+    border-radius: 999px;
+    background: none;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.5;
+    text-transform: uppercase;
+    cursor: pointer;
+    appearance: none;
+}
+
+.review-status .review-status-select option {
+    background: var(--surface);
+    color: var(--text);
+    text-transform: none;
+}
+
+.review-status-caret {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    font-size: 15px;
+    pointer-events: none;
+}
+
+.review-order {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.review-order-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 50px;
+    padding: 6px 10px;
+    border: 3px solid transparent;
+    border-radius: 14px;
+    background: var(--review-band);
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.review-order-btn i {
+    font-size: 20px;
+}
+
+.review-order-btn--active {
+    border-color: var(--review-selected);
+    color: var(--accent);
+}
+
+.review-range {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.review-range-end {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.review-range-slider {
+    --review-thumb: 32px;
+    padding: 0 calc(var(--review-thumb) / 2);
+}
+
+.review-range-slider .dash-range-slider-input {
+    display: none;
+}
+
+.review-range-slider .dash-slider-wrapper,
+.review-range-slider .dash-slider-root {
+    min-height: var(--review-thumb);
+}
+
+#verify-threshold-slider .dash-slider-track {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--review-range-rail) !important;
+}
+
+#verify-threshold-slider .dash-slider-range {
+    background: var(--review-range) !important;
+}
+
+#verify-threshold-slider .dash-slider-thumb {
+    width: var(--review-thumb);
+    height: var(--review-thumb);
+    border: 4px solid var(--review-range) !important;
+    border-radius: 50%;
+    background: var(--review-well) !important;
+    box-shadow: none !important;
+    cursor: grab;
+}
+
+#verify-threshold-slider .dash-slider-thumb:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* The value sits in the thumb: there is nothing else it could be read from. */
+#verify-threshold-slider .dash-slider-tooltip {
+    top: 50% !important;
+    bottom: auto !important;
+    display: block;
+    padding: 0;
+    transform: translate(-50%, -50%) !important;
+    border: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+}
+
+#verify-threshold-slider .dash-slider-tooltip,
+#verify-threshold-slider .dash-slider-tooltip * {
+    color: var(--text) !important;
+}
+
+#verify-threshold-slider .dash-slider-tooltip::before,
+#verify-threshold-slider .dash-slider-tooltip::after {
+    display: none;
+}
+
+.review-display > .review-switch {
+    align-self: center;
+}
+
+/* ---------- Results bar ---------- */
+/* Sticks under the header: paging and the count stay in reach down the grid. */
+.verify-result-controls {
+    position: sticky;
+    top: 92px;
+    z-index: 310;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 8px;
+    min-height: 44px;
+    padding: 4px 8px;
+    background: var(--bg);
+}
+
+.verify-result-controls .command-result-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    min-width: 0;
+}
+
+.verify-result-controls .command-result-summary .summary-info {
+    display: contents;
+}
+
+.verify-result-controls .command-match-count {
+    font-size: 15px;
+}
+
+.verify-result-controls .command-filter-context {
+    position: static;
+    flex-wrap: wrap;
+    gap: 2px 0;
+    overflow: visible;
+    white-space: normal;
+}
+
+/* ---------- Review cards ---------- */
+.review-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 16px 14px;
+    border: 3px solid transparent !important;
+    border-radius: 32px !important;
+    background: var(--review-band) !important;
+    box-shadow: none;
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+    transition: background var(--transition), border-color var(--transition);
+}
+
+.app-shell.theme-dark .review-card {
+    border-color: transparent !important;
+    background: var(--review-band) !important;
+}
+
+.review-card:hover,
+.review-card:focus-visible,
+.app-shell.theme-dark .review-card:hover,
+.app-shell.theme-dark .review-card:focus-visible {
+    border-color: var(--review-hover-border) !important;
+    background: var(--review-hover) !important;
+    box-shadow: none;
+}
+
+.review-card-media {
+    position: relative;
+}
+
+.review-card-time {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    z-index: 2;
+    padding: 1px 10px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Several frequency ranges each have a title where the time would sit. */
+.review-card-media:has(.spectrogram-range-section + .spectrogram-range-section) .review-card-time {
+    position: static;
+    display: inline-block;
+    margin-bottom: 6px;
+    transform: none;
+    background: none;
+    color: var(--text-secondary);
+}
+
+.review-card .spectrogram-range-section {
+    padding-left: 0;
+    border-left: 0;
+}
+
+.review-card .spectrogram-range-section:only-child > .spectrogram-range-header {
+    display: none;
+}
+
+.review-card .spectrogram-image-container {
+    aspect-ratio: 1.08 / 1;
+    border-radius: 22px;
+}
+
+.review-card .spectrogram-image,
+.review-card .spectrogram-image:hover {
+    border-radius: 22px;
+    transform: none;
+}
+
+.review-card-labels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px 16px;
+    padding: 2px 6px;
+}
+
+.review-card-label-column {
+    min-width: 0;
+}
+
+.review-card-heading {
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.review-label-list {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.review-label {
+    max-width: 100%;
+    padding: 3px 14px;
+    overflow: hidden;
+    border: 2px dotted var(--review-pill-dots);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--cat) 48%, var(--review-band));
+    color: var(--review-pill-text);
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-label--model-accepted,
+.review-label--human-added {
+    border: 2px solid var(--review-selected);
+    background: var(--cat);
+    color: #15181b;
+    font-weight: 600;
+}
+
+.review-label--model-accepted.review-label--instrumentation,
+.review-label--human-added.review-label--instrumentation {
+    color: #ffffff;
+}
+
+.review-label--model-rejected {
+    border-color: var(--review-outline);
+    background: none;
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
+.review-label-none {
+    color: var(--muted);
+    font-size: 17px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.spec-card-skeleton {
+    border: 0;
+    border-radius: 32px;
+    background: var(--review-band);
+    box-shadow: none;
+}
+
+/* ---------- Label editor ---------- */
+/* Modals render outside .app-shell, so the theme comes from the body class. */
+body.theme-dark .label-editor-modal .form-control {
+    border-color: var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+body.theme-dark .label-editor-modal .form-control::placeholder {
+    color: var(--muted);
+}
+
+/* ---------- Narrower screens ---------- */
+@media (max-width: 1500px) {
+    .command-brand-title {
+        display: inline;
+        font-size: 15px;
+    }
+
+    .review-dashboard {
+        grid-template-columns: minmax(0, 1fr) 280px;
+    }
+
+    .review-panel {
+        padding-right: 20px;
+        padding-left: 20px;
+    }
+
+    .command-mode-tabs .mode-tab {
+        min-width: 72px;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+
+    .review-overview {
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+        gap: 22px;
+    }
+
+    .review-category {
+        padding-right: 2px;
+    }
+
+    .review-category-toggle {
+        gap: 8px;
+        padding-left: 10px;
+        font-size: 14px;
+    }
+
+    .review-category-dot {
+        width: 20px;
+        height: 20px;
+    }
+
+    .review-category-menu > summary {
+        width: 30px;
+    }
+}
+
+@media (max-width: 1240px) {
+    .app-command-bar,
+    .app-command-bar--verify {
+        position: relative;
+        top: auto;
+        flex-wrap: wrap;
+        border-radius: 28px;
+    }
+
+    .verify-result-controls {
+        top: 0;
+    }
+
+    .command-source-selectors {
+        order: 3;
+        flex-basis: 100%;
+    }
+
+    .command-account-actions {
+        margin-left: auto;
+    }
+
+    .review-dashboard {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .review-overview {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .app-shell {
+        padding: 8px 12px 24px;
+    }
+
+    .review-dashboard {
+        padding: 8px;
+        border-radius: 28px;
+    }
+
+    .review-panel {
+        padding: 14px 16px 16px;
+        border-radius: 22px;
+    }
+}
+
+/* The tool wraps to the left of the header, so its menu hangs from the header. */
+@media (max-width: 760px) {
+    .command-tool--data {
+        position: static;
+    }
+
+    .command-popover--data {
+        right: 8px;
+        left: 8px;
+        width: auto;
+    }
+
+    .command-popover--data::before {
+        display: none;
+    }
+}
+
+@media (max-width: 575px) {
+    .command-source-selectors {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .command-select {
+        flex-basis: 100%;
+    }
+
+    .review-progress-body {
+        flex-direction: column;
+    }
+
+    .review-total {
+        flex-basis: auto;
+    }
+
+    .review-categories {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .verify-result-controls {
+        flex-wrap: wrap;
+    }
+}

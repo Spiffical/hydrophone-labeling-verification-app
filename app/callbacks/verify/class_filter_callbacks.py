@@ -1,297 +1,67 @@
-"""Verify mode class filter and threshold callbacks."""
+"""Class selection: the category pills and the class menus beneath them."""
 
-from dash import ALL, Input, Output, State, ctx, html, no_update
+from dash import ALL, Input, Output, State, ctx
 from dash.exceptions import PreventUpdate
 
-from app.services.verify_modal_cache import get_verify_filter_leaf_classes
+from app.services.annotations import split_hierarchy_label
+from app.services.review_view import active_class_filter
+from app.services.verify_filter_tree import class_selection_state, toggle_class_selection
 
 
-def preserve_dynamic_all_selection(
-    option_values,
-    current_value,
-    previous_option_values,
-    *,
-    build_verify_leaf_paths,
-    expand_verify_filter_selection,
-):
-    """Keep an all-selected filter open to classes discovered by later loads."""
-    if current_value is None:
-        return None
-
-    previous_leaf_values = build_verify_leaf_paths(previous_option_values or [])
-    if previous_leaf_values:
-        previous_selected_values = expand_verify_filter_selection(
-            previous_option_values,
-            current_value,
-        )
-        if set(previous_selected_values) == set(previous_leaf_values):
-            return None
-
-    return expand_verify_filter_selection(option_values, current_value)
+def selection_summary(selected):
+    """Say briefly what the selection covers."""
+    if not selected:
+        return "All classes"
+    if len(selected) == 1:
+        return split_hierarchy_label(selected[0])[-1]
+    return f"{len(selected)} selected"
 
 
-def register_verify_filter_callbacks(
-    app,
-    *,
-    extract_verify_leaf_classes,
-    build_verify_filter_paths,
-    build_verify_leaf_paths,
-    expand_verify_filter_selection,
-    ordered_unique_labels,
-    split_hierarchy_label,
-    build_verify_filter_tree_rows,
-    toggle_verify_filter_selection,
-):
-    """Register verify class-filter tree callbacks."""
-
-    @app.callback(
-        Output("verify-class-filter-options", "data"),
-        Output("verify-class-filter", "data"),
-        Output("verify-class-filter-expanded", "data"),
-        Input("verify-data-store", "data"),
-        State("verify-class-filter-options", "data"),
-        State("verify-class-filter", "data"),
-        State("verify-class-filter-expanded", "data"),
-        prevent_initial_call=False,
-    )
-    def sync_verify_class_filter_state(
-        data,
-        previous_option_values,
-        current_value,
-        expanded_value,
-    ):
-        items = (data or {}).get("items", [])
-        summary = (data or {}).get("summary", {})
-        indexed_cache_key = summary.get("verify_modal_cache_key") if isinstance(summary, dict) else None
-        classes = (
-            get_verify_filter_leaf_classes(indexed_cache_key)
-            if indexed_cache_key
-            else extract_verify_leaf_classes(items)
-        )
-        option_values = build_verify_filter_paths(classes)
-        selected_values = preserve_dynamic_all_selection(
-            option_values,
-            current_value,
-            previous_option_values,
-            build_verify_leaf_paths=build_verify_leaf_paths,
-            expand_verify_filter_selection=expand_verify_filter_selection,
-        )
-
-        normalized_expanded = ordered_unique_labels(expanded_value or [])
-        if not option_values:
-            # Empty/loading data must not erase a restored selection, including
-            # an intentionally empty list. None still means all classes.
-            return [], no_update, []
-
-        valid_paths = set()
-        for path in option_values:
-            parts = split_hierarchy_label(path)
-            for depth in range(1, len(parts) + 1):
-                valid_paths.add(" > ".join(parts[:depth]))
-        expanded_paths = [path for path in normalized_expanded if path in valid_paths]
-
-        if not expanded_paths:
-            roots = []
-            seen = set()
-            for path in option_values:
-                parts = split_hierarchy_label(path)
-                if not parts:
-                    continue
-                root = parts[0]
-                if root in seen:
-                    continue
-                roots.append(root)
-                seen.add(root)
-            expanded_paths = roots
-
-        # Saving a clip refreshes the data without changing its classes. Sending the
-        # same filter again would read downstream as a filter change: the slider and
-        # thresholds echo it and the grid shows "Updating spectrograms" over the clip.
-        return (
-            option_values if option_values != previous_option_values else no_update,
-            selected_values if selected_values != current_value else no_update,
-            expanded_paths if expanded_paths != expanded_value else no_update,
-        )
-
-    @app.callback(
-        Output("verify-class-filter-tree", "children"),
-        Output("verify-class-filter-toggle", "children"),
-        Output("verify-class-filter-select-all", "value"),
-        Input("verify-class-filter-options", "data"),
-        Input("verify-class-filter", "data"),
-        Input("verify-class-filter-expanded", "data"),
-        prevent_initial_call=False,
-    )
-    def render_verify_class_filter_tree(option_values, selected_values, expanded_values):
-        option_values = ordered_unique_labels(option_values or [])
-        if not option_values:
-            # Leave "select all" alone while classes load: unticking it here
-            # read as the reviewer clearing every class (see below).
-            return (
-                html.Div("No classes available", className="text-muted small"),
-                [
-                    html.Span("No classes available", className="verify-class-filter-toggle-label"),
-                    html.I(
-                        className=(
-                            "bi bi-chevron-down verify-class-filter-toggle-caret"
-                        )
-                    ),
-                ],
-                no_update,
-            )
-
-        leaf_values = build_verify_leaf_paths(option_values)
-        normalized_selected = expand_verify_filter_selection(option_values, selected_values)
-
-        tree_rows = build_verify_filter_tree_rows(option_values, normalized_selected, expanded_values or [])
-        if len(normalized_selected) == len(leaf_values):
-            toggle_label = "All classes selected"
-            select_all_value = True
-        elif not normalized_selected:
-            toggle_label = "No classes selected"
-            select_all_value = False
-        elif len(normalized_selected) == 1:
-            toggle_label = normalized_selected[0]
-            select_all_value = False
-        else:
-            toggle_label = f"{len(normalized_selected)} classes selected"
-            select_all_value = False
-
-        return (
-            html.Div(tree_rows),
-            [
-                html.Span(toggle_label, className="verify-class-filter-toggle-label"),
-                html.I(
-                    className="bi bi-chevron-down verify-class-filter-toggle-caret"
-                ),
-            ],
-            select_all_value,
-        )
-
-    @app.callback(
-        Output("verify-class-filter-collapse", "is_open"),
-        Output("verify-class-filter-toggle", "className"),
-        Output("verify-class-filter-dismiss-overlay", "style"),
-        Input("verify-class-filter-toggle", "n_clicks"),
-        Input("verify-class-filter-done", "n_clicks"),
-        Input("verify-class-filter-dismiss-overlay", "n_clicks"),
-        State("verify-class-filter-collapse", "is_open"),
-        prevent_initial_call=True,
-    )
-    def toggle_verify_class_filter_dropdown(toggle_clicks, done_clicks, dismiss_clicks, is_open):
-        triggered = ctx.triggered_id
-        if triggered not in {
-            "verify-class-filter-toggle",
-            "verify-class-filter-done",
-            "verify-class-filter-dismiss-overlay",
-        }:
-            raise PreventUpdate
-
-        is_currently_open = bool(is_open)
-        if triggered == "verify-class-filter-toggle":
-            if not toggle_clicks:
-                raise PreventUpdate
-            next_open = not is_currently_open
-        elif triggered == "verify-class-filter-done":
-            if not done_clicks or not is_currently_open:
-                raise PreventUpdate
-            next_open = False
-        else:
-            if not dismiss_clicks or not is_currently_open:
-                raise PreventUpdate
-            next_open = False
-
-        base_class = "w-100 text-start verify-class-filter-toggle"
-        overlay_style = {"display": "block"} if next_open else {"display": "none"}
-        return (
-            next_open,
-            (f"{base_class} verify-class-filter-toggle--open" if next_open else base_class),
-            overlay_style,
-        )
-
-    @app.callback(
-        Output("verify-class-filter-expanded", "data", allow_duplicate=True),
-        Input({"type": "verify-filter-expand", "path": ALL}, "n_clicks"),
-        State("verify-class-filter-expanded", "data"),
-        prevent_initial_call=True,
-    )
-    def toggle_verify_filter_expand(expand_clicks, expanded_paths):
-        if not ctx.triggered:
-            raise PreventUpdate
-        if (ctx.triggered[0].get("value") or 0) <= 0:
-            raise PreventUpdate
-
-        triggered = ctx.triggered_id
-        if not isinstance(triggered, dict):
-            raise PreventUpdate
-        path = (triggered.get("path") or "").strip()
-        if not path:
-            raise PreventUpdate
-
-        next_paths = set(ordered_unique_labels(expanded_paths or []))
-        if path in next_paths:
-            next_paths.remove(path)
-        else:
-            next_paths.add(path)
-        return sorted(next_paths, key=lambda text: text.lower())
+def register_verify_filter_callbacks(app):
+    """Register category pill and class menu callbacks."""
 
     @app.callback(
         Output("verify-class-filter", "data", allow_duplicate=True),
-        Input({"type": "verify-filter-checkbox", "path": ALL}, "value"),
-        Input("verify-class-filter-select-all", "value"),
-        State({"type": "verify-filter-checkbox", "path": ALL}, "id"),
-        State("verify-class-filter-options", "data"),
+        Output("verify-current-page", "data", allow_duplicate=True),
+        Input({"type": "verify-category-toggle", "category": ALL}, "n_clicks"),
+        Input({"type": "verify-filter-node", "path": ALL}, "n_clicks"),
+        Input("verify-selection-clear", "n_clicks"),
         State("verify-class-filter", "data"),
         prevent_initial_call=True,
     )
-    def update_verify_filter_selection(
-        checkbox_values,
-        select_all_checked,
-        checkbox_ids,
-        option_values,
-        current_values,
-    ):
-        option_values = ordered_unique_labels(option_values or [])
-        leaf_values = build_verify_leaf_paths(option_values)
-        if not leaf_values:
+    def update_class_selection(category_clicks, node_clicks, clear_clicks, selected):
+        _ = category_clicks, node_clicks, clear_clicks
+        if not ctx.triggered or not ctx.triggered[0].get("value"):
             raise PreventUpdate
-
-        selected_values = expand_verify_filter_selection(option_values, current_values)
-
         triggered = ctx.triggered_id
-
-        # "Select all" is also set by render_verify_class_filter_tree to show
-        # the selection; only a value that disagrees with it is a click.
-        if triggered == "verify-class-filter-select-all":
-            all_selected = current_values is None or set(selected_values) >= set(leaf_values)
-            if bool(select_all_checked) == all_selected:
-                raise PreventUpdate
-            return None if select_all_checked else []
-
-        if not (isinstance(triggered, dict) and triggered.get("type") == "verify-filter-checkbox"):
-            raise PreventUpdate
-        # A click changes one box; a redrawn tree reports every box at once,
-        # which would otherwise toggle the first class on its own.
-        if len(ctx.triggered or []) != 1:
-            raise PreventUpdate
-
-        path = (triggered.get("path") or "").strip()
+        if triggered == "verify-selection-clear":
+            return None, 0
+        path = (triggered.get("path") or triggered.get("category")) if isinstance(triggered, dict) else None
         if not path:
             raise PreventUpdate
+        return toggle_class_selection(selected, path), 0
 
-        is_checked = None
-        for checkbox_value, checkbox_id in zip(checkbox_values or [], checkbox_ids or []):
-            if not isinstance(checkbox_id, dict):
-                continue
-            if (checkbox_id.get("path") or "").strip() != path:
-                continue
-            is_checked = bool(checkbox_value)
-            break
-
-        if is_checked is None:
-            raise PreventUpdate
-
-        next_selected = toggle_verify_filter_selection(option_values, selected_values, path, is_checked)
-        if next_selected == selected_values:
-            raise PreventUpdate
-        return next_selected
+    @app.callback(
+        Output({"type": "verify-category-toggle", "category": ALL}, "className"),
+        Output({"type": "verify-filter-node", "path": ALL}, "className"),
+        Output("verify-selection-summary", "children"),
+        Output("verify-selection-clear", "style"),
+        Input("verify-class-filter", "data"),
+        State({"type": "verify-category-toggle", "category": ALL}, "id"),
+        State({"type": "verify-filter-node", "path": ALL}, "id"),
+    )
+    def render_class_selection(class_filter, category_ids, node_ids):
+        selected = active_class_filter(class_filter)
+        return (
+            [
+                "review-category-toggle review-category-toggle--"
+                + class_selection_state(selected, entry["category"])
+                for entry in category_ids
+            ],
+            [
+                "review-tree-node review-tree-node--" + class_selection_state(selected, entry["path"])
+                for entry in node_ids
+            ],
+            selection_summary(selected),
+            {} if selected else {"display": "none"},
+        )

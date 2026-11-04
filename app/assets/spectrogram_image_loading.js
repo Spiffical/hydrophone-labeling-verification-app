@@ -290,6 +290,7 @@
         trigger === 'app-config-save' ||
         trigger === 'verify-thresholds-store' ||
         trigger === 'verify-class-filter' ||
+        trigger === 'verify-view-store' ||
         trigger === 'verify-status-filter'
       )
     );

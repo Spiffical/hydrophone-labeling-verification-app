@@ -8,25 +8,25 @@ def register_theme_callbacks(app):
     """Register theme toggle and shell styling callbacks."""
 
     @app.callback(
-        Output("theme-store", "data"),
+        Output("theme-preference-store", "data"),
         Input("theme-toggle", "n_clicks"),
-        State("theme-store", "data"),
+        State("theme-preference-store", "data"),
         prevent_initial_call=True,
     )
     def update_theme_store(n_clicks, theme):
         if not n_clicks:
             raise PreventUpdate
-        theme = theme or "light"
+        theme = theme or "dark"
         return "dark" if theme == "light" else "light"
 
     @app.callback(
         Output("theme-toggle", "children"),
         Output("theme-toggle", "className"),
-        Input("theme-store", "data"),
+        Input("theme-preference-store", "data"),
         prevent_initial_call=False,
     )
     def sync_theme_toggle(theme):
-        theme = theme or "light"
+        theme = theme or "dark"
         is_dark = theme == "dark"
         icon_class = "bi bi-sun" if is_dark else "bi bi-moon-stars"
         btn_class = "icon-btn theme-btn"
@@ -37,23 +37,23 @@ def register_theme_callbacks(app):
     @app.callback(
         Output("app-shell", "className"),
         Output("app-shell", "style"),
-        Input("theme-store", "data"),
+        Input("theme-preference-store", "data"),
         prevent_initial_call=False,
     )
     def apply_theme(theme):
-        theme = theme or "light"
+        theme = theme or "dark"
         return f"app-shell theme-{theme}", {}
 
     app.clientside_callback(
         """
         function(theme) {
-            theme = theme || 'light';
+            theme = theme || 'dark';
             document.body.classList.remove('theme-light', 'theme-dark');
             document.body.classList.add('theme-' + theme);
             return '';
         }
         """,
         Output("dummy-output", "data"),
-        Input("theme-store", "data"),
+        Input("theme-preference-store", "data"),
         prevent_initial_call=False,
     )

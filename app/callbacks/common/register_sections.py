@@ -31,6 +31,7 @@ from app.callbacks.ui.tab_switch_callbacks import register_mode_tab_callbacks
 from app.callbacks.ui.theme_callbacks import register_theme_callbacks
 from app.callbacks.verify.class_filter_callbacks import register_verify_filter_callbacks
 from app.callbacks.verify.decision_callbacks import register_verify_action_callbacks
+from app.callbacks.verify.review_view_callbacks import register_review_view_callbacks
 from app.callbacks.verify.threshold_callbacks import register_verify_threshold_callbacks
 
 
@@ -60,8 +61,6 @@ def register_all_callback_sections(app, *, config, deps):
         _filter_predictions=d["filter_predictions"],
         _predicted_labels_match_filter=d["predicted_labels_match_filter"],
         _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
-        _build_verify_filter_paths=d["build_verify_filter_paths"],
-        _normalize_verify_class_filter=d["normalize_verify_class_filter"],
     )
 
     register_global_load_trigger_callback(
@@ -85,8 +84,6 @@ def register_all_callback_sections(app, *, config, deps):
         _filter_predictions=d["filter_predictions"],
         _predicted_labels_match_filter=d["predicted_labels_match_filter"],
         _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
-        _build_verify_filter_paths=d["build_verify_filter_paths"],
-        _normalize_verify_class_filter=d["normalize_verify_class_filter"],
     )
     register_render_callbacks(
         app,
@@ -95,26 +92,15 @@ def register_all_callback_sections(app, *, config, deps):
         _filter_predictions=d["filter_predictions"],
         _predicted_labels_match_filter=d["predicted_labels_match_filter"],
         _extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
-        _build_verify_filter_paths=d["build_verify_filter_paths"],
-        _normalize_verify_class_filter=d["normalize_verify_class_filter"],
         _schedule_specgen_prefetch_for_current_page_images=d["schedule_specgen_prefetch_for_current_page_images"],
         _schedule_specgen_prefetch_for_future_pages=d["schedule_specgen_prefetch_for_future_pages"],
         _schedule_modal_prefetch_for_current_page_spectrograms=d["schedule_modal_prefetch_for_current_page_spectrograms"],
         _schedule_modal_prefetch_for_future_pages=d["schedule_modal_prefetch_for_future_pages"],
     )
 
-    register_verify_filter_callbacks(
-        app,
-        extract_verify_leaf_classes=d["extract_verify_leaf_classes"],
-        build_verify_filter_paths=d["build_verify_filter_paths"],
-        build_verify_leaf_paths=d["build_verify_leaf_paths"],
-        expand_verify_filter_selection=d["expand_verify_filter_selection"],
-        ordered_unique_labels=d["ordered_unique_labels"],
-        split_hierarchy_label=d["split_hierarchy_label"],
-        build_verify_filter_tree_rows=d["build_verify_filter_tree_rows"],
-        toggle_verify_filter_selection=d["toggle_verify_filter_selection"],
-    )
+    register_verify_filter_callbacks(app)
     register_verify_threshold_callbacks(app)
+    register_review_view_callbacks(app)
 
     register_label_editor_callbacks(
         app,

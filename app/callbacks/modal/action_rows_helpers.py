@@ -85,16 +85,15 @@ def build_verify_rows(
     verified_set = set(verified_labels)
     accepted_set = set(active_labels)
     active_label, _ = parse_active_box_target(active_box_label)
+    # As on the cards: with decisions on record, the rest were never decided.
+    assume_accepted = is_verified and not has_pending_edits and not verified_set and not rejected_set
 
     badge_models = []
     for label in predicted_labels:
         state = "model-unreviewed"
         if label in rejected_set:
             state = "model-rejected"
-        elif (
-            (explicit_review and label in verified_set)
-            or (is_verified and not has_pending_edits and label not in rejected_set)
-        ):
+        elif (explicit_review and label in verified_set) or assume_accepted:
             state = "model-accepted"
         badge_models.append(
             {

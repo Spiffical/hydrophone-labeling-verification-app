@@ -93,13 +93,25 @@ If no data path is supplied, click **Browse**, choose the root folder, review de
 
 Set your name and email from the top-right profile button before editing.
 
-The dashboard automatically remembers date and device selections for each mode, plus review status, selected classes, and confidence thresholds, separately for each reviewer email. Reloading, reopening the dashboard, or switching back to a profile restores those settings. Preferences are saved in the current browser; they do not sync between browsers or computers, and clearing site data removes them. If a saved date or device is no longer available, the dashboard uses an available default.
+The dashboard automatically remembers date and device selections for each mode, plus the Verify page's selection, confidence range, ordering and ambient setting, separately for each reviewer email. Reloading, reopening the dashboard, or switching back to a profile restores those settings. Preferences are saved in the current browser; they do not sync between browsers or computers, and clearing site data removes them. If a saved date or device is no longer available, the dashboard uses an available default.
 
 Open a spectrogram card to review the detail modal. Use label rows to accept, reject, add, delete, or edit labels depending on the active mode. Save/confirm changes before leaving a reviewed item.
 
 In **Edit labels**, click the star beside labels you use frequently. They appear in **Starred labels** at the top of every label editor: click a shortcut to select or remove it, then **Save Labels**. Starring a label only creates a shortcut; it does not label the clip. Favorites persist in this browser, separately for each reviewer email, and are not synced across devices.
 
 In the spectrogram modal, use **← / →** for the previous/next clip and **E** to open **Edit labels**. Shortcuts pause while typing, adjusting sliders, or using another dialog; navigation still prompts about unsaved changes.
+
+## Verify Page
+
+Built for reviewing the anomaly model. A clip's **confidence** is the model's highest score among the classes in view, and three panels sit above the clips:
+
+- **Progress** counts each clip once by confidence, stacked by category, bright when verified and dim when not. It sits under the class a reviewer gave it, or the model's top class until then. Bars are drawn on a square-root scale so the few confident clips stay visible; the number above each bar and its tooltip give the exact counts. Turn off **All categories** to show only the selection.
+- **Selection** narrows the clips to categories, or to classes from their menus. The whole label hierarchy is offered, including classes the model cannot output: those clips appear once a reviewer has labelled them, at any confidence.
+- **Display Mode** picks a review status, an order (**Precision**: highest confidence first; **Shuffle**: random, click again to reshuffle) and a confidence range. **Exclude ambient noise** measures confidence without `Other > Ambient sound`, which leaves out clips that are only ambient; a clip it leaves in still lists ambient among its suggestions, because saving records a decision on every suggestion.
+
+The lower end of the range is also the suggestion threshold, but a label is never suggested below 5%: saving accepts every suggestion left unrejected, so a range starting at 0% must not fill a clip with near-zero classes.
+
+Click anywhere on a card to review its clip. The dark theme is the default; set `HYDROPHONE_UI_THEME=light` to start in light. `display.grid_rows` and `display.grid_columns` set the card grid (3 by 3 in `config/default.yaml`).
 
 ## Bounding Boxes
 
@@ -117,7 +129,7 @@ In the spectrogram modal:
 
 ## Audio Controls
 
-Cards include play/pause and seek controls when matching audio is found. The detail modal adds playback speed, amplification, an EQ, and **Only play visible frequencies**, which filters playback to the frequencies the main spectrogram shows (its visible range, or the part you zoomed into).
+Label and Explore cards include play/pause and seek controls when matching audio is found. The detail modal adds playback speed, amplification, an EQ, and **Only play visible frequencies**, which filters playback to the frequencies the main spectrogram shows (its visible range, or the part you zoomed into).
 
 Use `--audio-transport mp3_cached` only if browser seeking is unreliable with original audio files.
 

@@ -6,7 +6,8 @@ import time
 from dash import Input, Output, State, ctx
 from dash.exceptions import PreventUpdate
 
-from app.services.verify_modal_cache import get_filtered_verify_items_page, get_verify_filter_leaf_classes
+from app.services.review_view import active_class_filter
+from app.services.verify_modal_cache import get_filtered_verify_items_page
 
 
 _SPECGEN_DEBUG = os.getenv("HYDRO_SPECGEN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -53,8 +54,6 @@ def register_specgen_status_callbacks(
     _filter_predictions,
     _predicted_labels_match_filter,
     _extract_verify_leaf_classes,
-    _build_verify_filter_paths,
-    _normalize_verify_class_filter,
 ):
     @app.callback(
         Output("specgen-overlay-preview-store", "data"),
@@ -70,6 +69,7 @@ def register_specgen_status_callbacks(
         State("verify-data-cache-revision-store", "data"),
         State("verify-thresholds-store", "data"),
         State("verify-class-filter", "data"),
+        State("verify-view-store", "data"),
         State("verify-status-filter", "value"),
         State("verify-colormap-toggle", "value"),
         State("verify-yaxis-toggle", "value"),
@@ -100,6 +100,7 @@ def register_specgen_status_callbacks(
         verify_cache_revision,
         verify_thresholds,
         verify_class_filter,
+        verify_view,
         verify_status_filter,
         verify_use_hydrophone_colormap,
         verify_use_log_y_axis,
@@ -142,13 +143,7 @@ def register_specgen_status_callbacks(
 
         if request_mode == "verify":
             verify_thresholds = verify_thresholds or {"__global__": 0.5}
-            available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
-            available_value_set = set(available_values)
-            selected_filters = _normalize_verify_class_filter(verify_class_filter)
-            if not available_values:
-                selected_filters = None
-            if selected_filters is not None:
-                selected_filters = [value for value in selected_filters if value in available_value_set]
+            selected_filters = active_class_filter(verify_class_filter)
             filtered_page = get_filtered_verify_items_page(
                 verify_cache_key,
                 verify_thresholds,
@@ -156,6 +151,7 @@ def register_specgen_status_callbacks(
                 request_page,
                 items_per_page,
                 verify_status_filter,
+                verify_view,
             )
             page_items_override = filtered_page["items"]
             page_index_override = filtered_page["page_index"]
@@ -292,6 +288,7 @@ def register_specgen_status_callbacks(
         Input("verify-data-cache-revision-store", "data"),
         Input("verify-thresholds-store", "data"),
         Input("verify-class-filter", "data"),
+        Input("verify-view-store", "data"),
         Input("verify-status-filter", "value"),
         Input("verify-current-page", "data"),
         Input("verify-colormap-toggle", "value"),
@@ -310,6 +307,7 @@ def register_specgen_status_callbacks(
         verify_cache_revision,
         thresholds,
         class_filter,
+        view,
         status_filter,
         current_page,
         use_hydrophone_colormap,
@@ -336,13 +334,7 @@ def register_specgen_status_callbacks(
             raise PreventUpdate
         thresholds = thresholds or {"__global__": 0.5}
 
-        available_values = _build_verify_filter_paths(get_verify_filter_leaf_classes(verify_cache_key))
-        available_value_set = set(available_values)
-        selected_filters = _normalize_verify_class_filter(class_filter)
-        if not available_values:
-            selected_filters = None
-        if selected_filters is not None:
-            selected_filters = [value for value in selected_filters if value in available_value_set]
+        selected_filters = active_class_filter(class_filter)
 
         display_cfg = cfg.get("display", {})
         colormap = "hydrophone" if use_hydrophone_colormap else display_cfg.get("colormap", "default")
@@ -358,6 +350,7 @@ def register_specgen_status_callbacks(
             effective_page,
             items_per_page,
             status_filter,
+            view,
         )
         page_items = filtered_page["items"]
         page_index = filtered_page["page_index"]

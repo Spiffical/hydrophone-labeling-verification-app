@@ -60,10 +60,10 @@ def create_hierarchical_selector(filename, selected_labels=None, read_only=False
             style={
                 "maxHeight": "320px",
                 "overflowY": "auto",
-                "border": "1px solid #e9ecef",
+                "border": "1px solid var(--border)",
                 "borderRadius": "8px",
                 "padding": "8px",
-                "background": "#fdfdfd",
+                "background": "var(--surface)",
             },
         ),
 
@@ -258,8 +258,8 @@ def create_tree_structure(
                     "margin-left": "8px",
                     "padding": "1px 6px",
                     "border-radius": "999px",
-                    "background": "rgba(13, 110, 253, 0.08)",
-                    "color": "#0d6efd",
+                    "background": "var(--accent-subtle)",
+                    "color": "var(--accent)",
                     "font-size": "0.68em",
                     "font-weight": "600",
                     "letter-spacing": "0.01em",
@@ -275,7 +275,7 @@ def create_tree_structure(
                     "align-items": "center",
                     "padding": "2px 0",
                     "margin-left": f"{level * 20}px",
-                    "background": "#f8f9fa" if is_selected else ("rgba(13, 110, 253, 0.03)" if has_selected_descendant else "transparent"),
+                    "background": "var(--surface-2)" if is_selected else ("var(--accent-subtle)" if has_selected_descendant else "transparent"),
                     "border-radius": "4px",
                     "padding-left": "6px" if (is_selected or has_selected_descendant) else "0",
                 },
@@ -557,7 +557,9 @@ def filter_hierarchy_by_search(hierarchy, search_term, selected_paths, current_p
                 paths_to_expand.update(child_expand_paths)
 
         if key_matches or children_match or is_selected:
-            filtered[key] = filtered_children if filtered_children else value
+            # A chosen label stays in view, but its whole branch would push the
+            # matches being searched for off the list.
+            filtered[key] = filtered_children if filtered_children else (value if key_matches else {})
             for i in range(1, len(new_path) + 1):
                 parent_path = tuple(new_path[:i])
                 paths_to_expand.add(path_to_string(parent_path))

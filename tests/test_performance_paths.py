@@ -183,7 +183,7 @@ def test_verify_grid_keeps_cards_when_a_review_leaves_the_page_as_it_was(mock_co
 
     def run(revision, previous_ui_ready, page=0, status="all"):
         return render(
-            key, revision, {"__global__": 0.5}, None, status, page,
+            key, revision, {"__global__": 0.5}, None, None, status, page,
             False, False, None, None, None, None, cfg, None, "verify", previous_ui_ready,
         )
 

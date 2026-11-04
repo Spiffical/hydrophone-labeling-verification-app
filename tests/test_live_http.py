@@ -84,8 +84,8 @@ def test_load_data_callback(base_url):
 
 def test_theme_toggle_updates_store(base_url):
     payload = {
-        "output": "theme-store.data",
-        "outputs": {"id": "theme-store", "property": "data"},
+        "output": "theme-preference-store.data",
+        "outputs": {"id": "theme-preference-store", "property": "data"},
         "inputs": [
             {"id": "theme-toggle", "property": "value", "value": True},
         ],
@@ -97,4 +97,4 @@ def test_theme_toggle_updates_store(base_url):
     assert resp.status_code == 200
     body = resp.json()
     response = body.get("response", {})
-    assert response.get("theme-store", {}).get("data") == "dark"
+    assert response.get("theme-preference-store", {}).get("data") == "dark"

@@ -8,6 +8,14 @@ from dash import Patch
 
 from app.services.spectrogram_presets import get_item_spectrogram_recommendation
 from app.services.annotations import ordered_unique_labels
+from app.services.review_view import (
+    build_progress,
+    clip_confidence,
+    confidence_range,
+    normalize_review_view,
+    order_review_ids,
+    selection_matcher,
+)
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
 from app.services.verify_filter_tree import (
     extract_item_review_filter_classes,
@@ -206,7 +214,7 @@ def _verification_status_tokens(record, predicted_labels):
         return {"all"}
     accepted = set(ordered_unique_labels(record.get("accepted_labels") or []))
     rejected = set(ordered_unique_labels(record.get("rejected_labels") or []))
-    if record.get("is_verified") and not record.get("has_pending_label_edits"):
+    if record.get("is_verified") and not record.get("has_pending_label_edits") and not accepted and not rejected:
         accepted.update(
             label
             for label in ordered_unique_labels(predicted_labels or [])
@@ -231,13 +239,6 @@ def _verification_status_tokens(record, predicted_labels):
     if not record.get("is_verified") or record.get("has_pending_verify_changes"):
         tokens.add("unverified")
     return tokens
-
-
-def _status_matches_filter(record, predicted_labels, status_filter):
-    normalized = _normalize_status_filter(status_filter)
-    if normalized == "all":
-        return True
-    return normalized in _verification_status_tokens(record, predicted_labels)
 
 
 def _build_verify_cache_key(data):
@@ -427,8 +428,12 @@ def get_filtered_verify_items_page(
     current_page,
     items_per_page,
     status_filter="all",
+    view=None,
 ):
-    """Filter cached verify items and return one page plus lightweight summary data."""
+    """Filter cached verify items and return one page plus lightweight summary data.
+
+    Status counts cover the clips in view before the status filter, for its menu.
+    """
     try:
         page_size = max(1, int(items_per_page or 25))
     except (TypeError, ValueError):
@@ -447,6 +452,7 @@ def get_filtered_verify_items_page(
             "total_pages": 1,
             "total_items": 0,
             "remaining_items": 0,
+            "status_counts": {},
         }
 
     with _VERIFY_MODAL_CACHE_LOCK:
@@ -459,6 +465,7 @@ def get_filtered_verify_items_page(
                 "total_pages": 1,
                 "total_items": 0,
                 "remaining_items": 0,
+                "status_counts": {},
             }
         items_by_id = cache_entry.get("items_by_id")
         item_indices = cache_entry.get("item_indices")
@@ -471,6 +478,7 @@ def get_filtered_verify_items_page(
                 "total_pages": 1,
                 "total_items": 0,
                 "remaining_items": 0,
+                "status_counts": {},
             }
         if not isinstance(filter_records, dict):
             filter_records = {}
@@ -480,9 +488,16 @@ def get_filtered_verify_items_page(
             for item_id, _ in sorted(item_indices.items(), key=lambda entry: entry[1])
             if item_id in items_by_id
         ]
+        view = normalize_review_view(view)
+        exclude_ambient = view["exclude_ambient"]
+        range_min, range_max = confidence_range(thresholds)
+        in_selection = selection_matcher(selected_filter_paths)
+        normalized_status = _normalize_status_filter(status_filter)
         visible_ids = []
         remaining_items = 0
         predicted_labels_by_id = {}
+        confidences = {}
+        status_counts = {}
         for item_id in ordered_ids:
             record = filter_records.get(item_id)
             item = items_by_id.get(item_id)
@@ -491,10 +506,8 @@ def get_filtered_verify_items_page(
             if not isinstance(record, dict):
                 continue
             predicted_labels = _filter_record_labels(record, thresholds)
-            is_manual_review_queue = bool(record.get("is_manual_review_queue"))
-            if not record.get("is_verified") and not predicted_labels and not is_manual_review_queue:
-                continue
-            if is_manual_review_queue:
+            confidence, has_unscored_label = clip_confidence(record, in_selection, exclude_ambient)
+            if record.get("is_manual_review_queue"):
                 available_labels = record.get("available_filter_labels") or []
                 selected_labels = [
                     path.strip()
@@ -514,15 +527,22 @@ def get_filtered_verify_items_page(
                     )
                     if not _labels_match_filter(manual_labels, selected_filter_paths):
                         continue
-            elif not _labels_match_filter(predicted_labels, selected_filter_paths):
+            elif not has_unscored_label and (
+                confidence is None or not range_min <= confidence <= range_max
+            ):
                 continue
-            if not _status_matches_filter(record, predicted_labels, status_filter):
+            status_tokens = _verification_status_tokens(record, predicted_labels)
+            for token in status_tokens:
+                status_counts[token] = status_counts.get(token, 0) + 1
+            if normalized_status != "all" and normalized_status not in status_tokens:
                 continue
-            if "unverified" in _verification_status_tokens(record, predicted_labels):
+            if "unverified" in status_tokens:
                 remaining_items += 1
             visible_ids.append(item_id)
             predicted_labels_by_id[item_id] = predicted_labels
+            confidences[item_id] = confidence
 
+        visible_ids = order_review_ids(visible_ids, confidences, view)
         total_items = len(visible_ids)
         total_pages = max(1, (total_items + page_size - 1) // page_size)
         page_index = max(0, min(requested_page, total_pages - 1))
@@ -546,7 +566,23 @@ def get_filtered_verify_items_page(
         "total_pages": total_pages,
         "total_items": total_items,
         "remaining_items": remaining_items,
+        "status_counts": status_counts,
     }
+
+
+def get_verify_progress(cache_key, selected_filter_paths=None, *, exclude_ambient=False):
+    """Return the progress chart's counts for a cached dataset."""
+    if not cache_key:
+        return build_progress([])
+    with _VERIFY_MODAL_CACHE_LOCK:
+        cache_entry = _VERIFY_MODAL_CACHE.get(cache_key)
+        filter_records = cache_entry.get("filter_records") if isinstance(cache_entry, dict) else None
+        records = list(filter_records.values()) if isinstance(filter_records, dict) else []
+    return build_progress(
+        records,
+        selected_paths=selected_filter_paths,
+        exclude_ambient=exclude_ambient,
+    )
 
 
 def get_verify_modal_item(cache_key, item_id):
