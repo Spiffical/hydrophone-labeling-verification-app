@@ -9,6 +9,7 @@ from app.components.spectrogram_card import create_spectrogram_card
 from app.services.review_view import (
     AMBIENT_LABEL,
     MIN_SUGGESTION_SCORE,
+    PROGRESS_STATES,
     REVIEW_CATEGORIES,
     active_class_filter,
     build_progress,
@@ -17,6 +18,7 @@ from app.services.review_view import (
     order_review_ids,
     review_category,
     thresholds_for_range,
+    toggle_progress_segment,
 )
 from app.services.verification import filter_predictions, get_modal_label_sets
 from app.services.verify_modal_cache import (
@@ -240,7 +242,9 @@ def test_shuffle_keeps_the_remaining_clips_in_place_as_one_leaves():
 
 
 def test_view_defaults_filter_nothing():
-    assert normalize_review_view(None) == {"exclude_ambient": False, "order": "dataset", "seed": 0}
+    assert normalize_review_view(None) == {
+        "exclude_ambient": False, "order": "dataset", "seed": 0, "segment": None,
+    }
     assert normalize_review_view({"order": "nonsense", "seed": "x"})["order"] == "dataset"
 
 
@@ -248,12 +252,13 @@ def test_shuffling_again_deals_a_new_order_and_precision_keeps_the_seed():
     view = {"exclude_ambient": True, "order": "precision", "seed": 4}
     shuffled = next_review_view(view, triggered="verify-order-shuffle", exclude_ambient=True)
 
-    assert shuffled == {"exclude_ambient": True, "order": "shuffle", "seed": 5}
+    assert shuffled == {"exclude_ambient": True, "order": "shuffle", "seed": 5, "segment": None}
     assert next_review_view(shuffled, triggered="verify-order-shuffle", exclude_ambient=True)["seed"] == 6
     assert next_review_view(shuffled, triggered="verify-order-precision", exclude_ambient=True) == {
         "exclude_ambient": True,
         "order": "precision",
         "seed": 5,
+        "segment": None,
     }
     assert next_review_view(shuffled, triggered="verify-exclude-ambient", exclude_ambient=False)["exclude_ambient"] is False
 
@@ -499,3 +504,132 @@ def test_review_card_with_nothing_of_the_reviewers_says_so():
     _, yours = find_class(review_card(item), "review-card-label-column")
 
     assert find_class(yours, "review-label-none")[0].children == "None"
+
+
+def picked(bin_index, category, state, scope=None, **view):
+    segment = {"bin": bin_index, "category": category, "state": state, "scope": scope}
+    return {**view, "segment": segment}
+
+
+def segment_button(bin_index, category, state):
+    return {"type": "verify-progress-segment", "bin": bin_index, "category": category, "state": state}
+
+
+def test_a_bar_segment_shows_exactly_the_clips_it_counts():
+    key = register(
+        clip("fin", {FIN_WHALE: 0.45, AMBIENT_LABEL: 0.9}),
+        clip("vessel", {VESSEL: 0.42, FIN_WHALE: 0.41}),
+        clip("next-bar", {FIN_WHALE: 0.5}),
+        reviewed("fin-done", {FIN_WHALE: 0.44}, [FIN_WHALE]),
+        reviewed("relabelled", {VESSEL: 0.47}, [SNAPPING]),
+    )
+    view = picked(4, "Biophony", "unverified", exclude_ambient=True)
+    assert visible(key, view=view) == ["fin"]
+    view = picked(4, "Biophony", "verified", exclude_ambient=True)
+    assert visible(key, view=view) == ["fin-done", "relabelled"]
+    assert visible(key, view=picked(4, "Anthropophony", "unverified", exclude_ambient=True)) == ["vessel"]
+    assert visible(key, view=picked(5, "Biophony", "unverified", exclude_ambient=True)) == ["next-bar"]
+
+    for index, progress_bin in enumerate(get_verify_progress(key, exclude_ambient=True)["bins"]):
+        for entry in progress_bin["categories"]:
+            for state in PROGRESS_STATES:
+                view = picked(index, entry["category"], state, exclude_ambient=True)
+                assert len(visible(key, view=view)) == entry[state]
+
+
+def test_a_bar_segment_replaces_the_range_class_and_status_filters():
+    key = register(clip("a", {FIN_WHALE: 0.25}), clip("b", {VESSEL: 0.25}))
+    shown = visible(
+        key, lower=0.9, selected=[DATA_GAP], status="verified", view=picked(2, "Biophony", "unverified")
+    )
+    assert shown == ["a"]
+
+
+def test_a_bar_segment_keeps_to_the_classes_the_chart_counted():
+    key = register(
+        clip("both", {VESSEL: 0.75, FIN_WHALE: 0.25}),
+        clip("fin", {FIN_WHALE: 0.25}),
+    )
+    counted = get_verify_progress(key, [VESSEL])
+    assert counted["bins"][7]["categories"] == [{"category": "Anthropophony", "verified": 0, "unverified": 1}]
+    assert visible(key, view=picked(7, "Anthropophony", "unverified", scope=[VESSEL])) == ["both"]
+    assert visible(key, view=picked(2, "Biophony", "unverified", scope=[VESSEL])) == []
+
+
+def test_status_counts_cover_a_bar_segment():
+    key = register(clip("a", {FIN_WHALE: 0.25}), clip("b", {VESSEL: 0.25}))
+    page = get_filtered_verify_items_page(
+        key, thresholds_for_range(None, 0.2, 0.3), None, 0, 50, "unverified", picked(2, "Biophony", "unverified")
+    )
+    assert page["status_counts"] == {"all": 1, "unverified": 1}
+
+
+def test_picking_a_segment_moves_the_range_and_status_to_match():
+    view, confidence, status = toggle_progress_segment(
+        {"order": "precision"}, segment_button(4, "Biophony", "verified"), [50, 100], "unverified", None
+    )
+    assert (confidence, status) == ([40, 50], "verified")
+    assert view["order"] == "precision"
+    assert view["segment"]["range"] == [40, 50]
+    assert view["segment"]["scope"] is None
+
+
+def test_clearing_a_segment_puts_back_what_the_reviewer_had():
+    view, confidence, status = toggle_progress_segment(
+        None, segment_button(4, "Biophony", "verified"), [50, 100], "unverified", None
+    )
+    view, confidence, status = toggle_progress_segment(view, None, confidence, status, None)
+    assert view["segment"] is None
+    assert (confidence, status) == ([50, 100], "unverified")
+
+
+def test_moving_between_segments_remembers_the_first_settings():
+    first = segment_button(4, "Biophony", "verified")
+    second = segment_button(9, "Geophony", "unverified")
+    view, confidence, status = toggle_progress_segment(None, first, [50, 100], "all", ["Biophony"])
+    view, confidence, status = toggle_progress_segment(view, second, confidence, status, ["Biophony"])
+    assert (confidence, status) == ([90, 100], "unverified")
+    view, confidence, status = toggle_progress_segment(view, second, confidence, status, ["Biophony"])
+    assert view["segment"] is None
+    assert (confidence, status) == ([50, 100], "all")
+
+
+def test_clear_with_nothing_picked_changes_nothing():
+    view, confidence, status = toggle_progress_segment({"seed": 3}, None, [50, 100], "all", None)
+    assert view["segment"] is None
+    assert (confidence, status) == ([50, 100], "all")
+
+
+def test_changing_ambient_lets_go_of_a_segment_and_ordering_does_not():
+    view = picked(4, "Biophony", "verified", exclude_ambient=True)
+    assert next_review_view(view, triggered="verify-exclude-ambient", exclude_ambient=False)["segment"] is None
+    kept = next_review_view(view, triggered="verify-exclude-ambient", exclude_ambient=True)
+    assert kept["segment"] == view["segment"]
+    assert next_review_view(view, triggered="verify-order-shuffle", exclude_ambient=True)["segment"] == view["segment"]
+
+
+def chart_segments(component):
+    children = getattr(component, "children", None)
+    component_id = getattr(component, "id", None)
+    found = [component] if isinstance(component_id, dict) and component_id["type"] == "verify-progress-segment" else []
+    for child in children if isinstance(children, list) else [children]:
+        if child is not None and not isinstance(child, str):
+            found.extend(chart_segments(child))
+    return found
+
+
+def test_every_segment_of_the_chart_can_be_clicked_and_the_picked_one_shows():
+    progress = build_progress([
+        {"item_id": "a", "entries": [(FIN_WHALE, 0.45)]},
+        {"item_id": "b", "entries": [(VESSEL, 0.45)], "is_verified": True, "accepted_labels": [VESSEL]},
+    ])
+    chart = create_progress_chart(progress, picked(4, "Biophony", "unverified")["segment"])
+    segments = [segment for part in chart for segment in chart_segments(part)]
+    assert [(entry.id["bin"], entry.id["category"], entry.id["state"]) for entry in segments] == [
+        (4, "Biophony", "unverified"),
+        (4, "Anthropophony", "verified"),
+    ]
+    assert "review-bar-segment--picked" in segments[0].className
+    assert "review-bar-segment--picked" not in segments[1].className
+    assert "review-bars--picked" in chart[0].className
+    assert "review-bars--picked" not in create_progress_chart(progress)[0].className

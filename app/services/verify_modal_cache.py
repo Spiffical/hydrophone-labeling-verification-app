@@ -14,6 +14,8 @@ from app.services.review_view import (
     confidence_range,
     normalize_review_view,
     order_review_ids,
+    progress_position,
+    progress_segment_position,
     selection_matcher,
 )
 from app.services.verification import get_item_rejected_labels, has_pending_label_edits
@@ -433,6 +435,8 @@ def get_filtered_verify_items_page(
     """Filter cached verify items and return one page plus lightweight summary data.
 
     Status counts cover the clips in view before the status filter, for its menu.
+    A bar segment picked on the progress chart replaces the range, class and status
+    tests, so the page shows exactly the clips that segment counts.
     """
     try:
         page_size = max(1, int(items_per_page or 25))
@@ -490,8 +494,9 @@ def get_filtered_verify_items_page(
         ]
         view = normalize_review_view(view)
         exclude_ambient = view["exclude_ambient"]
+        segment = view["segment"]
         range_min, range_max = confidence_range(thresholds)
-        in_selection = selection_matcher(selected_filter_paths)
+        in_selection = selection_matcher(segment["scope"] if segment else selected_filter_paths)
         normalized_status = _normalize_status_filter(status_filter)
         visible_ids = []
         remaining_items = 0
@@ -507,7 +512,10 @@ def get_filtered_verify_items_page(
                 continue
             predicted_labels = _filter_record_labels(record, thresholds)
             confidence, has_unscored_label = clip_confidence(record, in_selection, exclude_ambient)
-            if record.get("is_manual_review_queue"):
+            if segment:
+                if progress_position(record, in_selection, exclude_ambient) != progress_segment_position(segment):
+                    continue
+            elif record.get("is_manual_review_queue"):
                 available_labels = record.get("available_filter_labels") or []
                 selected_labels = [
                     path.strip()
@@ -534,7 +542,7 @@ def get_filtered_verify_items_page(
             status_tokens = _verification_status_tokens(record, predicted_labels)
             for token in status_tokens:
                 status_counts[token] = status_counts.get(token, 0) + 1
-            if normalized_status != "all" and normalized_status not in status_tokens:
+            if not segment and normalized_status != "all" and normalized_status not in status_tokens:
                 continue
             if "unverified" in status_tokens:
                 remaining_items += 1

@@ -334,10 +334,6 @@ body.theme-dark .app-command-bar {
     outline: none;
 }
 
-.review-bar:focus-visible {
-    box-shadow: 0 0 0 2px var(--accent);
-}
-
 .review-bar-plot {
     display: flex;
     flex: 1 1 auto;
@@ -368,10 +364,39 @@ body.theme-dark .app-command-bar {
 }
 
 .review-bar-segment {
+    position: relative;
     display: block;
     flex-shrink: 1;
     flex-basis: 0;
     min-height: 2px;
+    padding: 0;
+    border: 0;
+    cursor: pointer;
+}
+
+/* Reach across the gaps, so the thinnest slivers can still be clicked. */
+.review-bar-segment::after {
+    content: "";
+    position: absolute;
+    inset: -1px 0;
+}
+
+.review-bar-segment:hover {
+    filter: brightness(1.35);
+}
+
+.review-bar-segment:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.review-bars--picked .review-bar-segment {
+    opacity: .35;
+}
+
+.review-bars--picked .review-bar-segment--picked {
+    opacity: 1;
+    box-shadow: inset 0 0 0 1px var(--text);
 }
 
 .review-bar-segment--verified {
@@ -396,16 +421,16 @@ body.theme-dark .app-command-bar {
     text-align: center;
 }
 
+/* Beside the bar, so it never covers the segment under the pointer. */
 .review-tip {
     position: absolute;
     bottom: 24px;
-    left: 50%;
+    left: calc(100% + 6px);
     z-index: 30;
     display: none;
     width: max-content;
     max-width: 280px;
     padding: 8px 10px;
-    transform: translateX(-50%);
     border: 1px solid var(--border);
     border-radius: 10px;
     background: var(--surface);
@@ -417,14 +442,13 @@ body.theme-dark .app-command-bar {
 }
 
 .review-bar:hover .review-tip,
-.review-bar:focus-visible .review-tip {
+.review-bar:has(:focus-visible) .review-tip {
     display: block;
 }
 
 .review-bar--tip-left .review-tip {
-    right: 0;
+    right: calc(100% + 6px);
     left: auto;
-    transform: none;
 }
 
 .review-tip-title {
@@ -486,6 +510,20 @@ body.theme-dark .app-command-bar {
 
 .review-key-note {
     margin-left: auto;
+}
+
+.review-chart-key .review-key-note:has(.review-key-picked) {
+    gap: 10px;
+}
+
+.review-key-picked {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.review-key-note .review-selection-clear {
+    font-size: 12px;
 }
 
 .review-total {

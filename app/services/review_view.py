@@ -21,6 +21,7 @@ AMBIENT_LABEL = "Other > Ambient sound"
 REVIEW_CATEGORIES = ("Biophony", "Geophony", "Anthropophony", "Instrumentation", "Other")
 
 PROGRESS_BIN_COUNT = 10
+PROGRESS_STATES = ("verified", "unverified")
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 RANGE_MIN_KEY = "__range_min__"
@@ -63,8 +64,14 @@ def thresholds_for_range(thresholds, lower, upper):
     return updated
 
 
+def bin_range(index):
+    """Return a progress bin's confidence range, in whole percent."""
+    width = 100 // PROGRESS_BIN_COUNT
+    return index * width, (index + 1) * width
+
+
 def normalize_review_view(view):
-    """Return the page's ambient and ordering settings; no view filters nothing."""
+    """Return the page's ambient, ordering and bar segment settings; no view filters nothing."""
     view = view if isinstance(view, dict) else {}
     order = view.get("order")
     try:
@@ -75,7 +82,43 @@ def normalize_review_view(view):
         "exclude_ambient": bool(view.get("exclude_ambient")),
         "order": order if order in REVIEW_ORDERS else ORDER_DATASET,
         "seed": seed,
+        "segment": view.get("segment") or None,
     }
+
+
+def progress_segment_position(segment):
+    """Return where a bar segment sits, in the terms of progress_position."""
+    return segment["bin"], segment["category"], segment["state"]
+
+
+def toggle_progress_segment(view, picked, confidence_slider, status, scope):
+    """Apply a click on a bar segment, or on Clear when none is picked.
+
+    Returns the view and the confidence range and status the controls should show.
+    A clip's suggested labels come from the range wherever it is opened or saved, so
+    the range follows the segment; the status follows so the menu does not read
+    "Unverified only" above verified clips. Scope is the classes the chart counted.
+    Clearing, or clicking the same segment again, puts back what the reviewer had.
+    """
+    updated = normalize_review_view(view)
+    current = updated["segment"]
+    if current and (
+        picked is None or progress_segment_position(picked) == progress_segment_position(current)
+    ):
+        updated["segment"] = None
+        return updated, current["return_to"]["range"], current["return_to"]["status"]
+    if picked is None:
+        return updated, confidence_slider, status
+    segment_range = list(bin_range(picked["bin"]))
+    updated["segment"] = {
+        "bin": picked["bin"],
+        "category": picked["category"],
+        "state": picked["state"],
+        "range": segment_range,
+        "scope": scope,
+        "return_to": current["return_to"] if current else {"range": confidence_slider, "status": status},
+    }
+    return updated, segment_range, picked["state"]
 
 
 def active_class_filter(class_filter):
@@ -182,6 +225,19 @@ def _clip_progress_class(record, model_class, is_verified, in_selection, exclude
     return next((label for label in labels if in_selection(label)), labels[0])
 
 
+def progress_position(record, in_selection, exclude_ambient):
+    """Return the bin, category and state a clip counts under, or None outside the selection."""
+    is_verified = bool(record.get("is_verified")) and not record.get("has_pending_verify_changes")
+    model_class, score = _top_model_class(record, exclude_ambient)
+    progress_class = _clip_progress_class(
+        record, model_class, is_verified, in_selection, exclude_ambient
+    )
+    if not in_selection(progress_class):
+        return None
+    bin_index = min(PROGRESS_BIN_COUNT - 1, int((score or 0.0) * PROGRESS_BIN_COUNT))
+    return bin_index, review_category(progress_class), "verified" if is_verified else "unverified"
+
+
 def build_progress(records, *, selected_paths=None, exclude_ambient=False):
     """Count clips by confidence bin, category and whether they are verified.
 
@@ -194,7 +250,7 @@ def build_progress(records, *, selected_paths=None, exclude_ambient=False):
     """
     in_selection = selection_matcher(selected_paths)
     bins = [
-        {category: {"verified": 0, "unverified": 0} for category in REVIEW_CATEGORIES}
+        {category: dict.fromkeys(PROGRESS_STATES, 0) for category in REVIEW_CATEGORIES}
         for _ in range(PROGRESS_BIN_COUNT)
     ]
     total = 0
@@ -202,25 +258,19 @@ def build_progress(records, *, selected_paths=None, exclude_ambient=False):
     for record in records:
         if not isinstance(record, dict):
             continue
-        is_verified = bool(record.get("is_verified")) and not record.get("has_pending_verify_changes")
-        model_class, score = _top_model_class(record, exclude_ambient)
-        progress_class = _clip_progress_class(
-            record, model_class, is_verified, in_selection, exclude_ambient
-        )
-        if not in_selection(progress_class):
+        position = progress_position(record, in_selection, exclude_ambient)
+        if position is None:
             continue
-        bin_index = min(PROGRESS_BIN_COUNT - 1, int((score or 0.0) * PROGRESS_BIN_COUNT))
-        state = "verified" if is_verified else "unverified"
-        bins[bin_index][review_category(progress_class)][state] += 1
+        bin_index, category, state = position
+        bins[bin_index][category][state] += 1
         total += 1
-        verified_total += int(is_verified)
+        verified_total += int(state == "verified")
 
-    width = 100 // PROGRESS_BIN_COUNT
     return {
         "bins": [
             {
-                "start": index * width,
-                "end": (index + 1) * width,
+                "start": bin_range(index)[0],
+                "end": bin_range(index)[1],
                 "total": sum(sum(counts.values()) for counts in categories.values()),
                 "verified": sum(counts["verified"] for counts in categories.values()),
                 "categories": [

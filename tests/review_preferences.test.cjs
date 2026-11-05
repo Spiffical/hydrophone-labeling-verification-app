@@ -121,3 +121,12 @@ test('empty discovery options cannot erase a saved device while the date is bein
     dc.callback_context.triggered = [{ prop_id: 'global-device-selector.value' }];
     assert.equal(persistTabs('__all__', null, 'verify', tabs, profile, 'alice@example.test', [], []), dc.no_update);
 });
+
+test('a clicked bar segment does not change the saved settings', () => {
+    const { dc, remember } = setup();
+    const thresholds = { __global__: .4, __range_min__: .4, __range_max__: .5 };
+    const view = { exclude_ambient: true, order: 'precision', seed: 0, segment: { bin: 4 } };
+    const before = { 'alice@example.test': saved };
+    const result = remember({}, thresholds, null, 'verified', view, true, profile, 'alice@example.test', before);
+    assert.equal(result, dc.no_update);
+});

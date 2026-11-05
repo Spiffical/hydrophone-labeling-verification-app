@@ -69,6 +69,8 @@
                 const key = reviewerKey(profile);
                 // Do not let pre-hydration defaults or another profile's state overwrite saved settings.
                 if (owner !== key) return dc.no_update;
+                // A clicked bar segment moves the range and status for the moment only.
+                if (object(view) && view.segment) return dc.no_update;
                 const saved = normalize({ tabs, thresholds, classes, status, view, allCategories });
                 const previous = object(preferences) ? preferences : {};
                 if (Object.hasOwn(previous, key) && JSON.stringify(previous[key]) === JSON.stringify(saved)) {

@@ -224,7 +224,8 @@ def register_loading_overlay_callbacks(app):
                 if (
                     Boolean(aView.exclude_ambient) !== Boolean(bView.exclude_ambient) ||
                     String(aView.order || "") !== String(bView.order || "") ||
-                    Number(aView.seed || 0) !== Number(bView.seed || 0)
+                    Number(aView.seed || 0) !== Number(bView.seed || 0) ||
+                    JSON.stringify(aView.segment || null) !== JSON.stringify(bView.segment || null)
                 ) {
                     return false;
                 }
@@ -1492,7 +1493,8 @@ def register_loading_overlay_callbacks(app):
                     if (
                         Boolean(aView.exclude_ambient) !== Boolean(bView.exclude_ambient) ||
                         String(aView.order || "") !== String(bView.order || "") ||
-                        Number(aView.seed || 0) !== Number(bView.seed || 0)
+                        Number(aView.seed || 0) !== Number(bView.seed || 0) ||
+                        JSON.stringify(aView.segment || null) !== JSON.stringify(bView.segment || null)
                     ) {
                         return false;
                     }
