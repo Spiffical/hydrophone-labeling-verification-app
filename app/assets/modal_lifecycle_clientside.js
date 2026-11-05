@@ -11,6 +11,9 @@
   const AUDIO_PREFETCH_WAIT_MS = 8000;
   const audioPrefetched = new Set();
   const audioPrefetch = { queue: [], busy: false, timer: null };
+  const imagePrefetch = { queue: [], busy: false, generation: 0 };
+  // Nothing is loading until a clip opens.
+  let audioMayLoad = true;
 
   function audioFullyLoaded(audio) {
     if (audio.readyState >= 4) {
@@ -78,6 +81,71 @@
     }());
   }
 
+  function pumpImagePrefetch() {
+    if (imagePrefetch.busy || !imagePrefetch.queue.length) {
+      return;
+    }
+    const url = imagePrefetch.queue.shift();
+    imagePrefetch.busy = true;
+    const finish = function () {
+      imagePrefetch.busy = false;
+      pumpImagePrefetch();
+    };
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = finish;
+    image.onerror = finish;
+    image.src = url;
+    modalImagePrefetchCache.set(url, image);
+    while (modalImagePrefetchCache.size > 24) {
+      const oldestUrl = modalImagePrefetchCache.keys().next().value;
+      modalImagePrefetchCache.delete(oldestUrl);
+    }
+  }
+
+  function loadOpenClipAudio() {
+    const audio = document.getElementById('modal-player-audio');
+    if (audio && typeof window.ensureAudioSourceLoaded === 'function') {
+      window.ensureAudioSourceLoaded(audio, true);
+    }
+  }
+
+  // On a slow link anything else on the line holds the open clip's picture back, and a
+  // line kept full stalls the page's own requests. So everything waits for the picture.
+  // The clip's raw data comes next, being small and needed for a contrast drag, then its
+  // audio and the neighbours. Neighbours' images go one at a time: the next clip's is in
+  // first, and a batch would take the browser's few connections from the page's requests.
+  function prefetchNeighbours(ownSources, meta, imageUrls, audioUrls) {
+    imagePrefetch.generation += 1;
+    const generation = imagePrefetch.generation;
+    imagePrefetch.queue = [];
+    audioMayLoad = false;
+    prefetchAudio([]);
+    const isCurrent = function () {
+      return generation === imagePrefetch.generation;
+    };
+    const start = function () {
+      if (!isCurrent()) {
+        return;
+      }
+      audioMayLoad = true;
+      loadOpenClipAudio();
+      imagePrefetch.queue = imageUrls.filter(function (url) {
+        return typeof url === 'string' && url && !modalImagePrefetchCache.has(url);
+      });
+      pumpImagePrefetch();
+      prefetchAudio(audioUrls);
+    };
+    const loadRawData = function () {
+      const display = window.hydrophoneModalDisplay;
+      if (!isCurrent() || !display) {
+        return start();
+      }
+      return display.preloadForContrast(meta).then(start, start);
+    };
+    Promise.all(ownSources.map(imageReady)).then(loadRawData, loadRawData);
+  }
+
   function noUpdate() {
     return (window.dash_clientside || {}).no_update;
   }
@@ -129,6 +197,7 @@
 
   function beginRender() {
     modalRenderState.generation += 1;
+    audioMayLoad = false;
     return modalRenderState.generation;
   }
 
@@ -772,36 +841,21 @@
         const urls = meta && Array.isArray(meta.prefetch_image_urls)
           ? meta.prefetch_image_urls
           : [];
-        const preloadImages = function () {
-          urls.forEach(function (url) {
-            if (typeof url !== 'string' || !url || modalImagePrefetchCache.has(url)) {
-              return;
-            }
-            const image = new Image();
-            image.decoding = 'async';
-            image.src = url;
-            modalImagePrefetchCache.set(url, image);
-          });
-          while (modalImagePrefetchCache.size > 24) {
-            const oldestUrl = modalImagePrefetchCache.keys().next().value;
-            modalImagePrefetchCache.delete(oldestUrl);
-          }
-        };
-        const dataPreload = meta && meta.modal_data_url && window.hydrophoneModalDisplay
-          ? window.hydrophoneModalDisplay.preload(meta.modal_data_url)
-          : null;
-        if (dataPreload && typeof dataPreload.finally === 'function') {
-          dataPreload.catch(function () {}).finally(preloadImages);
-        } else {
-          preloadImages();
-        }
-        prefetchAudio(meta && Array.isArray(meta.prefetch_audio_urls) ? meta.prefetch_audio_urls : []);
+        prefetchNeighbours(
+          figureImageSources(figure),
+          meta,
+          urls,
+          meta && Array.isArray(meta.prefetch_audio_urls) ? meta.prefetch_audio_urls : [],
+        );
         return { count: urls.length, ts: Date.now() };
       },
     }),
   });
   window.hydrophoneModalLifecycle = Object.assign({}, window.hydrophoneModalLifecycle, {
     beginRender,
+    audioMayLoad: function () {
+      return audioMayLoad;
+    },
     // For tests: the source columns and placement of a zoomed raster, and the
     // crop drawn over the clip's image.
     visibleRasterCrop,

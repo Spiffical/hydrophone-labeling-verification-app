@@ -482,6 +482,7 @@ def register_modal_view_callbacks(
         ClientsideFunction(namespace="modalDisplay", function_name="previewContrast"),
         Output("modal-image-graph", "figure", allow_duplicate=True),
         Input("modal-colorbar-slider", "drag_value"),
+        State("modal-colorbar-slider", "value"),
         State("modal-y-axis-toggle", "value"),
         State("modal-image-graph", "figure"),
         prevent_initial_call=True,

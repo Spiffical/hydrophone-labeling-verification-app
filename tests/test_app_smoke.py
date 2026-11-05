@@ -165,6 +165,8 @@ def test_modal_display_limit_updates_are_clientside(mock_config):
     assert "modal-colorbar-slider" in {
         item["id"] for item in modal_display_callbacks["previewContrast"]["inputs"]
     }
+    # A clip setting the slider is not a drag (modal_open_traffic.test.cjs).
+    assert {"id": "modal-colorbar-slider", "property": "value"} in modal_display_callbacks["previewContrast"]["state"]
     assert "modal-busy-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
     assert "modal-render-ready-store.data" in modal_display_callbacks["startViewRefresh"]["output"]
     # It compares the toggles with the figure on screen (modal_display_refresh.test.cjs).

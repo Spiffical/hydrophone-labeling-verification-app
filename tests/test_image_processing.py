@@ -202,6 +202,22 @@ def test_long_clips_open_on_their_first_page_with_page_sized_tiles():
     assert len(fig.layout.meta["raster_tiles"]) == 12
 
 
+def test_clips_the_browser_image_can_hold_stay_one_image():
+    # Tiles could add no detail here, and neighbours are only prefetched as one image.
+    source = "/modal-image/test-token?mw=1152&mh=512"
+    fig = image_processing.create_spectrogram_figure(
+        _long_clip(seconds=300.0, columns=1000),
+        "default",
+        cfg={"display": {}},
+        image_source=source,
+        image_target_width=1152,
+        image_target_height=512,
+    )
+
+    assert [image.source for image in fig.layout.images] == [source]
+    assert len(fig.layout.meta["raster_tiles"]) == 1
+
+
 def test_modal_pages_can_be_turned_off_or_resized_per_dashboard():
     off = image_processing.create_spectrogram_figure(
         _long_clip(), "default", cfg={"display": {"modal_page_seconds": 0}},

@@ -160,7 +160,10 @@ window.dash_clientside.namespace = Object.assign({}, window.dash_clientside.name
             const preloadMode = String(
                 audio.getAttribute('data-audio-preload-mode') || audio.getAttribute('preload') || ''
             ).toLowerCase();
-            if (preloadMode === 'auto') {
+            // Until the clip's picture is in, the modal holds its audio back and then loads
+            // it (modal_lifecycle_clientside.js). Play loads it at any time.
+            const modalLifecycle = window.hydrophoneModalLifecycle;
+            if (preloadMode === 'auto' && (!modalLifecycle || modalLifecycle.audioMayLoad())) {
                 ensureAudioSourceLoaded(audio, true);
             }
 

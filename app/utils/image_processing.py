@@ -2530,9 +2530,14 @@ def _modal_raster_tiles(
     bounded_width = _bounded_modal_pixel_dimension(target_width)
     bounded_height = _bounded_modal_pixel_dimension(target_height)
     if bounded_width is not None or bounded_height is not None:
-        # Capped to the browser's size: one image, or on long clips one per
-        # page-sized stretch of time so a page is as sharp as a short clip.
-        column_ranges = _modal_page_tile_columns(time_plot, columns, tile_x_span)
+        # Capped to the browser's size: one image when that holds every column,
+        # which is also the only shape neighbours are prefetched in. Otherwise one
+        # per page-sized stretch of time, so a page is as sharp as a short clip.
+        column_ranges = (
+            [(0, columns)]
+            if bounded_width is not None and columns <= bounded_width
+            else _modal_page_tile_columns(time_plot, columns, tile_x_span)
+        )
         y_bottom, y_top = _modal_raster_axis_edges(freq_plot, 0, rows)
         tiles = []
         for column_start, column_end in column_ranges:

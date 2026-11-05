@@ -8,6 +8,8 @@
     generation: 0,
     active: false,
     pending: null,
+    // A drag has moved the picture off the committed contrast.
+    previewing: false,
   };
 
   function noUpdate() {
@@ -242,6 +244,16 @@
     return `${target.pathname}${target.search}`;
   }
 
+  // What a contrast drag on this clip will ask for. Long clips come in many tiles,
+  // too much to fetch on the chance of a drag.
+  function preloadForContrast(meta) {
+    const tiles = meta && meta.raster_tiles;
+    if (!meta || !meta.modal_data_url || !Array.isArray(tiles) || tiles.length !== 1) {
+      return Promise.resolve();
+    }
+    return loadMatrix(tileDataUrl(meta.modal_data_url, tiles[0]));
+  }
+
   function renderViewport(meta, crop) {
     if (!meta || !meta.modal_data_url) {
       return Promise.reject(new Error('No modal spectrogram data URL is available.'));
@@ -307,6 +319,7 @@
   function cancelRasterPreviews() {
     rasterPreviewState.generation += 1;
     rasterPreviewState.pending = null;
+    rasterPreviewState.previewing = false;
   }
 
   // The zoom crop drawn over the clip's image (modal_lifecycle_clientside.js)
@@ -514,7 +527,9 @@
       Math.abs((numeric(meta.display_color_min) || 0) - contrast[0]) > 1e-6 ||
       Math.abs((numeric(meta.display_color_max) || 0) - contrast[1]) > 1e-6
     );
-    const isContrastCommit = (
+    // A clip opening clears these inputs, which is not a commit: redrawing it then would
+    // fetch its raw data ahead of its picture.
+    const isContrastCommit = !useInheritedContrast && (
       trigger === 'modal-colorbar-min-input' || trigger === 'modal-colorbar-max-input'
     );
     if (!contrastChanged && !(isRaster && isContrastCommit)) return updated;
@@ -530,15 +545,25 @@
       });
   }
 
-  function previewContrast(colorDragValue, yAxisScale, figure) {
+  function sameRange(left, right) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left[0] === right[0] && left[1] === right[1];
+  }
+
+  function previewContrast(colorDragValue, committedValue, yAxisScale, figure) {
     if (!figure || !figure.layout || !figure.layout.meta) return noUpdate();
     if (!Array.isArray(colorDragValue) || colorDragValue.length !== 2) return noUpdate();
+    // A clip opening sets the slider, which moves drag_value too. Drawing then would
+    // fetch the clip's raw data while its picture is still on the way. After a drag,
+    // though, a move back to the committed value has to draw.
+    if (sameRange(colorDragValue, committedValue) && !rasterPreviewState.previewing) return noUpdate();
     const meta = figure.layout.meta;
     const isRaster = meta.transport_mode === 'full_resolution_lossless_png';
     const currentScale = figure.layout.yaxis && figure.layout.yaxis.type === 'log' ? 'log' : 'linear';
     if (currentScale !== yAxisScale) return noUpdate();
     if (!isRaster && !['float32', 'float64'].includes(meta.transport_mode)) return noUpdate();
 
+    rasterPreviewState.previewing = true;
     const contrast = resolveContrast(meta, colorDragValue[0], colorDragValue[1]);
     if (!isRaster) {
       renderState.sequence += 1;
@@ -599,7 +624,7 @@
   }
 
   window.hydrophoneModalDisplay = {
-    preload: loadMatrix,
+    preloadForContrast,
     renderViewport,
     cancelPending: function () {
       cancelRasterPreviews();
