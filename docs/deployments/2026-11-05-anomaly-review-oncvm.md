@@ -5,7 +5,7 @@ The redesigned Verify page runs on `oncvm` at http://142.104.198.24:8088/ (ONC n
 ## Where it is
 
 - Folder: `/home/sbialek/ONC/anomaly-review/`
-- Build: `app_1bfdd70/`, which is commit `1bfdd70`. `SHA256SUMS` inside lists every file.
+- Build: `app_2ebf6fa/`, which is commit `2ebf6fa`. `SHA256SUMS` inside lists every file.
 - Config: `config.yaml`. It is `oncvm-daq`'s `review.yaml` with a 3×3 grid, `cache.max_size: 48` because the VM is shared, and `date: 2026-10-05`, the newest day with predictions. Without a date the page opens on the newest folder, which has none.
 - Server: screen `anomaly-review`, log `logs/server.log`, venv `~/ONC/hydrophone-labeling-verification-app/.venv`. Start it from the app folder, because that venv holds an older install of the app.
 - Reboots: start line in `oncvm_restart_after_reboot.sh` in the whale-call-analysis repo.
@@ -46,10 +46,27 @@ The first build was `app_3d2f1f2_queue_fix/`, commit `3d2f1f2` plus `DEPLOYED_PA
 - All 94 review files still match the hashes from before the first start, and no JSON file in the archive is newer than the restart.
 - Saving from a picked part was checked on copied data only.
 
+## Faster clip opening
+
+`app_2ebf6fa/` went live the same day. Over the VPN the link carries about 1 MB per second, and one clip open pulled about 75 MB while its picture is 1 to 5 MB. The server answered in about 0.2 seconds, so the delay was all traffic. A clip now loads its picture first, then its raw data for the contrast slider, then its audio and the neighbouring clips, one image at a time.
+
+| Through the VPN, 15 steps each | Before | After |
+|---|---|---|
+| Median, click or arrow to whole picture | 7.9 s | 4.2 s |
+| Slowest | 64.5 s | 9.8 s |
+
+- `oncvm`'s Python 3.10: 412 passed, 4 skipped. Local JavaScript: 137 passed.
+- Live read-only check through the proxy: 16 of 16 on contrast drags, zoom, arrows, Play and reopening a clip. A first contrast drag previewed in 0.6 seconds. Bars, 2026-10-05, 2026-03-02 and All Dates showed the same counts as before. No console errors or server tracebacks.
+- A clip's audio now loads later, up to about 15 seconds after opening on a busy link. Play loads it straight away.
+- All 94 review files still match the hashes from before the first start, and no JSON file in the archive is newer than this restart.
+- Not checked: a save on the live archive, and the page-length menu, which has zero height on these clips in this build and the one before.
+
+For about eight minutes after this restart the link stalled for 60 to 130 seconds at a time, and one arrow took 195 seconds. The server was idle, and the VPN client printed `lwip_data_cb: could not allocate pbuf` many times, so `ocproxy` was running out of packet buffers and dropping data. Waits of 64 and 85 seconds on the build before look the same. The dashboard cannot prevent these, and the Cisco client should not have them, but neither has been tested.
+
 ## Rollback
 
-Copies of all 94 review files from before this build could write to them are in `backups/predictions-before-20261105T060856Z.tar.gz`, with a second copy in `oncvm_ONC/verification_backups/anomaly-review-20261105T060856Z/` on WhaleStor. No review had been saved when `app_1bfdd70/` went live, so these are still current as of that restart.
+Copies of all 94 review files from before this build could write to them are in `backups/predictions-before-20261105T060856Z.tar.gz`, with a second copy in `oncvm_ONC/verification_backups/anomaly-review-20261105T060856Z/` on WhaleStor. No review had been saved when `app_2ebf6fa/` went live, so these are still current as of that restart.
 
-`app_3d2f1f2_queue_fix/` is the previous build and `app_3d2f1f2/` the one before the fix. To go back, start the previous folder with the same command and change its name in `oncvm_restart_after_reboot.sh`.
+`app_1bfdd70/` is the previous build, then `app_3d2f1f2_queue_fix/`, and `app_3d2f1f2/` is the one before the fix. To go back, start the folder you want with the same command and change its name in `oncvm_restart_after_reboot.sh`.
 
 To stop the dashboard, run `screen -S anomaly-review -X quit`. If `oncvm-daq` comes back, use only one of the two dashboards, because both write to the same review files.
