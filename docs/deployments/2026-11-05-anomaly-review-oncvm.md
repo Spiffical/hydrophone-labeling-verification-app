@@ -5,7 +5,7 @@ The redesigned Verify page runs on `oncvm` at http://142.104.198.24:8088/ (ONC n
 ## Where it is
 
 - Folder: `/home/sbialek/ONC/anomaly-review/`
-- Build: `app_3d2f1f2_queue_fix/`, which is commit `3d2f1f2` plus `DEPLOYED_PATCH.diff`. `SHA256SUMS` inside lists every file.
+- Build: `app_1bfdd70/`, which is commit `1bfdd70`. `SHA256SUMS` inside lists every file.
 - Config: `config.yaml`. It is `oncvm-daq`'s `review.yaml` with a 3×3 grid, `cache.max_size: 48` because the VM is shared, and `date: 2026-10-05`, the newest day with predictions. Without a date the page opens on the newest folder, which has none.
 - Server: screen `anomaly-review`, log `logs/server.log`, venv `~/ONC/hydrophone-labeling-verification-app/.venv`. Start it from the app folder, because that venv holds an older install of the app.
 - Reboots: start line in `oncvm_restart_after_reboot.sh` in the whale-call-analysis repo.
@@ -25,7 +25,9 @@ The app's callbacks form loops. Dash breaks a loop only on a queue pass where no
 | With the fix | No date | 3 of 3 loaded |
 | With the fix | Pinned date | Every load finished |
 
-## Verification
+## Verification of the first build
+
+The first build was `app_3d2f1f2_queue_fix/`, commit `3d2f1f2` plus `DEPLOYED_PATCH.diff`.
 
 - `oncvm`'s Python 3.10: 401 passed, 4 skipped. Local JavaScript: 122 passed.
 - Live read-only check through the proxy, with no reviewer profile: first load, day changes, a day with no predictions, opening and closing a clip, All Dates (about 15 seconds). No console errors or server tracebacks.
@@ -33,8 +35,21 @@ The app's callbacks form loops. Dash breaks a loop only on a queue pass where no
 - All 94 review files hash the same as before the first start, and no archive file is newer than that start.
 - Not checked: a save on the live archive, audio playback, Safari.
 
+## Clickable Progress bars
+
+`app_1bfdd70/` went live the same day. Clicking part of a Progress bar now shows exactly the clips that part counts, and Clear or a second click puts the range and status back.
+
+- `oncvm`'s Python 3.10: 411 passed, 4 skipped. Local JavaScript: 127 passed.
+- Live read-only check through the VPN proxy, with no reviewer profile: 2026-10-05, 2026-03-02 and All Dates. Each picked part showed the count on its tooltip (1, 113, 115, 42, 16,818), paging stayed inside it, and a clip opened as "10 / 113" on page 2. Clear and a second click restored the range and status. Changing the date let go of the part. No console errors or server tracebacks.
+- A picked part took 1.5 to 7 seconds to appear, including the 16,818-clip part on All Dates (5.6 seconds).
+- The exception is the first All Dates load after a restart, while the page says "Updating...". Three bar clicks then took 15, 78 and 138 seconds and a slider change took 27, because a click also waits for that load to finish. During the 78-second wait the server used no CPU and three small requests ended at the same moment, so the time was not spent filtering. The cause of the long waits is not proven. They may be the VPN tunnel stalls seen behind the queue hang.
+- All 94 review files still match the hashes from before the first start, and no JSON file in the archive is newer than the restart.
+- Saving from a picked part was checked on copied data only.
+
 ## Rollback
 
-Copies of all 94 review files from before this build could write to them are in `backups/predictions-before-20261105T060856Z.tar.gz`, with a second copy in `oncvm_ONC/verification_backups/anomaly-review-20261105T060856Z/` on WhaleStor. `app_3d2f1f2/` is the build without the fix.
+Copies of all 94 review files from before this build could write to them are in `backups/predictions-before-20261105T060856Z.tar.gz`, with a second copy in `oncvm_ONC/verification_backups/anomaly-review-20261105T060856Z/` on WhaleStor. No review had been saved when `app_1bfdd70/` went live, so these are still current as of that restart.
+
+`app_3d2f1f2_queue_fix/` is the previous build and `app_3d2f1f2/` the one before the fix. To go back, start the previous folder with the same command and change its name in `oncvm_restart_after_reboot.sh`.
 
 To stop the dashboard, run `screen -S anomaly-review -X quit`. If `oncvm-daq` comes back, use only one of the two dashboards, because both write to the same review files.
