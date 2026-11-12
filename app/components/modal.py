@@ -428,7 +428,8 @@ def create_spectrogram_modal(config=None):
                                         ),
                                         # The clip's evidence caption and a button that opens its
                                         # figure (config evidence_figures) in modal-evidence-viewer;
-                                        # hidden without one.
+                                        # hidden without one. Under it, buttons for the clips to
+                                        # compare it with, each opening modal-related-viewer.
                                         html.Div(
                                             [
                                                 html.Div(id="modal-evidence-caption", className="modal-evidence-caption"),
@@ -444,6 +445,7 @@ def create_spectrogram_modal(config=None):
                                                     title="Why this label is suggested",
                                                     **{"aria-haspopup": "dialog"},
                                                 ),
+                                                html.Div(id="modal-evidence-related", className="modal-evidence-related"),
                                             ],
                                             id="modal-evidence",
                                             className="modal-evidence",
@@ -702,6 +704,52 @@ def create_spectrogram_modal(config=None):
         dialog_class_name="modal-evidence-dialog",
     )
 
+    # A clip to compare with the one under review, from the buttons under the
+    # Evidence button (evidence_figure_callbacks.py): its spectrogram, audio and
+    # caption, view only. It floats beside the review window without dimming or
+    # blocking it (no backdrop; clicks outside it reach the review window), can be
+    # dragged by its title bar (modal_related_drag.js) and resized from its corner.
+    # Esc or × closes it.
+    related_modal = dbc.Modal(
+        [
+            dbc.ModalHeader(
+                [
+                    dbc.ModalTitle(id="modal-related-title"),
+                    html.A(
+                        [
+                            html.I(className="bi bi-box-arrow-up-right", **{"aria-hidden": "true"}),
+                            html.Span("Its evidence"),
+                        ],
+                        id="modal-related-evidence-link",
+                        className="modal-evidence-link",
+                        target="_blank",
+                        rel="noopener",
+                        title="This clip's evidence figure, in a new tab",
+                    ),
+                ],
+                class_name="modal-related-header",
+            ),
+            dbc.ModalBody(
+                [
+                    html.Div(id="modal-related-caption", className="modal-evidence-caption modal-related-caption"),
+                    html.Div(id="modal-related-plot", className="modal-related-plot-holder"),
+                    html.Audio(id="modal-related-audio", controls=True, preload="none", className="modal-related-audio"),
+                    html.Div(
+                        "View only: to review this clip, open it from the grid. Drag the title bar to move this window; resize it from its corner.",
+                        className="modal-related-note",
+                    ),
+                ]
+            ),
+        ],
+        id="modal-related-viewer",
+        is_open=False,
+        backdrop=False,
+        enforceFocus=False,
+        autofocus=False,
+        class_name="modal-related-window",
+        dialog_class_name="modal-related-dialog",
+    )
+
     plotly_preload_graph = html.Div(
         dcc.Graph(
             id="plotly-preload-graph",
@@ -719,4 +767,4 @@ def create_spectrogram_modal(config=None):
         **{"aria-hidden": "true"},
     )
 
-    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal, bbox_editor_modal, evidence_modal])
+    return html.Div([plotly_preload_graph, main_modal, unsaved_changes_modal, bbox_editor_modal, evidence_modal, related_modal])
