@@ -291,9 +291,18 @@ def register_label_editor_modal_callbacks(
         start = time.perf_counter()
         if not modal_edit_clicks_list or not any(modal_edit_clicks_list):
             raise PreventUpdate
+        # The click has already put "Updating spectrogram" over the clip
+        # (audio_callbacks.py), and only this callback takes it away. Whenever the
+        # editor does not open (explore mode, no reviewer name and email yet, or
+        # nothing to edit), leave the editor as it is but clear the overlay, or the
+        # spectrogram stays covered.
+        keep_editor_closed = (no_update, no_update, no_update, no_update, False)
         if mode == "explore":
-            raise PreventUpdate
-        _require_complete_profile(profile, "open_label_editor_from_modal")
+            return keep_editor_closed
+        try:
+            _require_complete_profile(profile, "open_label_editor_from_modal")
+        except PreventUpdate:
+            return keep_editor_closed
         item_id, body = _build_editor_body(
             modal_item,
             mode,
@@ -302,7 +311,7 @@ def register_label_editor_modal_callbacks(
             create_hierarchical_selector,
         )
         if not item_id or body is None:
-            raise PreventUpdate
+            return keep_editor_closed
         perf_debug(
             "label_editor_open_modal",
             item_id=item_id,
