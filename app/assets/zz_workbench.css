@@ -963,7 +963,7 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
 
 /* The view-only window for one of those clips floats beside the review window:
    no backdrop, and clicks outside it reach the review window underneath. Drag it
-   by its title bar (modal_related_drag.js); resize it from its lower-right corner. */
+   by its title bar (modal_related_window.js); resize it from its lower-right corner. */
 .modal.modal-related-window {
     z-index: 1066;
     pointer-events: none;
@@ -1073,4 +1073,55 @@ body.modal-audio-tools-open .modal-workbench .modal-controls-main-row {
     margin-top: 4px;
     font-size: 0.78rem;
     color: #64748b;
+}
+
+/* While a similar clip opens (modal_related_window.js): the pressed button spins, and
+   the window says what it is doing until the clip's spectrogram has loaded. */
+.modal-evidence-related-button.is-loading {
+    cursor: progress;
+    opacity: 0.85;
+}
+
+.modal-evidence-related-button.is-loading::before {
+    content: "";
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-right: 6px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: -0.1em;
+    animation: modal-related-spin 0.7s linear infinite;
+}
+
+@keyframes modal-related-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.modal-related-plot {
+    background: #0f0f23;
+}
+
+.modal-related-plot::before {
+    content: "Drawing spectrogram\2026";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+}
+
+.modal-related-plot .modal-related-image {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+}
+
+.modal-related-plot .modal-related-image.is-loading {
+    visibility: hidden;
 }

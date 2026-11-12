@@ -708,7 +708,7 @@ def create_spectrogram_modal(config=None):
     # Evidence button (evidence_figure_callbacks.py): its spectrogram, audio and
     # caption, view only. It floats beside the review window without dimming or
     # blocking it (no backdrop; clicks outside it reach the review window), can be
-    # dragged by its title bar (modal_related_drag.js) and resized from its corner.
+    # dragged by its title bar (modal_related_window.js) and resized from its corner.
     # Esc or × closes it.
     related_modal = dbc.Modal(
         [

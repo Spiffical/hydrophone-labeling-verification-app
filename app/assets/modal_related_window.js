@@ -2,6 +2,11 @@
 // floats beside the review window. Drag it by its title bar; it keeps that place while the
 // page stays open, also when it is closed and opened again. Buttons and links in the title
 // bar still work as usual.
+//
+// Opening a clip takes a server round trip, and its spectrogram is drawn on the server the
+// first time it is shown, which can take a while. So the pressed button spins until the window
+// shows that clip, and the window shows "Drawing spectrogram" (zz_workbench.css) instead of the
+// previous clip's image until the new one has loaded.
 (function () {
     'use strict';
     let offset = { x: 0, y: 0 };
@@ -52,15 +57,43 @@
         drag = null;
     });
 
-    // The window is mounted again each time a similar-clip button opens it: put it
-    // back where it was left once it appears (and keep it there while it renders).
+    function shownTitle() {
+        const title = document.getElementById('modal-related-title');
+        return title && document.querySelector('.modal-related-window') ? title.textContent.trim() : '';
+    }
+
+    function hideUntilLoaded(image) {
+        // A reused <img> keeps showing the last clip until the new source arrives.
+        if (!image || (image.complete && image.naturalWidth > 0)) return;
+        image.classList.add('is-loading');
+        const reveal = () => image.classList.remove('is-loading');
+        image.addEventListener('load', reveal, { once: true });
+        image.addEventListener('error', reveal, { once: true });
+    }
+
     document.addEventListener('click', (event) => {
-        if (!event.target.closest || !event.target.closest('.modal-evidence-related-button')) return;
-        let tries = 0;
+        const button = event.target.closest && event.target.closest('.modal-evidence-related-button');
+        if (!button) return;
+        const label = button.textContent.trim();
+        button.classList.add('is-loading');
+        button.setAttribute('aria-busy', 'true');
+        const started = Date.now();
+        let shownAt = null;
         const timer = setInterval(() => {
+            // The window is mounted again each time it opens: put it back where it was left.
             place(document.querySelector('.modal-related-dialog'));
-            tries += 1;
-            if (tries >= 40) clearInterval(timer);
+            if (shownAt === null && shownTitle() === label) {
+                shownAt = Date.now();
+                button.classList.remove('is-loading');
+                button.removeAttribute('aria-busy');
+                hideUntilLoaded(document.querySelector('.modal-related-image'));
+            }
+            const waited = Date.now() - started;
+            if (shownAt === null && waited > 60000) {
+                button.classList.remove('is-loading');
+                button.removeAttribute('aria-busy');
+            }
+            if ((shownAt !== null && Date.now() - shownAt > 1500) || waited > 60000) clearInterval(timer);
         }, 100);
     });
 })();
